@@ -15,7 +15,6 @@ on:
 
 jobs:
   publish-tauri:
-    if: ${{ inputs.target == 'all' || matrix.target == inputs.target }}
     permissions:
       contents: write
     strategy:
@@ -37,31 +36,40 @@ jobs:
 
     runs-on: ${{ matrix.platform }}
     steps:
+      - name: Skip unselected target
+        if: ${{ inputs.target != 'all' && matrix.target != inputs.target }}
+        run: echo "Skipping ${{ matrix.target }} because workflow input requested ${{ inputs.target }}"
+
       - uses: actions/checkout@v4
+        if: ${{ inputs.target == 'all' || matrix.target == inputs.target }}
         with:
           ref: ${{ inputs.tag }}
 
       - name: Install Node.js
+        if: ${{ inputs.target == 'all' || matrix.target == inputs.target }}
         uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: "npm"
 
       - name: Install Rust
+        if: ${{ inputs.target == 'all' || matrix.target == inputs.target }}
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
 
       - name: Install native dependencies (Linux only)
-        if: matrix.platform == 'ubuntu-22.04'
+        if: ${{ (inputs.target == 'all' || matrix.target == inputs.target) && matrix.platform == 'ubuntu-22.04' }}
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file libssl-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev patchelf
 
       - name: Install frontend dependencies
+        if: ${{ inputs.target == 'all' || matrix.target == inputs.target }}
         run: npm ci
 
       - name: Build and Release Tauri app
+        if: ${{ inputs.target == 'all' || matrix.target == inputs.target }}
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
