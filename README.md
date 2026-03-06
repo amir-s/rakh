@@ -105,6 +105,7 @@ cd src-tauri && cargo test
 ## Docs
 
 - `docs/artifacts.md` - durable artifact model and validation flow
+- `docs/macos-release-signing.md` - Apple signing and notarization credentials for macOS releases
 - `docs/subagents.md` - subagent registry, contracts, and execution model
 - `src/DESIGN_SYSTEM.md` - UI primitives and token rules
 - `src/THEMING.md` - theme/token implementation notes
