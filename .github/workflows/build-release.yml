@@ -1,8 +1,12 @@
 name: Build and Publish Release
 
 on:
-  release:
-    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag to build for
+        required: true
+        type: string
 
 jobs:
   publish-tauri:
@@ -50,8 +54,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tagName: ${{ github.ref_name }}
-          releaseName: "Release ${{ github.ref_name }}"
+          tagName: ${{ inputs.tag }}
+          releaseName: "Release ${{ inputs.tag }}"
           releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}
