@@ -71,6 +71,7 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          WHISPER_NATIVE: "OFF"
         with:
           tagName: ${{ needs.release-please.outputs.tag_name }}
           releaseName: "Release ${{ needs.release-please.outputs.tag_name }}"
