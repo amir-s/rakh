@@ -67,12 +67,25 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
+      - name: Prepare Apple notarization key
+        if: matrix.platform == 'macos-latest'
+        run: |
+          key_path="$RUNNER_TEMP/AuthKey_${{ secrets.APPLE_API_KEY }}.p8"
+          printf '%s' '${{ secrets.APPLE_API_KEY_P8 }}' > "$key_path"
+          echo "APPLE_API_KEY_PATH=$key_path" >> "$GITHUB_ENV"
+
       - name: Build and Release Tauri app
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SOURCE_DATE_EPOCH: "1"
           WHISPER_NATIVE: "OFF"
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_PATH: ${{ env.APPLE_API_KEY_PATH }}
         with:
           tagName: ${{ needs.release-please.outputs.tag_name }}
           releaseName: "Release ${{ needs.release-please.outputs.tag_name }}"
