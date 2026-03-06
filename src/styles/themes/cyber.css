@@ -1,0 +1,95 @@
+/*
+ * ── CYBER THEME OVERRIDES ─────────────────────────────────────────────────────
+ */
+[data-theme-name="cyber"] {
+  /* ── Primary = hot orange signal (buttons, active, thinking) ─────────── */
+  --color-primary: #ff6a00;
+  --color-primary-dim: rgba(255, 106, 0, 0.16);
+  --color-primary-border: rgba(255, 106, 0, 0.42);
+
+  /* ── Cyber secondary accents (match icon blues + add neon violet) ───── */
+  --color-accent: #a855f7; /* neon violet */
+  --color-cyber-blue: #38bdf8; /* electric cyan */
+  --color-cyber-indigo: #6c8cff; /* electric indigo */
+
+  /* ── Backgrounds (midnight indigo, high contrast) ───────────────────── */
+  --color-window: #070816;
+  --color-surface: #0b0d1f;
+  --color-inset: #090a18;
+  --color-elevated: #050611;
+  --color-subtle: #111436;
+
+  /* ── Text ───────────────────────────────────────────────────────────── */
+  --color-text: #f2f5ff;
+  --color-muted: #97a0c3;
+  --color-faint: rgba(242, 245, 255, 0.24);
+
+  /* ── Semantic ───────────────────────────────────────────────────────── */
+  --color-success: #00f5a0;
+  --color-error: #ff3d71;
+  --color-warning: #ffd000;
+
+  /* ── Borders (slightly “lit”) ───────────────────────────────────────── */
+  --color-border-subtle: rgba(108, 140, 255, 0.12);
+  --color-border-mid: rgba(56, 189, 248, 0.18);
+
+  /* ── Shadows ────────────────────────────────────────────────────────── */
+  --shadow-soft: 0px 18px 60px rgba(0, 0, 0, 0.7);
+
+  /* ── Syntax (neon-friendly) ─────────────────────────────────────────── */
+  --color-syn-keyword: #6c8cff;
+  --color-syn-function: #38bdf8;
+  --color-syn-string: #00f5a0;
+  --color-syn-comment: #5f688e;
+  --color-syn-number: #ffd000;
+  --color-syn-type: #a855f7;
+  --color-syn-punct: var(--color-muted);
+
+  /* ── Scrollbar ──────────────────────────────────────────────────────── */
+  --color-sb-track: var(--color-window);
+  --color-sb-thumb: #141949;
+  --color-sb-thumb-hover: #1f2a7a;
+
+  /* ── Motion ─────────────────────────────────────────────────────────── */
+  --t-fast: 0.08s ease;
+  --t-base: 0.12s ease;
+  --t-slow: 0.22s ease;
+
+  /* ── Terminal ───────────────────────────────────────────────────────── */
+  --color-term-bg: #000000;
+}
+
+[data-theme-name="cyber"][data-theme="light"] {
+  --color-primary: #ff5a00;
+  --color-primary-dim: rgba(255, 90, 0, 0.12);
+  --color-primary-border: rgba(255, 90, 0, 0.3);
+
+  --color-accent: #8b5cf6;
+  --color-cyber-blue: #0284c7;
+  --color-cyber-indigo: #3453ff;
+
+  /* Bright but cool */
+  --color-window: #eef2ff;
+  --color-surface: #ffffff;
+  --color-inset: #f5f7ff;
+  --color-elevated: #e6ebff;
+  --color-subtle: #edf0ff;
+
+  --color-text: #0b1020;
+  --color-muted: #4a567c;
+  --color-faint: rgba(0, 0, 0, 0.24);
+
+  --color-success: #0aa96f;
+  --color-error: #d81b60;
+  --color-warning: #b88600;
+
+  --color-border-subtle: rgba(52, 83, 255, 0.1);
+  --color-border-mid: rgba(2, 132, 199, 0.14);
+
+  --shadow-soft: 0px 14px 36px rgba(20, 40, 120, 0.1);
+
+  --color-sb-thumb: #c6d0ff;
+  --color-sb-thumb-hover: #b0bfff;
+
+  --color-term-bg: #000000;
+}

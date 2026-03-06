@@ -1,0 +1,80 @@
+/*
+ * ── KITSUNE THEME OVERRIDES ──────────────────────────────────────────────────
+ */
+[data-theme-name="kitsune"] {
+  /* Primary pulled from mid-gradient blue */
+  --color-primary: #5f7dd8;
+  --color-primary-dim: rgba(95, 125, 216, 0.12);
+  --color-primary-border: rgba(95, 125, 216, 0.28);
+
+  /* Backgrounds sampled from darkest indigo areas */
+  --color-window: #121420;
+  --color-surface: #181c2b;
+  --color-inset: #141826;
+  --color-elevated: #0e111a;
+  --color-subtle: #23283b;
+
+  /* Text */
+  --color-text: #e9ecf6;
+  --color-muted: #9aa3c2;
+  --color-faint: rgba(233, 236, 246, 0.28);
+
+  /* Accent (soft violet from lower curve) */
+  --color-accent: #8b7fd9;
+
+  --color-success: #4fbf9f;
+  --color-error: #d36a7a;
+  --color-warning: #c6a85e;
+
+  /* Borders */
+  --color-border-subtle: rgba(255, 255, 255, 0.06);
+  --color-border-mid: rgba(255, 255, 255, 0.12);
+
+  --shadow-soft: 0px 12px 40px rgba(0, 0, 0, 0.45);
+
+  /* Syntax (JetBrains-like but cooler) */
+  --color-syn-keyword: #7aa2ff;
+  --color-syn-function: #c792ea;
+  --color-syn-string: #7fd1b9;
+  --color-syn-comment: #6b7394;
+  --color-syn-number: #82cfff;
+  --color-syn-type: #9b8cff;
+
+  --color-sb-thumb: #2a3047;
+  --color-sb-thumb-hover: #384066;
+
+  --color-term-bg: #0c0f18;
+}
+
+[data-theme-name="kitsune"][data-theme="light"] {
+  --color-primary: #5f7dd8;
+  --color-primary-dim: rgba(95, 125, 216, 0.1);
+  --color-primary-border: rgba(95, 125, 216, 0.32);
+
+  /* Soft macOS frosted background tone */
+  --color-window: #e9eaf2;
+  --color-surface: #f7f8fc;
+  --color-inset: #eff1f7;
+  --color-elevated: #e2e5ef;
+  --color-subtle: #e7e9f2;
+
+  --color-text: #1c1f2b;
+  --color-muted: #6d7391;
+  --color-faint: rgba(0, 0, 0, 0.28);
+
+  --color-accent: #7f72d8;
+
+  --color-success: #178c6a;
+  --color-error: #c0395a;
+  --color-warning: #a6782d;
+
+  --color-border-subtle: rgba(0, 0, 0, 0.08);
+  --color-border-mid: rgba(0, 0, 0, 0.14);
+
+  --shadow-soft: 0px 10px 30px rgba(40, 50, 90, 0.08);
+
+  --color-sb-thumb: #c8cde3;
+  --color-sb-thumb-hover: #b2b9d4;
+
+  --color-term-bg: #000000;
+}

@@ -1,0 +1,267 @@
+.ds-page {
+  min-height: 100vh;
+  background: radial-gradient(circle at top right, #191b26, #0b0c0f 62%);
+  padding: 24px;
+}
+
+.ds-shell {
+  width: 100%;
+  max-width: 1440px;
+  margin: 0 auto;
+  border: 1px solid var(--color-border-mid);
+  border-radius: 16px;
+  background: var(--color-window);
+  color: var(--color-text);
+  box-shadow: 0 20px 64px rgba(0, 0, 0, 0.45);
+  overflow: hidden;
+}
+
+.ds-toolbar {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 20px 24px;
+  border-bottom: 1px solid var(--color-border-subtle);
+  background: color-mix(in srgb, var(--color-window) 84%, transparent);
+}
+
+.ds-title {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.ds-subtitle {
+  margin: 6px 0 0;
+  font-size: var(--text-sm);
+  color: var(--color-muted);
+}
+
+.ds-toolbar-controls {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+}
+
+.ds-control {
+  min-width: 180px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ds-control-label {
+  font-size: var(--text-xxs);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-muted);
+  font-weight: 700;
+}
+
+.ds-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  padding: 14px;
+}
+
+.ds-section {
+  border: 1px solid var(--color-border-subtle);
+  background: var(--color-surface);
+  border-radius: 10px;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.ds-section--full {
+  grid-column: 1 / -1;
+}
+
+.ds-section-title {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--color-muted);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.ds-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.ds-fields-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.ds-field-focused {
+  border-color: var(--color-primary-border);
+}
+
+.ds-field-error {
+  border-color: color-mix(in srgb, var(--color-error) 52%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-error) 35%, transparent);
+}
+
+.ds-select-error {
+  border-color: color-mix(in srgb, var(--color-error) 52%, transparent);
+  color: var(--color-error);
+}
+
+.ds-toggle-grid {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+}
+
+.ds-toggle-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ds-item-label {
+  margin: 0;
+  font-size: var(--text-xxs);
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--color-muted);
+}
+
+.ds-toggle-mixed {
+  border-color: color-mix(in srgb, var(--color-warning) 55%, transparent);
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--color-warning) 28%, transparent) 0%,
+    color-mix(in srgb, var(--color-warning) 28%, transparent) 50%,
+    var(--color-inset) 50%,
+    var(--color-inset) 100%
+  );
+}
+
+.ds-toggle-mixed .ui-toggle-thumb {
+  transform: translateX(8px);
+  background: var(--color-warning);
+}
+
+.ds-status-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.ds-status-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 6px;
+  padding: 4px 8px;
+  background: var(--color-inset);
+}
+
+.ds-message-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.ds-message-panel {
+  padding: 10px;
+}
+
+.ds-tool-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.ds-tool-panel {
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ds-patch-panel {
+  padding: 10px;
+}
+
+.ds-modal-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.ds-modal-grid .ui-modal-shell {
+  max-width: 100%;
+  max-height: none;
+}
+
+.ds-chrome-panel {
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.ds-top-chrome-sample {
+  position: relative;
+  top: auto;
+  left: auto;
+  right: auto;
+  z-index: 1;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 8px 8px 0 0;
+}
+
+.ds-terminal-sample {
+  height: 160px;
+  border-radius: 0 0 8px 8px;
+  overflow: hidden;
+}
+
+.ds-terminal-output-sample {
+  min-height: 90px;
+}
+
+@media (max-width: 1120px) {
+  .ds-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .ds-message-grid,
+  .ds-tool-grid,
+  .ds-modal-grid,
+  .ds-fields-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .ds-toolbar {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .ds-toolbar-controls {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+
+  .ds-control {
+    min-width: 150px;
+    flex: 1;
+  }
+}

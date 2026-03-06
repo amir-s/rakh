@@ -1,0 +1,82 @@
+/*
+ * ── MONOLITH THEME OVERRIDES ──────────────────────────────────────────────────
+ */
+[data-theme-name="monolith"] {
+  /* ── Primary (sharp signal red) ───────────────────────────── */
+  --color-primary: #e10600;
+  --color-primary-dim: rgba(225, 6, 0, 0.14);
+  --color-primary-border: rgba(225, 6, 0, 0.35);
+
+  /* ── Backgrounds (pure graphite scale) ────────────────────── */
+  --color-window: #0b0b0d;
+  --color-surface: #121214;
+  --color-inset: #0f0f11;
+  --color-elevated: #070708;
+  --color-subtle: #1c1c20;
+
+  /* ── Text ─────────────────────────────────────────────────── */
+  --color-text: #f1f1f3;
+  --color-muted: #7c7c85;
+  --color-faint: rgba(241, 241, 243, 0.25);
+
+  /* ── Accent (cool steel gray) ─────────────────────────────── */
+  --color-accent: #9aa0a6;
+
+  /* ── Semantic (minimal saturation) ────────────────────────── */
+  --color-success: #3d8b6d;
+  --color-error: #c33;
+  --color-warning: #b8860b;
+
+  /* ── Borders (hard edges) ─────────────────────────────────── */
+  --color-border-subtle: rgba(255, 255, 255, 0.05);
+  --color-border-mid: rgba(255, 255, 255, 0.12);
+
+  --shadow-soft: 0px 8px 30px rgba(0, 0, 0, 0.6);
+
+  /* ── Syntax (muted, professional) ─────────────────────────── */
+  --color-syn-keyword: #ff4d4d;
+  --color-syn-function: #dcdcdc;
+  --color-syn-string: #8fbf8f;
+  --color-syn-comment: #5a5a63;
+  --color-syn-number: #c0c0c0;
+  --color-syn-type: #bbbbbb;
+  --color-syn-punct: var(--color-muted);
+
+  --color-sb-track: var(--color-window);
+  --color-sb-thumb: #1f1f23;
+  --color-sb-thumb-hover: #2b2b30;
+
+  --color-term-bg: #000000;
+}
+
+[data-theme-name="monolith"][data-theme="light"] {
+  --color-primary: #c40000;
+  --color-primary-dim: rgba(196, 0, 0, 0.1);
+  --color-primary-border: rgba(196, 0, 0, 0.25);
+
+  --color-window: #f4f4f6;
+  --color-surface: #ffffff;
+  --color-inset: #eeeeef;
+  --color-elevated: #e2e2e4;
+  --color-subtle: #e8e8ea;
+
+  --color-text: #111113;
+  --color-muted: #6c6c75;
+  --color-faint: rgba(0, 0, 0, 0.25);
+
+  --color-accent: #5c5c66;
+
+  --color-success: #2e7d5b;
+  --color-error: #b00020;
+  --color-warning: #a67c00;
+
+  --color-border-subtle: rgba(0, 0, 0, 0.08);
+  --color-border-mid: rgba(0, 0, 0, 0.14);
+
+  --shadow-soft: 0px 6px 24px rgba(0, 0, 0, 0.08);
+
+  --color-sb-thumb: #cfcfd4;
+  --color-sb-thumb-hover: #b6b6bc;
+
+  --color-term-bg: #000000;
+}

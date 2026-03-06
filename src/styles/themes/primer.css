@@ -1,0 +1,85 @@
+/*
+ * ── PRIMER THEME OVERRIDES ─────────────────────────────────────────────────────────────
+ */
+[data-theme-name="primer"] {
+  /* ── Primary (Primer blue-500/600 range) ───────────────────── */
+  --color-primary: #2f81f7;
+  --color-primary-dim: rgba(47, 129, 247, 0.14);
+  --color-primary-border: rgba(47, 129, 247, 0.35);
+
+  /* ── Background scale (Primer canvas scale) ─────────────────── */
+  --color-window: #0d1117;      /* canvas-default */
+  --color-surface: #161b22;     /* canvas-overlay */
+  --color-inset: #0d1117;       /* canvas-inset */
+  --color-elevated: #010409;    /* canvas-subtle */
+  --color-subtle: #21262d;      /* neutral-muted */
+
+  /* ── Text scale ─────────────────────────────────────────────── */
+  --color-text: #c9d1d9;        /* fg-default */
+  --color-muted: #8b949e;       /* fg-muted */
+  --color-faint: rgba(201, 209, 217, 0.28);
+
+  /* ── Semantic (Primer success/danger/attention) ───────────── */
+  --color-accent: #2f81f7;
+  --color-success: #3fb950;
+  --color-error: #f85149;
+  --color-warning: #d29922;
+
+  /* ── Borders ───────────────────────────────────────────────── */
+  --color-border-subtle: rgba(240, 246, 252, 0.10); /* border-default */
+  --color-border-mid: rgba(240, 246, 252, 0.16);
+
+  --shadow-soft: 0px 8px 24px rgba(0, 0, 0, 0.55);
+
+  /* ── Syntax (close to GitHub code highlighting) ───────────── */
+  --color-syn-keyword: #ff7b72;
+  --color-syn-function: #d2a8ff;
+  --color-syn-string: #a5d6ff;
+  --color-syn-comment: #8b949e;
+  --color-syn-number: #79c0ff;
+  --color-syn-type: #ffa657;
+  --color-syn-punct: var(--color-muted);
+
+  /* ── Scrollbar ─────────────────────────────────────────────── */
+  --color-sb-track: var(--color-window);
+  --color-sb-thumb: #30363d;
+  --color-sb-thumb-hover: #484f58;
+
+  --color-term-bg: #0d1117;
+}
+
+[data-theme-name="primer"][data-theme="light"] {
+  /* ── Primary (Primer blue-600) ─────────────────────────────── */
+  --color-primary: #0969da;
+  --color-primary-dim: rgba(9, 105, 218, 0.12);
+  --color-primary-border: rgba(9, 105, 218, 0.28);
+
+  /* ── Background scale ──────────────────────────────────────── */
+  --color-window: #ffffff;      /* canvas-default */
+  --color-surface: #f6f8fa;     /* canvas-subtle */
+  --color-inset: #ffffff;
+  --color-elevated: #eef1f4;
+  --color-subtle: #eaeef2;
+
+  /* ── Text ─────────────────────────────────────────────────── */
+  --color-text: #1f2328;        /* fg-default */
+  --color-muted: #57606a;       /* fg-muted */
+  --color-faint: rgba(31, 35, 40, 0.24);
+
+  /* ── Semantic ─────────────────────────────────────────────── */
+  --color-accent: #0969da;
+  --color-success: #1a7f37;
+  --color-error: #cf222e;
+  --color-warning: #9a6700;
+
+  /* ── Borders ───────────────────────────────────────────────── */
+  --color-border-subtle: rgba(27, 31, 36, 0.10);
+  --color-border-mid: rgba(27, 31, 36, 0.16);
+
+  --shadow-soft: 0px 6px 20px rgba(27, 31, 36, 0.08);
+
+  --color-sb-thumb: #d0d7de;
+  --color-sb-thumb-hover: #afb8c1;
+
+  --color-term-bg: #0d1117;
+}

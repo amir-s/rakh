@@ -1,0 +1,260 @@
+import type { SerializedDiff } from "@/components/diffSerialization";
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Shared error / result shapes (from tools.md)
+─────────────────────────────────────────────────────────────────────────── */
+
+export type ToolErrorCode =
+  | "INVALID_ARGUMENT"
+  | "NOT_FOUND"
+  | "PERMISSION_DENIED"
+  | "CONFLICT"
+  | "TOO_LARGE"
+  | "TIMEOUT"
+  | "INTERNAL";
+
+export interface ToolError {
+  code: ToolErrorCode;
+  message: string;
+  details?: Record<string, unknown>;
+}
+
+export type ToolResult<T> =
+  | { ok: true; data: T }
+  | { ok: false; error: ToolError };
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   API message formats used by the runner and persistence
+───────────────────────────────────────────────────────────────────────────── */
+
+export interface ApiToolCall {
+  id: string;
+  type: "function";
+  function: {
+    name: string;
+    arguments: string; // JSON string
+  };
+}
+
+export interface SystemApiMessage {
+  role: "system";
+  content: string;
+}
+
+export interface UserApiMessage {
+  role: "user";
+  content: string;
+}
+
+export interface AssistantApiMessage {
+  role: "assistant";
+  content: string | null;
+  tool_calls?: ApiToolCall[];
+}
+
+export interface ToolApiMessage {
+  role: "tool";
+  tool_call_id: string;
+  content: string; // JSON-serialised result
+}
+
+export type ApiMessage =
+  | SystemApiMessage
+  | UserApiMessage
+  | AssistantApiMessage
+  | ToolApiMessage;
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   OpenAI tool definition shape (for the API request)
+───────────────────────────────────────────────────────────────────────────── */
+
+export interface OpenAIToolFunction {
+  name: string;
+  description: string;
+  parameters: {
+    type: "object";
+    properties: Record<string, unknown>;
+    required?: string[];
+  };
+}
+
+export interface OpenAITool {
+  type: "function";
+  function: OpenAIToolFunction;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Agent control state (plan + todos, from tools.md §3)
+───────────────────────────────────────────────────────────────────────────── */
+
+export interface AgentPlan {
+  markdown: string;
+  updatedAtMs: number;
+  version: number;
+}
+
+export type TodoStatus = "todo" | "doing" | "done" | "blocked";
+
+export interface TodoItem {
+  id: string;
+  text: string;
+  status: TodoStatus;
+  createdAtMs: number;
+  updatedAtMs: number;
+  blockedReason?: string;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Review edits — captured from workspace_applyPatch tool calls
+───────────────────────────────────────────────────────────────────────────── */
+
+export interface ReviewEdit {
+  /** Workspace-relative file path */
+  filePath: string;
+  /** Pre-computed DiffFile data — serialized for compact storage.
+   * Use deserializeDiff() to decode before passing to DiffViewer. */
+  diffFile: SerializedDiff;
+  /**
+   * File content captured before the FIRST patch was applied.
+   * Kept so that subsequent patches can recompute the diff as original→final
+   * rather than appending patches together.
+   */
+  originalContent: string;
+  /** When this edit was recorded */
+  timestamp: number;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Chat display messages (UI layer)
+───────────────────────────────────────────────────────────────────────────── */
+
+export interface ToolCallDisplay {
+  id: string;
+  tool: string;
+  args: Record<string, unknown>;
+  result?: unknown;
+  /** Live stdout+stderr accumulated while the command is running. */
+  streamingOutput?: string;
+  /**
+   * Cached DiffFile states for UI components to render exactly what was originally proposed.
+   * Captured at execution time so that it survives subsequent edits to the same file.
+   * Each entry is a SerializedDiff; decode with deserializeDiff() before passing to UI components.
+   */
+  originalDiffFiles?: SerializedDiff[];
+  status:
+    | "pending"
+    | "awaiting_approval"
+    | "awaiting_worktree"
+    | "running"
+    | "done"
+    | "error"
+    | "denied";
+}
+
+export interface ChatMessage {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  /**
+   * Display name of the agent that produced this message.
+   * Undefined / omitted means the main Rakh agent.
+   * Subagent messages carry the subagent's name (e.g. "Planner").
+   */
+  agentName?: string;
+  /** Optional streamed reasoning content for this assistant turn. */
+  reasoning?: string;
+  /** True while reasoning tokens are still streaming for this assistant turn. */
+  reasoningStreaming?: boolean;
+  /** Timestamp when reasoning started for this assistant turn. */
+  reasoningStartedAtMs?: number;
+  /** Final elapsed reasoning duration for this assistant turn. */
+  reasoningDurationMs?: number;
+  timestamp: number;
+  streaming?: boolean;
+  /** e.g. "CALLING TOOL" */
+  badge?: string;
+  toolCalls?: ToolCallDisplay[];
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Advanced model / provider options (set at session creation time)
+─────────────────────────────────────────────────────────────────────────── */
+
+export type ReasoningVisibility = "off" | "auto" | "detailed";
+export type ReasoningEffort = "low" | "medium" | "high";
+export type LatencyCostProfile = "balanced" | "fast" | "cheap";
+
+export interface AdvancedModelOptions {
+  /** Controls whether reasoning summaries are included in the response. */
+  reasoningVisibility: ReasoningVisibility;
+  /** Controls how much reasoning effort the model expends. */
+  reasoningEffort: ReasoningEffort;
+  /** Balances latency vs cost for the request. */
+  latencyCostProfile: LatencyCostProfile;
+}
+
+export const DEFAULT_ADVANCED_OPTIONS: AdvancedModelOptions = {
+  reasoningVisibility: "auto",
+  reasoningEffort: "medium",
+  latencyCostProfile: "balanced",
+};
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Per-agent configuration (each tab has its own)
+─────────────────────────────────────────────────────────────────────────── */
+
+export interface AgentConfig {
+  /** Absolute path to the workspace root */
+  cwd: string;
+  model: string;
+  /** Context window size in tokens, as reported by model catalog for the selected model */
+  contextLength?: number;
+  /** Absolute path to the git worktree created for this session (set once, never changed) */
+  worktreePath?: string;
+  /** Git branch name for the worktree */
+  worktreeBranch?: string;
+  /** True when the user declined worktree creation — prevents asking again */
+  worktreeDeclined?: boolean;
+  /** Provider-level advanced options chosen at session creation time. */
+  advancedOptions?: AdvancedModelOptions;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Full per-tab agent state stored in Jotai
+───────────────────────────────────────────────────────────────────────────── */
+
+export type AgentStatus = "idle" | "thinking" | "working" | "done" | "error";
+export type AutoApproveCommandsMode = "no" | "agent" | "yes";
+
+export interface AgentState {
+  status: AgentStatus;
+  config: AgentConfig;
+  /** Messages shown in the chat pane */
+  chatMessages: ChatMessage[];
+  /** Full message history sent to the model API */
+  apiMessages: ApiMessage[];
+  /** Text being streamed in the current assistant turn */
+  streamingContent: string | null;
+  plan: AgentPlan;
+  todos: TodoItem[];
+  error: string | null;
+  /**
+   * Raw error details (not persisted) — populated when an API/runner error
+   * occurs, so the UI can surface a "Details" modal with the full error object,
+   * status code, stack trace, network info, etc.
+   */
+  errorDetails: unknown;
+  /** Short title describing the agent's current task (set by the agent) */
+  tabTitle: string;
+  /**
+   * File edits captured from successful workspace_applyPatch calls.
+   * Multiple patches to the same file are merged into a single entry.
+   */
+  reviewEdits: ReviewEdit[];
+  /** Auto-approve edits for this tab */
+  autoApproveEdits: boolean;
+  /** Auto-approve commands for this tab */
+  autoApproveCommands: AutoApproveCommandsMode;
+  /** Controls debug-only UI surfaces for this tab */
+  showDebug?: boolean;
+}

@@ -1,0 +1,148 @@
+/* ── THEMES ── */
+@import "./themes/kitsune.css";
+@import "./themes/rush.css";
+@import "./themes/solar.css";
+@import "./themes/cyber.css";
+@import "./themes/neon-sentinel.css";
+@import "./themes/monolith.css";
+@import "./themes/verdant-ember.css";
+@import "./themes/iridescent-alloy.css";
+@import "./themes/github.css";
+@import "./themes/primer.css";
+
+/*
+ * ── DESIGN TOKENS ─────────────────────────────────────────────────────────────
+ * Edit this @theme block to retheme the entire app.
+ * Tailwind reads these as utility classes (bg-surface, text-primary, etc.).
+ * All values are also emitted as CSS variables on :root for use in plain CSS.
+ * ──────────────────────────────────────────────────────────────────────────────
+ */
+@theme {
+  /* ── Brand / accent ──────────────────────────────────────────────────── */
+  --color-primary: #ec9513;
+  --color-primary-dim: rgba(236, 149, 19, 0.12);
+  --color-primary-border: rgba(236, 149, 19, 0.25);
+  /* Subagent accents are injected at runtime as --color-subagent-<id>. */
+
+  /* ── Background elevation scale (darkest = elevated, lightest = surface) */
+  /* NOTE: avoid naming a color token "base" because Tailwind would generate a
+     `text-base` *color* utility, which collides with `text-base` (font-size). */
+  --color-window: #161618; /* window bg / tab bar                */
+  --color-surface: #232326; /* active tab, chat pane, panels      */
+  --color-inset: #1c1c1e; /* artifact viewer, code editor       */
+  --color-elevated: #121214; /* terminal strip, deepest inset      */
+  --color-subtle: #2e2e32; /* hover bg, inline code bg           */
+  --color-hover: color-mix(in srgb, var(--color-subtle) 70%, transparent);
+
+  /* ── Text ────────────────────────────────────────────────────────────── */
+  --color-text: #e6e6e6;
+  --color-muted: #8f8f94;
+  --color-faint: rgba(230, 230, 230, 0.3);
+
+  /* ── Semantic status / feedback ─────────────────────────────────────── */
+  --color-accent: #d4b483;
+  --color-success: #6ca87c;
+  --color-error: #cf6b6b;
+  --color-warning: #d4b483;
+
+  /* ── Typography ──────────────────────────────────────────────────────── */
+  /* --font-mono is loaded via Google Fonts in index.html */
+  --font-mono: "JetBrains Mono", "Fira Code", monospace;
+
+  --text-xxs: 10px;
+  --text-xs: 11px;
+  --text-sm: 12px;
+  --text-base: 13px;
+  --text-md: 14px;
+
+  /* ── Chrome / Window chrome ──────────────────────────────────────────── */
+  --chrome-height: 38px;
+  --traffic-light-width: 80px;
+  --tab-radius: 12px;
+
+  /* ── Borders ─────────────────────────────────────────────────────────── */
+  --color-border-subtle: rgba(255, 255, 255, 0.055);
+  --color-border-mid: rgba(255, 255, 255, 0.09);
+
+  /* ── Shadows ─────────────────────────────────────────────────────────── */
+  --shadow-soft: 0px 4px 24px rgba(0, 0, 0, 0.22);
+
+  /* ── Status indicator colours ────────────────────────────────────────── */
+  --color-status-idle: var(--color-muted);
+  --color-status-thinking: var(--color-primary);
+  --color-status-working: var(--color-success);
+  --color-status-done: var(--color-success);
+  --color-status-error: var(--color-error);
+
+  /* ── Syntax highlighting ─────────────────────────────────────────────── */
+  --color-syn-keyword: #cc7832;
+  --color-syn-function: #ffc66d;
+  --color-syn-string: #6a8759;
+  --color-syn-comment: #6b6b6b;
+  --color-syn-number: #6897bb;
+  --color-syn-type: #e8bf6a;
+  --color-syn-punct: var(--color-muted);
+
+  /* ── Scrollbar ───────────────────────────────────────────────────────── */
+  --color-sb-track: var(--color-window);
+  --color-sb-thumb: var(--color-subtle);
+  --color-sb-thumb-hover: #3e3e42;
+
+  /* ── Motion ──────────────────────────────────────────────────────────── */
+  --t-fast: 0.1s ease;
+  --t-base: 0.15s ease;
+  --t-slow: 0.25s ease;
+
+  /* ── Terminal ─────────────────────────────────────────────────────────── */
+  --color-term-bg: #000000;
+}
+
+/*
+ * ── LIGHT MODE OVERRIDES ──────────────────────────────────────────────────────
+ * Applied when <html data-theme="light"> is set.
+ * Only variables that differ from the dark defaults need to be listed.
+ * ──────────────────────────────────────────────────────────────────────────────
+ */
+[data-theme-name="rakh"][data-theme="light"] {
+  /* Brand — keep orange accent; dim/border adjust for light surfaces */
+  --color-primary-dim: rgba(236, 149, 19, 0.1);
+  --color-primary-border: rgba(236, 149, 19, 0.3);
+
+  /* Background elevation scale (lightest = base, darkest = elevated) */
+  --color-window: #e8e8ec;
+  --color-surface: #f5f5f7;
+  --color-inset: #eaeaee;
+  --color-elevated: #dcdce0;
+  --color-subtle: #dedee3;
+  --color-hover: color-mix(in srgb, var(--color-subtle) 72%, transparent);
+
+  /* Text */
+  --color-text: #1c1c1e;
+  --color-muted: #6e6e73;
+  --color-faint: rgba(0, 0, 0, 0.3);
+
+  /* Status / feedback — slightly richer for light bg */
+  --color-success: #1e7e34;
+  --color-error: #c0392b;
+  --color-warning: #b8860b;
+  --color-accent: #7a5c1e;
+
+  /* Borders */
+  --color-border-subtle: rgba(0, 0, 0, 0.08);
+  --color-border-mid: rgba(0, 0, 0, 0.14);
+
+  /* Shadow — softer on light surfaces */
+  --shadow-soft: 0px 4px 24px rgba(0, 0, 0, 0.08);
+
+  /* Syntax highlighting — JetBrains Light-style */
+  --color-syn-keyword: #0033b3;
+  --color-syn-function: #7a3e9d;
+  --color-syn-string: #067d17;
+  --color-syn-comment: #8c8c8c;
+  --color-syn-number: #1750eb;
+  --color-syn-type: #9e880d;
+
+  /* Scrollbar */
+  --color-sb-thumb: #c0c0c5;
+  --color-sb-thumb-hover: #a0a0a6;
+}

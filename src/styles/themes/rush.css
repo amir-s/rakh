@@ -1,0 +1,71 @@
+/*
+ * ── RUSH THEME OVERRIDES ─────────────────────────────────────────────────────
+ */
+[data-theme-name="rush"] {
+  --color-primary: #6c8cff;
+  --color-primary-dim: rgba(108, 140, 255, 0.12);
+  --color-primary-border: rgba(108, 140, 255, 0.3);
+
+  --color-window: #0f111a;
+  --color-surface: #161a26;
+  --color-inset: #111522;
+  --color-elevated: #0a0d14;
+  --color-subtle: #22283a;
+
+  --color-text: #edf1ff;
+  --color-muted: #8f98b8;
+
+  --color-accent: #a78bfa; /* violet highlight */
+
+  --color-success: #3ccf91;
+  --color-error: #ff6b81;
+  --color-warning: #e2b35d;
+
+  --color-border-subtle: rgba(255, 255, 255, 0.06);
+  --color-border-mid: rgba(255, 255, 255, 0.12);
+
+  --shadow-soft: 0px 16px 50px rgba(0, 0, 0, 0.55);
+
+  --color-syn-keyword: #82aaff;
+  --color-syn-function: #c792ea;
+  --color-syn-string: #7fdbca;
+  --color-syn-comment: #5c6370;
+  --color-syn-number: #89ddff;
+  --color-syn-type: #b388ff;
+
+  --color-sb-thumb: #2c3450;
+  --color-sb-thumb-hover: #3b4570;
+
+  --color-term-bg: #000000;
+}
+
+[data-theme-name="rush"][data-theme="light"] {
+  --color-primary: #5c79ff;
+  --color-primary-dim: rgba(92, 121, 255, 0.1);
+  --color-primary-border: rgba(92, 121, 255, 0.3);
+
+  --color-window: #f0f2fa;
+  --color-surface: #ffffff;
+  --color-inset: #f4f6fd;
+  --color-elevated: #e6e9f5;
+  --color-subtle: #e9ecf7;
+
+  --color-text: #1a1d2c;
+  --color-muted: #5c6485;
+
+  --color-accent: #8c7bff;
+
+  --color-success: #1a8c61;
+  --color-error: #b93857;
+  --color-warning: #a6782d;
+
+  --color-border-subtle: rgba(0, 0, 0, 0.08);
+  --color-border-mid: rgba(0, 0, 0, 0.14);
+
+  --shadow-soft: 0px 10px 28px rgba(60, 80, 160, 0.08);
+
+  --color-sb-thumb: #c7ccef;
+  --color-sb-thumb-hover: #b0b7e6;
+
+  --color-term-bg: #000000;
+}

@@ -1,0 +1,83 @@
+/*
+ * ── IRIDESCENT ALLOY THEME OVERRIDES ─────────────────────────────────────────────
+ */
+[data-theme-name="iridescent-alloy"] {
+  /* ── Primary (cool indigo from icon core) ───────────────────── */
+  --color-primary: #6c7dff;
+  --color-primary-dim: rgba(108, 125, 255, 0.14);
+  --color-primary-border: rgba(108, 125, 255, 0.32);
+
+  /* ── Secondary accent (cool sky reflection) ─────────────────── */
+  --color-accent: #7fd1ff;
+
+  /* ── Backgrounds (midnight blue-black gradient base) ───────── */
+  --color-window: #0c1020;
+  --color-surface: #12162a;
+  --color-inset: #0f1324;
+  --color-elevated: #070a16;
+  --color-subtle: #1b2140;
+
+  /* ── Text ───────────────────────────────────────────────────── */
+  --color-text: #eef1ff;
+  --color-muted: #9aa3c8;
+  --color-faint: rgba(238, 241, 255, 0.26);
+
+  /* ── Semantic (harmonized cool spectrum) ───────────────────── */
+  --color-success: #4fd2c8;
+  --color-error: #ff6a81;
+  --color-warning: #f2c14e;
+
+  /* ── Borders (glass-like cool edge) ─────────────────────────── */
+  --color-border-subtle: rgba(127, 209, 255, 0.1);
+  --color-border-mid: rgba(108, 125, 255, 0.18);
+
+  --shadow-soft: 0px 18px 50px rgba(0, 0, 0, 0.55);
+
+  /* ── Syntax (clean, luminous dev palette) ───────────────────── */
+  --color-syn-keyword: #7aa2ff;
+  --color-syn-function: #7fd1ff;
+  --color-syn-string: #7fffd4;
+  --color-syn-comment: #6b7398;
+  --color-syn-number: #c6a0ff;
+  --color-syn-type: #8e9bff;
+  --color-syn-punct: var(--color-muted);
+
+  --color-sb-track: var(--color-window);
+  --color-sb-thumb: #1c2244;
+  --color-sb-thumb-hover: #283072;
+
+  --color-term-bg: #000000;
+}
+
+[data-theme-name="iridescent-alloy"][data-theme="light"] {
+  --color-primary: #5a6bff;
+  --color-primary-dim: rgba(90, 107, 255, 0.1);
+  --color-primary-border: rgba(90, 107, 255, 0.28);
+
+  --color-accent: #5cc8ff;
+
+  /* Soft silver-white tones */
+  --color-window: #eef2f9;
+  --color-surface: #ffffff;
+  --color-inset: #f4f7fc;
+  --color-elevated: #e6ecf7;
+  --color-subtle: #edf1fa;
+
+  --color-text: #141828;
+  --color-muted: #6c7394;
+  --color-faint: rgba(0, 0, 0, 0.25);
+
+  --color-success: #2f9e9a;
+  --color-error: #c0395a;
+  --color-warning: #a67c00;
+
+  --color-border-subtle: rgba(92, 200, 255, 0.12);
+  --color-border-mid: rgba(90, 107, 255, 0.18);
+
+  --shadow-soft: 0px 10px 30px rgba(60, 90, 160, 0.08);
+
+  --color-sb-thumb: #cdd7f7;
+  --color-sb-thumb-hover: #b7c4f2;
+
+  --color-term-bg: #000000;
+}

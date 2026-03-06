@@ -1,0 +1,57 @@
+pub mod db;
+pub mod exec;
+pub mod fs_ops;
+pub mod git;
+pub mod pty;
+pub mod shell_env;
+pub mod utils;
+pub mod whisper;
+
+use db::{init_db, AppState};
+use std::collections::HashMap;
+use std::sync::Mutex;
+
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
+pub fn run() {
+    let db = init_db().expect("Failed to initialise sessions database");
+    tauri::Builder::default()
+        .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_notification::init())
+        .manage(AppState {
+            pty_writers: Mutex::new(HashMap::new()),
+            pty_masters: Mutex::new(HashMap::new()),
+            db: Mutex::new(db),
+        })
+        .invoke_handler(tauri::generate_handler![
+            db::load_provider_env_api_keys,
+            git::git_worktree_add,
+            fs_ops::list_dir,
+            fs_ops::stat_file,
+            fs_ops::read_file,
+            fs_ops::write_file,
+            fs_ops::delete_file,
+            fs_ops::glob_files,
+            fs_ops::search_files,
+            fs_ops::search_files_grep,
+            whisper::whisper_prepare_model,
+            whisper::whisper_transcribe_wav,
+            exec::exec_run,
+            exec::exec_abort,
+            exec::exec_stop,
+            pty::spawn_pty,
+            pty::write_pty,
+            pty::resize_pty,
+            db::db_load_sessions,
+            db::db_upsert_session,
+            db::db_archive_session,
+            db::db_load_archived_sessions,
+            db::db_delete_session,
+            db::db_artifact_create,
+            db::db_artifact_version,
+            db::db_artifact_get,
+            db::db_artifact_list,
+        ])
+        .run(tauri::generate_context!())
+        .expect("error while running tauri application");
+}
