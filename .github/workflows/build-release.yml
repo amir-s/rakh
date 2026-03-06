@@ -73,6 +73,7 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SOURCE_DATE_EPOCH: "1"
           WHISPER_NATIVE: "OFF"
         with:
           tagName: ${{ inputs.tag }}
