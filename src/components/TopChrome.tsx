@@ -10,12 +10,14 @@ import { useAtom } from "jotai";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   settingsSidebarOpenAtom,
+  appUpdaterStateAtom,
   agentStatusAtomFamily,
   jotaiStore,
 } from "@/agent/atoms";
 import CloseTabModal from "@/components/CloseTabModal";
 import ArchivedTabsMenu from "@/components/ArchivedTabsMenu";
 import { cn } from "@/utils/cn";
+import { shouldShowAppUpdateBadge } from "@/updater";
 
 /* ── Types ──────────────────────────────────────────────────────────────── */
 type Platform = "mac" | "windows" | "other";
@@ -88,6 +90,8 @@ export default function TopChrome() {
   const { tabs, activeTabId, setActiveTab, addTab, closeTab, reorderTabs } =
     useTabs();
   const [, setSettingsSidebarOpen] = useAtom(settingsSidebarOpenAtom);
+  const [appUpdater] = useAtom(appUpdaterStateAtom);
+  const showUpdateBadge = shouldShowAppUpdateBadge(appUpdater);
 
   // ── Close-confirmation modal ──────────────────────────────────────────
   const [closeConfirmTabId, setCloseConfirmTabId] = useState<string | null>(
@@ -430,11 +434,18 @@ export default function TopChrome() {
         >
           <ArchivedTabsMenu />
           <button
-            className="win-btn w-9"
+            className="win-btn w-9 relative"
             onClick={() => setSettingsSidebarOpen(true)}
             title="Settings"
           >
             <span className="material-symbols-outlined text-lg">settings</span>
+            {showUpdateBadge && (
+              <span
+                className="absolute right-[10px] top-[10px] h-2 w-2 rounded-full bg-primary"
+                data-testid="settings-update-badge"
+                aria-hidden="true"
+              />
+            )}
           </button>
         </div>
 

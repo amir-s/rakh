@@ -27,6 +27,7 @@ import type { AgentStatus, AdvancedModelOptions, ToolCallDisplay } from "@/agent
 import { focusTab, showNotification } from "@/notifications";
 import { preloadEnvProviderKeys } from "@/agent/useEnvProviderKeys";
 import { getThemeSubagentColorVariables } from "@/styles/themes/registry";
+import { checkForAppUpdates } from "@/updater";
 
 /* ──────────────────────────────────────────────────────────────────────────────────
    ThemeApplier — syncs themeAtom to data-theme on <html>
@@ -296,6 +297,7 @@ export default function App() {
           }
         }
         setInitialSessions(sessions);
+        void checkForAppUpdates({ silent: true });
       },
     );
   }, [isPreview]);
