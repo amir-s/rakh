@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.0](https://github.com/amir-s/rakh/compare/rakh-v0.1.3...rakh-v0.2.0) (2026-03-07)
+
+
+### Features
+
+* add summary and artifact conversation cards ([#16](https://github.com/amir-s/rakh/issues/16)) ([2144446](https://github.com/amir-s/rakh/commit/21444466453bca253c0e82ceb8b5288bc8d892c6))
+
 ## [0.1.3](https://github.com/amir-s/rakh/compare/rakh-v0.1.2...rakh-v0.1.3) (2026-03-07)
 
 
