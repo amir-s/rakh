@@ -50,6 +50,7 @@ function artifactPaneUiReducer(
 
 export function useArtifactUpdates(
   activeTabId: string,
+  enabled: boolean,
   isCollapsed: boolean,
   showDebug: boolean,
 ) {
@@ -60,7 +61,7 @@ export function useArtifactUpdates(
     loading: artifactInventoryLoading,
     error: artifactInventoryError,
     hasLoadedSuccessfully: artifactInventoryHasLoadedSuccessfully,
-  } = useSessionArtifactInventory(activeTabId);
+  } = useSessionArtifactInventory(activeTabId, enabled);
 
   const [{ activeTab, unseenTabs }, dispatch] = useReducer(
     artifactPaneUiReducer,
@@ -82,6 +83,16 @@ export function useArtifactUpdates(
   );
 
   useEffect(() => {
+    if (!enabled) {
+      prevPlanVersion.current = 0;
+      prevTodoSnapshot.current = buildTodoSnapshot(todos);
+      prevReviewCount.current = reviewEdits.length;
+      prevArtifactFingerprint.current = "";
+      hasArtifactBaseline.current = false;
+      dispatch({ type: "reset" });
+      return;
+    }
+
     if (prevActiveTabId.current === activeTabId) return;
     prevActiveTabId.current = activeTabId;
     prevPlanVersion.current = inventory.latestPlanGroup?.latest.version ?? 0;
@@ -92,6 +103,7 @@ export function useArtifactUpdates(
     dispatch({ type: "reset" });
   }, [
     activeTabId,
+    enabled,
     artifactInventoryHasLoadedSuccessfully,
     inventory.fingerprint,
     inventory.latestPlanGroup,
@@ -100,32 +112,36 @@ export function useArtifactUpdates(
   ]);
 
   useEffect(() => {
+    if (!enabled) return;
     const nextPlanVersion = inventory.latestPlanGroup?.latest.version ?? 0;
     if (nextPlanVersion === prevPlanVersion.current) return;
     prevPlanVersion.current = nextPlanVersion;
     if (activeTab !== "PLAN" || isCollapsed) {
       dispatch({ type: "mark-unseen", tab: "PLAN" });
     }
-  }, [activeTab, inventory.latestPlanGroup, isCollapsed]);
+  }, [activeTab, enabled, inventory.latestPlanGroup, isCollapsed]);
 
   useEffect(() => {
+    if (!enabled) return;
     const nextTodoSnapshot = buildTodoSnapshot(todos);
     if (nextTodoSnapshot === prevTodoSnapshot.current) return;
     prevTodoSnapshot.current = nextTodoSnapshot;
     if (activeTab !== "TODO" || isCollapsed) {
       dispatch({ type: "mark-unseen", tab: "TODO" });
     }
-  }, [activeTab, isCollapsed, todos]);
+  }, [activeTab, enabled, isCollapsed, todos]);
 
   useEffect(() => {
+    if (!enabled) return;
     if (reviewEdits.length === prevReviewCount.current) return;
     prevReviewCount.current = reviewEdits.length;
     if (activeTab !== "REVIEW" || isCollapsed) {
       dispatch({ type: "mark-unseen", tab: "REVIEW" });
     }
-  }, [activeTab, isCollapsed, reviewEdits.length]);
+  }, [activeTab, enabled, isCollapsed, reviewEdits.length]);
 
   useEffect(() => {
+    if (!enabled) return;
     if (!artifactInventoryHasLoadedSuccessfully) return;
 
     if (!hasArtifactBaseline.current) {
@@ -141,6 +157,7 @@ export function useArtifactUpdates(
     }
   }, [
     activeTab,
+    enabled,
     artifactInventoryHasLoadedSuccessfully,
     inventory.fingerprint,
     isCollapsed,
