@@ -32,7 +32,7 @@ graph TB
     Tauri --> Whisper["Whisper voice commands"]
     Runner --> Artifacts["Artifact wrappers"]
     Artifacts --> SQLite
-    SQLite --> Blobs["Artifact blobs<br/>~/.rakh/artifacts/blobs/sha256"]
+    SQLite --> Blobs["Artifact blobs<br/>release: ~/.rakh/artifacts/blobs/sha256<br/>debug: ~/.rakh-dev/artifacts/blobs/sha256"]
 ```
 
 ## Frontend architecture
@@ -190,9 +190,12 @@ Rakh persists data in multiple places by design:
 
 - provider instances: browser IndexedDB (`rakh-providers`)
 - theme mode, theme name, selected model, and some UI preferences: localStorage
-- sessions and artifact manifests: `~/.rakh/sessions/sessions.db`
-- artifact content blobs: `~/.rakh/artifacts/blobs/sha256`
-- git worktrees created by the agent: `~/.rakh/worktrees/<owner>/<repo>/<branch>`
+- release sessions and artifact manifests: `~/.rakh/sessions/sessions.db`
+- debug/dev sessions and artifact manifests: `~/.rakh-dev/sessions/sessions.db`
+- release artifact content blobs: `~/.rakh/artifacts/blobs/sha256`
+- debug/dev artifact content blobs: `~/.rakh-dev/artifacts/blobs/sha256`
+- release git worktrees created by the agent: `~/.rakh/worktrees/<owner>/<repo>/<branch>`
+- debug/dev git worktrees created by the agent: `~/.rakh-dev/worktrees/<owner>/<repo>/<branch>`
 
 Session persistence is front-to-back:
 

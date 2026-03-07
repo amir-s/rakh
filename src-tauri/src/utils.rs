@@ -1,5 +1,5 @@
 use serde_json::{json, Value};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 pub fn home_dir() -> Option<PathBuf> {
@@ -21,6 +21,23 @@ pub fn now_ms() -> i64 {
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_millis() as i64
+}
+
+pub fn app_store_dir_name(is_debug: bool) -> &'static str {
+    if is_debug {
+        ".rakh-dev"
+    } else {
+        ".rakh"
+    }
+}
+
+pub fn app_store_root_from_home(home: &Path, is_debug: bool) -> PathBuf {
+    home.join(app_store_dir_name(is_debug))
+}
+
+pub fn app_store_root() -> Result<PathBuf, String> {
+    let home = home_dir().ok_or_else(|| "Cannot determine home directory".to_string())?;
+    Ok(app_store_root_from_home(&home, cfg!(debug_assertions)))
 }
 
 pub fn non_empty_env_var(name: &str) -> Option<String> {
@@ -71,5 +88,30 @@ pub fn truncate_bytes(data: &[u8], max: usize) -> (Vec<u8>, bool) {
         (data.to_vec(), false)
     } else {
         (data[..max].to_vec(), true)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::Path;
+
+    #[test]
+    fn test_app_store_dir_name_switches_by_build_type() {
+        assert_eq!(app_store_dir_name(true), ".rakh-dev");
+        assert_eq!(app_store_dir_name(false), ".rakh");
+    }
+
+    #[test]
+    fn test_app_store_root_from_home_joins_expected_directory() {
+        let home = Path::new("/Users/tester");
+        assert_eq!(
+            app_store_root_from_home(home, true),
+            PathBuf::from("/Users/tester/.rakh-dev")
+        );
+        assert_eq!(
+            app_store_root_from_home(home, false),
+            PathBuf::from("/Users/tester/.rakh")
+        );
     }
 }

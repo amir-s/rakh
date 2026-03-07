@@ -1,6 +1,6 @@
 #[cfg(not(test))]
 use crate::shell_env::{login_shell_candidates, run_login_shell_script};
-use crate::utils::{home_dir, non_empty_env_var, now_ms, tool_log};
+use crate::utils::{app_store_root, non_empty_env_var, now_ms, tool_log};
 use portable_pty::MasterPty;
 use rusqlite::{params, types::Value as SqlValue, Connection, OptionalExtension, Row};
 use serde::{Deserialize, Serialize};
@@ -247,9 +247,7 @@ fn is_retryable_artifact_id_collision(err: &rusqlite::Error) -> bool {
 }
 
 fn artifact_blob_root() -> Result<PathBuf, String> {
-    let home = home_dir().ok_or_else(|| "Cannot determine home directory".to_string())?;
-    Ok(home
-        .join(".rakh")
+    Ok(app_store_root()?
         .join("artifacts")
         .join("blobs")
         .join("sha256"))
@@ -609,12 +607,17 @@ fn resolve_provider_env_api_keys() -> (ProviderEnvApiKeys, bool) {
 /* ── init_db ─────────────────────────────────────────────────────────────── */
 
 pub fn init_db() -> Result<Connection, String> {
-    let home = home_dir().ok_or_else(|| "Cannot determine home directory".to_string())?;
-    let sessions_dir = home.join(".rakh").join("sessions");
-    fs::create_dir_all(&sessions_dir)
-        .map_err(|e| format!("Cannot create ~/.rakh/sessions: {}", e))?;
+    let sessions_dir = app_store_root()?.join("sessions");
+    fs::create_dir_all(&sessions_dir).map_err(|e| {
+        format!(
+            "Cannot create sessions directory {}: {}",
+            sessions_dir.display(),
+            e
+        )
+    })?;
     let db_path = sessions_dir.join("sessions.db");
-    let conn = Connection::open(&db_path).map_err(|e| format!("Cannot open sessions.db: {}", e))?;
+    let conn = Connection::open(&db_path)
+        .map_err(|e| format!("Cannot open {}: {}", db_path.display(), e))?;
     // Enable WAL mode for better concurrent read performance
     conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;")
         .map_err(|e| format!("PRAGMA failed: {}", e))?;

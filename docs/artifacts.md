@@ -18,8 +18,12 @@ blob is stored separately by content hash.
 
 Current storage layout:
 
-- Session/manifests DB: `~/.rakh/sessions/sessions.db`
-- Blob storage: `~/.rakh/artifacts/blobs/sha256`
+- Release builds:
+  - Session/manifests DB: `~/.rakh/sessions/sessions.db`
+  - Blob storage: `~/.rakh/artifacts/blobs/sha256`
+- Debug/dev builds:
+  - Session/manifests DB: `~/.rakh-dev/sessions/sessions.db`
+  - Blob storage: `~/.rakh-dev/artifacts/blobs/sha256`
 
 ## Core Model
 

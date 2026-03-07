@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 type MockAgentState = {
   config: {
@@ -70,18 +70,6 @@ vi.mock("../atoms", () => ({
 
 import { gitWorktreeInit } from "./git";
 
-function setWindowHome(home?: string): void {
-  if (home) {
-    (
-      globalThis as unknown as {
-        window: { __EVE_HOME__?: string };
-      }
-    ).window = { __EVE_HOME__: home };
-  } else {
-    (globalThis as unknown as { window?: unknown }).window = undefined;
-  }
-}
-
 function makeState(overrides?: Partial<MockAgentState>): MockAgentState {
   return {
     status: "idle",
@@ -145,12 +133,6 @@ describe("gitWorktreeInit", () => {
           typeof patch === "function" ? patch(prev) : { ...prev, ...patch };
       },
     );
-
-    setWindowHome();
-  });
-
-  afterEach(() => {
-    setWindowHome();
   });
 
   it("returns alreadyExists when a worktree is already configured", async () => {
@@ -220,7 +202,6 @@ describe("gitWorktreeInit", () => {
 
   it("marks config as declined when user rejects approval", async () => {
     setState("tab");
-    setWindowHome("/Users/test");
 
     invokeMock
       .mockResolvedValueOnce({
@@ -245,12 +226,13 @@ describe("gitWorktreeInit", () => {
     expect(result).toEqual({ ok: true, data: { declined: true } });
     expect(states.tab.config.worktreeDeclined).toBe(true);
     const toolStatus = states.tab.chatMessages[0].toolCalls?.[0].status;
+    const toolArgs = states.tab.chatMessages[0].toolCalls?.[0].args;
     expect(toolStatus).toBe("awaiting_worktree");
+    expect(toolArgs).toMatchObject({ suggestedBranch: "feature", repoSlug: "repo" });
   });
 
   it("creates a worktree with sanitized branch name on approval", async () => {
     setState("tab");
-    setWindowHome("/Users/test");
 
     invokeMock
       .mockResolvedValueOnce({
@@ -263,7 +245,10 @@ describe("gitWorktreeInit", () => {
         stdout: "git@github.com:owner/repo.git\n",
         stderr: "",
       })
-      .mockResolvedValueOnce({});
+      .mockResolvedValueOnce({
+        path: "/backend/worktrees/owner/repo/feature-name",
+        branch: "feature-name",
+      });
     requestWorktreeApprovalMock.mockResolvedValueOnce({
       approved: true,
       branchName: "Feature Name!!",
@@ -276,27 +261,35 @@ describe("gitWorktreeInit", () => {
     expect(result).toEqual({
       ok: true,
       data: {
-        path: "/Users/test/.rakh/worktrees/owner/repo/feature-name",
+        path: "/backend/worktrees/owner/repo/feature-name",
         branch: "feature-name",
       },
     });
     expect(invokeMock).toHaveBeenNthCalledWith(3, "git_worktree_add", {
       repoPath: "/tmp/repo",
-      worktreePath: "/Users/test/.rakh/worktrees/owner/repo/feature-name",
+      repoSlug: "owner/repo",
       branch: "feature-name",
     });
+    const homeLookupCalls = invokeMock.mock.calls.filter(
+      ([command, payload]) =>
+        command === "exec_run" &&
+        typeof payload === "object" &&
+        payload !== null &&
+        "command" in payload &&
+        (payload as { command?: string }).command === "sh",
+    );
+    expect(homeLookupCalls).toHaveLength(0);
     expect(states.tab.config.cwd).toBe(
-      "/Users/test/.rakh/worktrees/owner/repo/feature-name",
+      "/backend/worktrees/owner/repo/feature-name",
     );
     expect(states.tab.config.worktreePath).toBe(
-      "/Users/test/.rakh/worktrees/owner/repo/feature-name",
+      "/backend/worktrees/owner/repo/feature-name",
     );
     expect(states.tab.config.worktreeBranch).toBe("feature-name");
   });
 
-  it("trims trailing slash from worktree cwd", async () => {
+  it("uses the backend-returned worktree path verbatim", async () => {
     setState("tab");
-    setWindowHome("/Users/test/");
 
     invokeMock
       .mockResolvedValueOnce({
@@ -308,6 +301,10 @@ describe("gitWorktreeInit", () => {
         exitCode: 0,
         stdout: "git@github.com:owner/repo.git\n",
         stderr: "",
+      })
+      .mockResolvedValueOnce({
+        path: "/custom/root/worktrees/owner/repo/feature",
+        branch: "feature",
       });
     requestWorktreeApprovalMock.mockResolvedValueOnce({
       approved: true,
@@ -321,18 +318,17 @@ describe("gitWorktreeInit", () => {
     expect(result).toEqual({
       ok: true,
       data: {
-        path: "/Users/test/.rakh/worktrees/owner/repo/feature",
+        path: "/custom/root/worktrees/owner/repo/feature",
         branch: "feature",
       },
     });
     expect(states.tab.config.cwd).toBe(
-      "/Users/test/.rakh/worktrees/owner/repo/feature",
+      "/custom/root/worktrees/owner/repo/feature",
     );
   });
 
   it("returns INTERNAL when git_worktree_add fails", async () => {
     setState("tab");
-    setWindowHome("/Users/test");
 
     invokeMock
       .mockResolvedValueOnce({
