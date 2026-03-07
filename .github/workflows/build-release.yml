@@ -77,7 +77,7 @@ jobs:
 
       - name: Build and Release Tauri app
         if: ${{ inputs.target == 'all' || matrix.target == inputs.target }}
-        uses: tauri-apps/tauri-action@v1
+        uses: tauri-apps/tauri-action@v0.6.1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SOURCE_DATE_EPOCH: "1"
