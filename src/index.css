@@ -1,0 +1,56 @@
+@import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=Space+Grotesk:wght@500;700&display=swap");
+@import "tailwindcss";
+
+@theme {
+  --color-ink-950: oklch(13% 0.024 250);
+  --color-ink-900: oklch(18% 0.03 250);
+  --color-brand-400: oklch(84% 0.148 165);
+  --color-brand-300: oklch(89% 0.106 167);
+  --color-brand-200: oklch(93% 0.06 167);
+  --font-display: "Space Grotesk", "Avenir Next", sans-serif;
+  --font-sans: "IBM Plex Sans", "Segoe UI", sans-serif;
+}
+
+:root {
+  color: rgba(255, 255, 255, 0.96);
+  background: oklch(13% 0.024 250);
+  font-family: var(--font-sans);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  min-width: 320px;
+  min-height: 100vh;
+  margin: 0;
+  background:
+    radial-gradient(circle at top, rgba(92, 240, 193, 0.12), transparent 28%),
+    linear-gradient(180deg, rgba(8, 15, 25, 1), rgba(4, 7, 13, 1));
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+::selection {
+  background: rgba(92, 240, 193, 0.36);
+  color: rgba(7, 12, 20, 0.96);
+}
+

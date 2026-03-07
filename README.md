@@ -1,118 +1,38 @@
-# Rakh
+# Rakh Website
 
-Rakh is a desktop AI coding agent for local codebases. It combines a React/Vite
-frontend with a Tauri/Rust backend to give you a multi-tab agent workspace with
-tool approvals, git worktree isolation, an integrated terminal, durable
-artifacts, and specialized subagents.
+Standalone marketing site for `rakh.sh`, built on Vite, React, TypeScript, Tailwind CSS v4, and `gh-pages`.
 
-## Highlights
+## Scripts
 
-- Multiple independent agent tabs, each with isolated state and chat history
-- OpenAI, Anthropic, and OpenAI-compatible provider support
-- Safe file edits and shell commands through explicit approval gates
-- Automatic git worktree setup before agent-driven code changes
-- Built-in subagents for planning, review, security, copy, and GitHub tasks
-- Durable artifacts for plans, reports, and other structured outputs
-- Integrated terminal, voice input, theme system, and session restore
+- `npm run dev` starts the local dev server.
+- `npm run build` creates the production bundle in `dist/`.
+- `npm run preview` serves the production bundle locally.
+- `npm run typecheck` runs TypeScript without emitting files.
+- `npm run deploy:clean` clears the local `gh-pages` cache.
+- `npm run deploy` builds the site and publishes `dist/` to the `gh-pages` branch with the `rakh.sh` CNAME.
+- `npm run deploy:dry-run` runs the same deploy flow locally without pushing.
 
-## Built with
+## GitHub Pages setup
 
-- React 19 + Vite
-- Tauri 2 + Rust
-- Vercel AI SDK
-- Jotai
-- xterm.js
-- Tailwind CSS 4
+1. Push the source branch: `git push -u origin codex/website`
+2. Run the first deployment from this branch: `npm install && npm run deploy`
+3. In GitHub repository settings, set Pages to deploy from the `gh-pages` branch.
+4. Add the `rakh.sh` custom domain in the Pages settings if it is not picked up automatically from `CNAME`.
+5. Enable `Enforce HTTPS` after DNS finishes propagating.
 
-## Getting started
+## DNS for `rakh.sh`
 
-### Prerequisites
+GitHub’s current docs say an apex domain should use either:
 
-- Node.js 20+
-- npm
-- Rust toolchain
-- Tauri system prerequisites for your platform
+- `ALIAS` or `ANAME` for `@` pointing to `amir-s.github.io`
+- or all four `A` records for `@`:
+  - `185.199.108.153`
+  - `185.199.109.153`
+  - `185.199.110.153`
+  - `185.199.111.153`
 
-Install dependencies:
+Optional but recommended:
 
-```bash
-npm install
-```
+- `CNAME` for `www` pointing to `amir-s.github.io`
 
-Run the web UI only:
-
-```bash
-npm run dev
-```
-
-Run the desktop app in development:
-
-```bash
-npm run tauri:dev
-```
-
-## Provider setup
-
-Rakh does not call model APIs until you configure a provider.
-
-You can:
-
-- add an OpenAI, Anthropic, or OpenAI-compatible provider in Settings
-- import `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` from your environment if they
-  are already set
-
-The model picker is built from the static catalog in
-`src/agent/models.catalog.json` plus any cached model list for
-OpenAI-compatible providers.
-
-## Using Rakh
-
-1. Launch the app and open Settings if no provider is configured.
-2. Add or import a provider.
-3. Create a new session, choose a project folder, and pick a model.
-4. Start chatting with the agent.
-5. Approve edits, commands, or worktree creation when prompted.
-
-Useful built-in slash commands:
-
-- `/plan`
-- `/review`
-- `/security`
-- `/copywrite`
-- `/github`
-
-## Development
-
-Common commands:
-
-```bash
-npm run dev
-npm run build
-npm run lint
-npm run typecheck
-npm run test
-npm run test:all
-npm run tauri:dev
-npm run tauri:build
-```
-
-Run Rust tests directly:
-
-```bash
-cd src-tauri && cargo test
-```
-
-## Docs
-
-- `docs/artifacts.md` - durable artifact model and validation flow
-- `docs/macos-release-signing.md` - Apple signing and notarization credentials for macOS releases
-- `docs/subagents.md` - subagent registry, contracts, and execution model
-- `docs/windows-release-signing.md` - Windows code-signing options and credentials for releases
-- `src/DESIGN_SYSTEM.md` - UI primitives and token rules
-- `src/THEMING.md` - theme/token implementation notes
-
-## Repository layout
-
-- `src/` - React UI, agent runtime, tools, and styles
-- `src-tauri/src/` - Rust commands and desktop integration
-- `docs/` - artifact and subagent documentation
+Source: [GitHub Docs](https://docs.github.com/en/pages/configuring-a-custom-domain-for-your-github-pages-site/managing-a-custom-domain-for-your-github-pages-site)
