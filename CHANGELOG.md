@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.1](https://github.com/amir-s/rakh/compare/rakh-v0.3.0...rakh-v0.3.1) (2026-03-07)
+
+
+### Bug Fixes
+
+* pin tauri action to published tag ([#44](https://github.com/amir-s/rakh/issues/44)) ([2f69f53](https://github.com/amir-s/rakh/commit/2f69f53870dda1fb4d7040ae064357395d9bf2b4))
+
 ## [0.3.0](https://github.com/amir-s/rakh/compare/rakh-v0.2.0...rakh-v0.3.0) (2026-03-07)
 
 
