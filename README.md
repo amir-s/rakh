@@ -1,3 +1,7 @@
+<p align="center">
+  <img alt="Rakh Logo" src="https://rakh.sh/icon-shadow.png?logo" />
+</p>
+
 # Rakh
 
 Rakh is a desktop AI coding agent for local codebases. It combines a React/Vite
@@ -23,6 +27,10 @@ artifacts, and specialized subagents.
 - Jotai
 - xterm.js
 - Tailwind CSS 4
+
+<p align="center">
+  <img alt="Rakh Screenshot" src="https://rakh.sh/screenshot-rakh.png?shot" />
+</p>
 
 ## Getting started
 
