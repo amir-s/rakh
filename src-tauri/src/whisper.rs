@@ -1,4 +1,4 @@
-use crate::utils::{home_dir, tool_log};
+use crate::utils::{app_store_root, tool_log};
 use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 use serde_json::{json, Value};
 use std::fs;
@@ -18,12 +18,10 @@ fn whisper_model_download_lock() -> &'static Mutex<()> {
     WHISPER_MODEL_DOWNLOAD_LOCK.get_or_init(|| Mutex::new(()))
 }
 
-fn default_whisper_model_path() -> Option<PathBuf> {
-    home_dir().map(|home| {
-        home.join(".rakh")
-            .join("whisper")
-            .join(DEFAULT_WHISPER_MODEL_FILENAME)
-    })
+fn default_whisper_model_path() -> Result<PathBuf, String> {
+    Ok(app_store_root()?
+        .join("whisper")
+        .join(DEFAULT_WHISPER_MODEL_FILENAME))
 }
 
 fn ensure_existing_model_file(path: &PathBuf) -> Result<(), String> {
@@ -152,9 +150,7 @@ fn download_default_whisper_model(target_path: &PathBuf) -> Result<(), String> {
 }
 
 fn resolve_whisper_model_path() -> Result<PathBuf, String> {
-    let default_path = default_whisper_model_path().ok_or_else(|| {
-        "Cannot determine home directory for default Whisper model storage.".to_string()
-    })?;
+    let default_path = default_whisper_model_path()?;
 
     let existed_before = default_path.exists();
     if !existed_before {

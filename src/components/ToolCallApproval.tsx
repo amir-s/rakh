@@ -229,6 +229,10 @@ function WorktreeApprovalCard({ toolCall }: { toolCall: ToolCallDisplay }) {
   const { id, args } = toolCall;
   const suggested =
     typeof args.suggestedBranch === "string" ? args.suggestedBranch : "";
+  const repoSlug =
+    typeof args.repoSlug === "string" && args.repoSlug.trim()
+      ? args.repoSlug.replace(/^\/+|\/+$/g, "")
+      : "repo";
   const [branch, setBranch] = useState(suggested);
 
   return (
@@ -263,7 +267,7 @@ function WorktreeApprovalCard({ toolCall }: { toolCall: ToolCallDisplay }) {
           }}
         />
         <div className="text-xxs text-muted font-mono mt-[5px] opacity-60">
-          A worktree will be created at ~/.rakh/worktrees/…/
+          A worktree will be created under worktrees/{repoSlug}/
           {branch.trim() || suggested || "branch"}
         </div>
       </div>

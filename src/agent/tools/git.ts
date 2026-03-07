@@ -3,8 +3,8 @@
  *
  * git_worktree_init: called by the agent before its first file write.
  * Presents a custom approval card to the user who can name the branch;
- * on approval, creates a worktree under ~/.rakh/worktrees/<owner>/<repo>/<branch>
- * and updates AgentConfig.cwd so all subsequent tool calls use the new path.
+ * on approval, asks the backend to create a worktree under the active app
+ * store root and updates AgentConfig.cwd to the returned path.
  */
 import { invoke } from "@tauri-apps/api/core";
 import { getAgentState, patchAgentState } from "../atoms";
@@ -49,9 +49,8 @@ function parseRemoteSlug(remoteUrl: string, fallbackName: string): string {
   return fallbackName;
 }
 
-function trimTrailingSlash(path: string): string {
-  if (!path || path === "/") return path;
-  return path.replace(/\/+$/g, "");
+function trimEdgeSlashes(value: string): string {
+  return value.replace(/^\/+|\/+$/g, "");
 }
 
 export async function gitWorktreeInit(
@@ -140,29 +139,7 @@ export async function gitWorktreeInit(
 
   // 5. Build worktree path proposal
   const sanitised = sanitiseBranch(input.suggestedBranch || "agent-branch");
-  const home =
-    typeof window !== "undefined"
-      ? (window as unknown as { __EVE_HOME__?: string }).__EVE_HOME__
-      : undefined;
-  // Use HOME env via a quick invoke if needed; fall back to a known path
-  let homeDir = home ?? "";
-  if (!homeDir) {
-    try {
-      const r = await invoke<{ exitCode: number; stdout: string }>("exec_run", {
-        command: "sh",
-        args: ["-c", "echo $HOME"],
-        cwd: repoRoot,
-        env: {},
-        timeoutMs: 5_000,
-        maxStdoutBytes: 512,
-        maxStderrBytes: 512,
-        stdin: null,
-      });
-      homeDir = r.stdout.trim();
-    } catch {
-      homeDir = "~";
-    }
-  }
+  const repoSlug = trimEdgeSlashes(slug) || repoName;
   // 6. Update the tool call display status so the UI renders the custom card,
   //    then block until the user makes a decision.
   patchAgentState(tabId, (prev) => ({
@@ -173,7 +150,15 @@ export async function gitWorktreeInit(
             ...m,
             toolCalls: m.toolCalls.map((t) =>
               t.id === toolCallId
-                ? { ...t, status: "awaiting_worktree" as const }
+                ? {
+                    ...t,
+                    status: "awaiting_worktree" as const,
+                    args: {
+                      ...t.args,
+                      suggestedBranch: input.suggestedBranch,
+                      repoSlug,
+                    },
+                  }
                 : t,
             ),
           }
@@ -194,18 +179,18 @@ export async function gitWorktreeInit(
 
   // 8. Create the worktree
   const finalBranch = sanitiseBranch(branchName || sanitised);
-  const baseHome = trimTrailingSlash(homeDir);
-  const slugClean = slug.replace(/^\/+|\/+$/g, "");
-  const finalPath = trimTrailingSlash(
-    `${baseHome}/.rakh/worktrees/${slugClean}/${finalBranch}`,
-  );
+  let finalPath: string;
 
   try {
-    await invoke("git_worktree_add", {
-      repoPath: repoRoot,
-      worktreePath: finalPath,
-      branch: finalBranch,
-    });
+    const created = await invoke<{ path: string; branch: string }>(
+      "git_worktree_add",
+      {
+        repoPath: repoRoot,
+        repoSlug,
+        branch: finalBranch,
+      },
+    );
+    finalPath = created.path;
   } catch (e) {
     return {
       ok: false,
