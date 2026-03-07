@@ -5,6 +5,13 @@
   flex-direction: column;
   gap: 4px;
 }
+
+.conversation-group {
+  --conversation-card-accent: var(--color-primary);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
 .msg--collapsed-click-target {
   cursor: pointer;
 }
@@ -139,6 +146,97 @@
   padding-top: 10px;
   /* border-top: 1px solid
     color-mix(in srgb, var(--color-primary) 14%, transparent); */
+}
+
+.conversation-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.conversation-card {
+  border-color: color-mix(
+    in srgb,
+    var(--conversation-card-accent) 22%,
+    var(--color-border-subtle)
+  );
+  box-shadow: inset 2px 0 0
+    color-mix(in srgb, var(--conversation-card-accent) 42%, transparent);
+}
+
+.conversation-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px 0 14px;
+}
+
+.conversation-card-heading {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1;
+}
+
+.conversation-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.conversation-card-icon-btn {
+  min-width: 28px;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.conversation-card-icon-btn--success,
+.conversation-card-icon-btn--success:hover:not(:disabled) {
+  color: var(--color-success);
+  border-color: color-mix(in srgb, var(--color-success) 35%, transparent);
+  background: color-mix(in srgb, var(--color-success) 14%, transparent);
+}
+
+.conversation-card-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.conversation-card-title {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--color-text);
+  line-height: 1.45;
+}
+
+.conversation-card-meta {
+  font-size: var(--text-xxs);
+  color: var(--color-muted);
+  line-height: 1.5;
+}
+
+.conversation-card-body {
+  padding: 10px 14px 14px 14px;
+}
+
+.conversation-card-markdown {
+  color: var(--color-text);
+}
+
+.conversation-card-markdown .md-p:first-child,
+.conversation-card-markdown .md-h1:first-child,
+.conversation-card-markdown .md-h2:first-child,
+.conversation-card-markdown .md-h3:first-child {
+  margin-top: 0;
 }
 
 .msg-reasoning {

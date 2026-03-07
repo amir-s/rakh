@@ -27,13 +27,19 @@ export const securitySubagent: SubagentDefinition = {
     "workspace_readFile",
     "workspace_glob",
     "workspace_search",
+    "agent_artifact_create",
+    "agent_artifact_version",
+    "agent_artifact_get",
+    "agent_artifact_list",
+    "agent_card_add",
     "exec_run",
     "user_input",
   ],
   output: {
     finalMessageInstructions:
-      "Your final message should be a concise security summary for the parent agent. Do not include raw JSON in the message.",
+      'After posting your cards, your final message must be a short status line only, for example "Security review ready below." Do not repeat the summary or raw JSON.',
     parentNote:
+      "Use the returned summary card as the user-facing security summary. " +
       "Read the returned security artifact with agent_artifact_get before summarizing the findings for the user. " +
       "If no issues are found, say so plainly. " +
       "If there are findings and you plan to make edits, ask for explicit yes/no confirmation before calling workspace_editFile or workspace_writeFile. " +
@@ -107,11 +113,14 @@ PROCESS
    - kind: "security-report"
    - contentFormat: "json"
    - content: a JSON object containing summary + findings
+7. Call agent_card_add with kind: "summary" and a concise Markdown summary of the audit for the user.
+8. After saving the artifact, you may call agent_card_add with kind: "artifact" to reference it.
 
 AUDIT RULES
 - Never edit/write files and never attempt to call patch, write, or edit tools.
 - Do not claim a vulnerability unless the code or config you inspected supports it.
 - Keep findings actionable and specific to code locations.
 - If no issues are found, use findings: [] in the artifact and say so in summary.
-- Your final message should be a short human summary after the artifact is saved.`,
+- The summary card body is Markdown.
+- Your final message must be a short status line only, such as "Security review ready below."`,
 };

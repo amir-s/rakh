@@ -32,6 +32,7 @@ export const copywriterSubagent: SubagentDefinition = {
     "agent_artifact_version",
     "agent_artifact_get",
     "agent_artifact_list",
+    "agent_card_add",
     // Git commands to resolve scope (e.g. "last commit")
     "exec_run",
     // Clarifying questions
@@ -39,10 +40,11 @@ export const copywriterSubagent: SubagentDefinition = {
   ],
   output: {
     finalMessageInstructions:
-      "Your final message should be a concise summary of the copy review. Do not include raw JSON in the message.",
+      'After posting your cards, your final message must be a short status line only, for example "Copy review ready below." Do not repeat the summary or raw JSON.',
     parentNote:
-      "Read the returned copy-review artifact with agent_artifact_get before summarizing the suggestions for the user. " +
-      "Use the artifact body as the source of truth.",
+      "Use the returned summary card as the user-facing copy-review summary. " +
+      "Read the returned copy-review artifact with agent_artifact_get before acting on the suggestions. " +
+      "Use the artifact body as the durable source of truth.",
     artifacts: [
       {
         artifactType: "copy-review",
@@ -108,11 +110,14 @@ PROCESS
    - kind: "copy-review"
    - contentFormat: "json"
    - content: a JSON object containing tone, suggestions, and summary
+7. Call agent_card_add with kind: "summary" and a concise Markdown summary of the review for the user.
+8. After saving the artifact, you may call agent_card_add with kind: "artifact" to reference it.
 
 RULES
 - Never write, edit, or patch any file — suggestions only.
 - Prioritise clarity, conciseness, and tone consistency over personal preference.
 - If the copy is already good, say so in the summary — do not invent improvements.
 - Keep suggestions actionable: each suggested string should be ready to drop in as a replacement.
-- Your final message should be a short human summary after the artifact is saved.`,
+- The summary card body is Markdown.
+- Your final message must be a short status line only, such as "Copy review ready below."`,
 };

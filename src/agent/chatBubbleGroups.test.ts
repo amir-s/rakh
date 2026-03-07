@@ -69,4 +69,35 @@ describe("groupChatMessagesForBubbles", () => {
   it("returns an empty list for empty input", () => {
     expect(groupChatMessagesForBubbles([])).toEqual([]);
   });
+
+  it("keeps card-bearing assistant messages in the same bubble group", () => {
+    const groups = groupChatMessagesForBubbles([
+      assistantMessage("a1", "First"),
+      {
+        ...assistantMessage("a2", "Second"),
+        cards: [
+          {
+            id: "card-1",
+            kind: "summary",
+            markdown: "## Summary",
+          },
+        ],
+      },
+      assistantMessage("a3", "Third"),
+    ]);
+
+    expect(groups).toHaveLength(1);
+    expect(groups[0]).toMatchObject({
+      kind: "assistant",
+      key: "assistant:a1",
+    });
+    if (groups[0].kind !== "assistant") {
+      throw new Error("Expected assistant group");
+    }
+    expect(groups[0].messages.map((msg) => msg.id)).toEqual([
+      "a1",
+      "a2",
+      "a3",
+    ]);
+  });
 });

@@ -33,6 +33,7 @@ export const plannerSubagent: SubagentDefinition = {
     "agent_artifact_version",
     "agent_artifact_get",
     "agent_artifact_list",
+    "agent_card_add",
     "agent_todo_add",
     "agent_todo_update",
     "agent_todo_list",
@@ -40,11 +41,11 @@ export const plannerSubagent: SubagentDefinition = {
   ],
   output: {
     finalMessageInstructions:
-      "Your final message should be a concise human-readable summary: what was planned, key assumptions made, and any risks or unknowns worth flagging.",
+      'After posting your cards, your final message must be a short status line only, for example "Plan ready below." Do not repeat the plan summary or artifact content.',
     parentNote:
-      'The plan has been saved as an artifact (kind="plan"). ' +
-      "The tool result includes an `artifacts` array with the plan's artifactId — use it to read the plan directly with agent_artifact_get if needed. " +
-      "Do NOT repeat or echo the plan content in your response.",
+      "Use the returned summary card as the user-facing summary. " +
+      "For durable plan content, read the returned plan artifact directly with agent_artifact_get when needed. " +
+      "Artifact cards are references only.",
     artifacts: [
       {
         artifactType: "plan",
@@ -71,7 +72,8 @@ PROCESS
 
 6. Break the plan into discrete, concrete steps using agent_todo_add.
 7. If you make refinements while adding todos, call agent_artifact_version with the updated plan content.
-8. Write a concise summary of what was planned.
+8. Call agent_card_add with kind: "summary" and a concise Markdown summary of what was planned, key assumptions, and any risks or unknowns worth flagging.
+9. After saving the artifact, you may also call agent_card_add with kind: "artifact" to reference the saved plan artifact.
 
 RULES
 - Always read before you plan — gather context first, do not guess at structure.
@@ -80,5 +82,7 @@ RULES
 - Do NOT write or modify any code or files; your role is planning only.
 - Do NOT ask clarifying questions unless you truly cannot determine the intent.
 - Keep your conversational responses concise; the plan artifact is the primary output.
-- You MUST call agent_artifact_create before finishing — a plan that exists only in your text response is useless.`,
+- The summary card body is Markdown.
+- You MUST call agent_artifact_create before finishing — a plan that exists only in your text response is useless.
+- Your final message must be a short status line only, such as "Plan ready below."`,
 };

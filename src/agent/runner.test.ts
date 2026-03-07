@@ -192,6 +192,40 @@ function makeArtifact(
   };
 }
 
+function makeSummaryCardToolCall(
+  id: string,
+  markdown: string,
+  title?: string,
+): MockToolCall {
+  return {
+    id,
+    name: "agent_card_add",
+    arguments: {
+      kind: "summary",
+      ...(title ? { title } : {}),
+      markdown,
+    },
+  };
+}
+
+function makeArtifactCardToolCall(
+  id: string,
+  artifactId: string,
+  version?: number,
+  title?: string,
+): MockToolCall {
+  return {
+    id,
+    name: "agent_card_add",
+    arguments: {
+      kind: "artifact",
+      ...(title ? { title } : {}),
+      artifactId,
+      ...(version !== undefined ? { version } : {}),
+    },
+  };
+}
+
 function parseToolMessageResult(
   tabId: string,
   toolCallId: string,
@@ -200,6 +234,12 @@ function parseToolMessageResult(
     (msg) => msg.role === "tool" && msg.tool_call_id === toolCallId,
   );
   return JSON.parse(String(toolMessage?.content));
+}
+
+async function flushAsyncWork(rounds = 6): Promise<void> {
+  for (let index = 0; index < rounds; index += 1) {
+    await Promise.resolve();
+  }
 }
 
 describe("runner", () => {
@@ -374,6 +414,23 @@ describe("runner", () => {
     );
     expect(systemMessage.content).toContain(
       "Always include a concrete scope (file(s), directory, or commit range) in the message.",
+    );
+  });
+
+  it("tells the parent agent not to recreate cards returned by subagents", async () => {
+    const tabId = "tab-system-prompt-subagent-cards";
+    setState(tabId);
+    turns.push({ deltas: ["Hello"], toolCalls: [] });
+
+    await runAgent(tabId, "hi");
+
+    const systemMessage = states[tabId].apiMessages[0];
+    expect(systemMessage.role).toBe("system");
+    expect(systemMessage.content).toContain(
+      "When a subagent returns cards, those cards are already visible to the user.",
+    );
+    expect(systemMessage.content).toContain(
+      "Read them, but do not recreate the same cards with agent_card_add.",
     );
   });
 
@@ -623,6 +680,138 @@ describe("runner", () => {
       id: "tc-glob",
       tool: "workspace_glob",
     });
+  });
+
+  it("attaches conversation cards to the owning assistant message in tool declaration order", async () => {
+    const tabId = "tab-agent-cards";
+    setState(tabId);
+
+    turns.push(
+      {
+        deltas: ["Posting cards."],
+        toolCalls: [
+          makeSummaryCardToolCall(
+            "tc-card-summary",
+            "## Summary\n\n- First card",
+            "Summary Card",
+          ),
+          makeArtifactCardToolCall(
+            "tc-card-artifact",
+            "artifact_123",
+            3,
+            "Artifact Card",
+          ),
+        ],
+      },
+      { deltas: ["Done."], toolCalls: [] },
+    );
+
+    await runAgent(tabId, "post cards");
+
+    const state = states[tabId];
+    const assistantWithCards = state.chatMessages.find(
+      (m) => m.role === "assistant" && Array.isArray(m.cards) && m.cards.length > 0,
+    );
+    expect(assistantWithCards).toBeDefined();
+    expect(assistantWithCards?.content).toBe("Posting cards.");
+    expect(assistantWithCards?.cards).toMatchObject([
+      {
+        kind: "summary",
+        title: "Summary Card",
+        markdown: "## Summary\n\n- First card",
+      },
+      {
+        kind: "artifact",
+        title: "Artifact Card",
+        artifactId: "artifact_123",
+        version: 3,
+      },
+    ]);
+
+    const cardToolCalls =
+      (assistantWithCards?.toolCalls as Array<Record<string, unknown>> | undefined) ?? [];
+    expect(cardToolCalls.map((tc) => tc.id)).toEqual([
+      "tc-card-summary",
+      "tc-card-artifact",
+    ]);
+    expect(cardToolCalls.map((tc) => tc.status)).toEqual(["done", "done"]);
+
+    expect(parseToolMessageResult(tabId, "tc-card-summary")).toEqual({
+      ok: true,
+      data: { cardId: expect.any(String), kind: "summary" },
+    });
+    expect(parseToolMessageResult(tabId, "tc-card-artifact")).toEqual({
+      ok: true,
+      data: { cardId: expect.any(String), kind: "artifact" },
+    });
+  });
+
+  it("renders completed card tool results before the rest of the tool batch finishes", async () => {
+    const tabId = "tab-agent-cards-mid-batch";
+    setState(tabId);
+
+    let resolveGlob:
+      | ((value: { ok: true; data: { matches: string[] } }) => void)
+      | undefined;
+
+    dispatchToolMock.mockImplementation((...args: unknown[]) => {
+      if (args[2] !== "workspace_glob") {
+        return Promise.resolve({ ok: true, data: { ok: true } });
+      }
+      return new Promise((resolve) => {
+        resolveGlob = resolve as (
+          value: { ok: true; data: { matches: string[] } },
+        ) => void;
+      });
+    });
+
+    turns.push(
+      {
+        deltas: ["Posting cards."],
+        toolCalls: [
+          makeSummaryCardToolCall(
+            "tc-card-summary",
+            "## Summary\n\n- First card",
+            "Summary Card",
+          ),
+          {
+            id: "tc-glob",
+            name: "workspace_glob",
+            arguments: { patterns: ["*.ts"] },
+          },
+        ],
+      },
+      { deltas: ["Done."], toolCalls: [] },
+    );
+
+    const runPromise = runAgent(tabId, "post cards");
+    await flushAsyncWork();
+
+    const inFlightAssistant = states[tabId].chatMessages.find(
+      (message) =>
+        message.role === "assistant" &&
+        Array.isArray(message.cards) &&
+        message.cards.length > 0,
+    );
+    expect(inFlightAssistant).toBeDefined();
+    expect(inFlightAssistant?.cards).toMatchObject([
+      {
+        kind: "summary",
+        title: "Summary Card",
+        markdown: "## Summary\n\n- First card",
+      },
+    ]);
+    expect(
+      (
+        inFlightAssistant?.toolCalls as
+          | Array<Record<string, unknown>>
+          | undefined
+      )?.map((toolCall) => toolCall.status),
+    ).toEqual(["done", "running"]);
+
+    expect(resolveGlob).toBeTypeOf("function");
+    resolveGlob?.({ ok: true, data: { matches: [] } });
+    await runPromise;
   });
 
   it("reuses one runId across main + subagent tool dispatches and sets agentId", async () => {
@@ -1298,7 +1487,23 @@ describe("runner", () => {
         ],
       });
       turns.push({
-        deltas: ["Here is the plan summary."],
+        deltas: ["Posting plan cards."],
+        toolCalls: [
+          makeSummaryCardToolCall(
+            "tc-plan-summary-card",
+            "## Auth refactor plan\n\n- Inspect auth\n- Refactor auth",
+            "Plan Summary",
+          ),
+          makeArtifactCardToolCall(
+            "tc-plan-artifact-card",
+            "plan_123",
+            1,
+            "Saved Plan",
+          ),
+        ],
+      });
+      turns.push({
+        deltas: ["Plan ready below."],
         toolCalls: [],
       });
       turns.push({
@@ -1334,11 +1539,28 @@ describe("runner", () => {
 
       const state = states[tabId];
       expect(state.status).toBe("idle");
-      const subagentMessage = state.chatMessages
-        .filter((m) => m.agentName === "Planner")
-        .at(-1);
-      expect(subagentMessage).toBeDefined();
-      expect(subagentMessage?.content).toBe("Here is the plan summary.");
+      const plannerMessages = state.chatMessages.filter(
+        (m) => m.agentName === "Planner",
+      );
+      const plannerCardMessage = plannerMessages.find(
+        (m) => Array.isArray(m.cards) && m.cards.length > 0,
+      );
+      expect(plannerCardMessage).toBeDefined();
+      expect(plannerCardMessage?.content).toBe("Posting plan cards.");
+      expect(plannerCardMessage?.cards).toMatchObject([
+        {
+          kind: "summary",
+          title: "Plan Summary",
+          markdown: "## Auth refactor plan\n\n- Inspect auth\n- Refactor auth",
+        },
+        {
+          kind: "artifact",
+          title: "Saved Plan",
+          artifactId: "plan_123",
+          version: 1,
+        },
+      ]);
+      expect(plannerMessages.at(-1)?.content).toBe("Plan ready below.");
       const parentFinal = state.chatMessages.at(-1);
       expect(parentFinal?.role).toBe("assistant");
       expect(parentFinal?.content).toBe("Starting work.");
@@ -1362,12 +1584,26 @@ describe("runner", () => {
         ok: true,
         data: {
           subagentId: "planner",
+          cards: [
+            {
+              kind: "summary",
+              title: "Plan Summary",
+              markdown: "## Auth refactor plan\n\n- Inspect auth\n- Refactor auth",
+            },
+            {
+              kind: "artifact",
+              title: "Saved Plan",
+              artifactId: "plan_123",
+              version: 1,
+              instruction: "Read the artifact directly to get the content.",
+            },
+          ],
           artifacts: [{ artifactId: "plan_123" }],
           artifactValidations: [],
         },
       });
       expect(subagentResult).not.toHaveProperty("data.output");
-      expect(streamTextMock).toHaveBeenCalledTimes(4);
+      expect(streamTextMock).toHaveBeenCalledTimes(5);
     });
 
     it("supports summary-only subagents with no artifact contract", async () => {
@@ -1388,7 +1624,17 @@ describe("runner", () => {
         ],
       });
       turns.push({
-        deltas: ["Created issue #42 in acme/app: https://github.com/acme/app/issues/42"],
+        deltas: ["Posting GitHub summary card."],
+        toolCalls: [
+          makeSummaryCardToolCall(
+            "tc-github-summary-card",
+            "Created issue #42 in `acme/app`.\n\n- URL: https://github.com/acme/app/issues/42",
+            "GitHub Update",
+          ),
+        ],
+      });
+      turns.push({
+        deltas: ["GitHub update ready below."],
         toolCalls: [],
       });
       turns.push({
@@ -1401,10 +1647,23 @@ describe("runner", () => {
       const state = states[tabId];
       expect(state.status).toBe("idle");
       const subagentMessage = state.chatMessages
-        .filter((m) => m.agentName === "GitHub Operator")
+        .filter(
+          (m) =>
+            m.agentName === "GitHub Operator" &&
+            Array.isArray(m.cards) &&
+            m.cards.length > 0,
+        )
         .at(-1);
       expect(subagentMessage).toBeDefined();
-      expect(subagentMessage?.content).toContain("Created issue #42");
+      expect(subagentMessage?.content).toContain("Posting GitHub summary card.");
+      expect(subagentMessage?.cards).toMatchObject([
+        {
+          kind: "summary",
+          title: "GitHub Update",
+          markdown:
+            "Created issue #42 in `acme/app`.\n\n- URL: https://github.com/acme/app/issues/42",
+        },
+      ]);
       expect(state.chatMessages.at(-1)).toMatchObject({
         role: "assistant",
         content: "Issue created and linked.",
@@ -1415,13 +1674,20 @@ describe("runner", () => {
         ok: true,
         data: {
           subagentId: "github",
-          rawText:
-            "Created issue #42 in acme/app: https://github.com/acme/app/issues/42",
+          rawText: "GitHub update ready below.",
+          cards: [
+            {
+              kind: "summary",
+              title: "GitHub Update",
+              markdown:
+                "Created issue #42 in `acme/app`.\n\n- URL: https://github.com/acme/app/issues/42",
+            },
+          ],
           artifacts: [],
           artifactValidations: [],
         },
       });
-      expect(streamTextMock).toHaveBeenCalledTimes(3);
+      expect(streamTextMock).toHaveBeenCalledTimes(4);
     });
 
     it("rejects invalid reviewer artifacts before persistence and succeeds after retry", async () => {
@@ -1473,7 +1739,23 @@ describe("runner", () => {
         ],
       });
       turns.push({
-        deltas: ["Review saved."],
+        deltas: ["Posting review cards."],
+        toolCalls: [
+          makeSummaryCardToolCall(
+            "tc-review-summary-card",
+            "## Review Summary\n\nNo blocking issues found.",
+            "Review Summary",
+          ),
+          makeArtifactCardToolCall(
+            "tc-review-artifact-card",
+            "review_1",
+            1,
+            "Saved Review Report",
+          ),
+        ],
+      });
+      turns.push({
+        deltas: ["Review ready below."],
         toolCalls: [],
       });
       turns.push({
@@ -1509,6 +1791,25 @@ describe("runner", () => {
 
       const state = states[tabId];
       expect(state.status).toBe("idle");
+      const reviewerCardMessage = state.chatMessages.find(
+        (m) =>
+          m.agentName === "Code Reviewer" &&
+          Array.isArray(m.cards) &&
+          m.cards.length > 0,
+      );
+      expect(reviewerCardMessage?.cards).toMatchObject([
+        {
+          kind: "summary",
+          title: "Review Summary",
+          markdown: "## Review Summary\n\nNo blocking issues found.",
+        },
+        {
+          kind: "artifact",
+          title: "Saved Review Report",
+          artifactId: "review_1",
+          version: 1,
+        },
+      ]);
       const parentFinal = state.chatMessages.at(-1);
       expect(parentFinal?.role).toBe("assistant");
       expect(parentFinal?.content).toBe(
@@ -1551,6 +1852,20 @@ describe("runner", () => {
       expect(subagentResult).toMatchObject({
         ok: true,
         data: {
+          cards: [
+            {
+              kind: "summary",
+              title: "Review Summary",
+              markdown: "## Review Summary\n\nNo blocking issues found.",
+            },
+            {
+              kind: "artifact",
+              title: "Saved Review Report",
+              artifactId: "review_1",
+              version: 1,
+              instruction: "Read the artifact directly to get the content.",
+            },
+          ],
           artifacts: [{ artifactId: "review_1" }],
           artifactValidations: [
             {
@@ -1562,7 +1877,7 @@ describe("runner", () => {
           ],
         },
       });
-      expect(streamTextMock).toHaveBeenCalledTimes(5);
+      expect(streamTextMock).toHaveBeenCalledTimes(6);
     });
 
     it("returns validator-backed security artifact refs to the parent agent", async () => {
@@ -1614,9 +1929,23 @@ describe("runner", () => {
         ],
       });
       turns.push({
-        deltas: [
-          "Security audit complete.",
+        deltas: ["Posting security cards."],
+        toolCalls: [
+          makeSummaryCardToolCall(
+            "tc-security-summary-card",
+            "## Security Summary\n\nOne medium-risk path validation issue.",
+            "Security Summary",
+          ),
+          makeArtifactCardToolCall(
+            "tc-security-artifact-card",
+            "security_1",
+            1,
+            "Saved Security Report",
+          ),
         ],
+      });
+      turns.push({
+        deltas: ["Security review ready below."],
         toolCalls: [],
       });
       turns.push({
@@ -1653,10 +1982,29 @@ describe("runner", () => {
       expect(state.status).toBe("idle");
 
       const securityMessage = state.chatMessages
-        .filter((m) => m.agentName === "Security Auditor")
+        .filter(
+          (m) =>
+            m.agentName === "Security Auditor" &&
+            Array.isArray(m.cards) &&
+            m.cards.length > 0,
+        )
         .at(-1);
       expect(securityMessage).toBeDefined();
-      expect(securityMessage?.content).toContain("Security audit complete.");
+      expect(securityMessage?.content).toContain("Posting security cards.");
+      expect(securityMessage?.cards).toMatchObject([
+        {
+          kind: "summary",
+          title: "Security Summary",
+          markdown:
+            "## Security Summary\n\nOne medium-risk path validation issue.",
+        },
+        {
+          kind: "artifact",
+          title: "Saved Security Report",
+          artifactId: "security_1",
+          version: 1,
+        },
+      ]);
 
       const parentFinal = state.chatMessages.at(-1);
       expect(parentFinal?.role).toBe("assistant");
@@ -1667,6 +2015,21 @@ describe("runner", () => {
       expect(subagentResult).toMatchObject({
         ok: true,
         data: {
+          cards: [
+            {
+              kind: "summary",
+              title: "Security Summary",
+              markdown:
+                "## Security Summary\n\nOne medium-risk path validation issue.",
+            },
+            {
+              kind: "artifact",
+              title: "Saved Security Report",
+              artifactId: "security_1",
+              version: 1,
+              instruction: "Read the artifact directly to get the content.",
+            },
+          ],
           artifacts: [{ artifactId: "security_1" }],
           artifactValidations: [
             {
@@ -1678,7 +2041,7 @@ describe("runner", () => {
           ],
         },
       });
-      expect(streamTextMock).toHaveBeenCalledTimes(4);
+      expect(streamTextMock).toHaveBeenCalledTimes(5);
     });
 
     it("allows warn-mode copywriter artifacts to persist and reports warnings", async () => {
@@ -1717,7 +2080,23 @@ describe("runner", () => {
         ],
       });
       turns.push({
-        deltas: ["Copy review saved."],
+        deltas: ["Posting copy-review cards."],
+        toolCalls: [
+          makeSummaryCardToolCall(
+            "tc-copywriter-summary-card",
+            "## Copy Review Summary\n\nTone looks friendly; no changes required.",
+            "Copy Review Summary",
+          ),
+          makeArtifactCardToolCall(
+            "tc-copywriter-artifact-card",
+            "copy_1",
+            1,
+            "Saved Copy Review",
+          ),
+        ],
+      });
+      turns.push({
+        deltas: ["Copy review ready below."],
         toolCalls: [],
       });
       turns.push({
@@ -1754,6 +2133,21 @@ describe("runner", () => {
       expect(subagentResult).toMatchObject({
         ok: true,
         data: {
+          cards: [
+            {
+              kind: "summary",
+              title: "Copy Review Summary",
+              markdown:
+                "## Copy Review Summary\n\nTone looks friendly; no changes required.",
+            },
+            {
+              kind: "artifact",
+              title: "Saved Copy Review",
+              artifactId: "copy_1",
+              version: 1,
+              instruction: "Read the artifact directly to get the content.",
+            },
+          ],
           artifacts: [{ artifactId: "copy_1" }],
           artifactValidations: [
             {
@@ -1884,7 +2278,17 @@ describe("runner", () => {
           },
         ],
       });
-      turns.push({ deltas: ["Plan done."], toolCalls: [] });
+      turns.push({
+        deltas: ["Posting planner summary card."],
+        toolCalls: [
+          makeSummaryCardToolCall(
+            "tc-approval-plan-summary-card",
+            "## Quick Plan\n\n- Step 1",
+            "Quick Plan",
+          ),
+        ],
+      });
+      turns.push({ deltas: ["Plan ready below."], toolCalls: [] });
       // parent follow-up
       turns.push({ deltas: ["OK."], toolCalls: [] });
 
@@ -1962,7 +2366,17 @@ describe("runner", () => {
           },
         ],
       });
-      turns.push({ deltas: ["Plan complete."], toolCalls: [] });
+      turns.push({
+        deltas: ["Posting plan summary card."],
+        toolCalls: [
+          makeSummaryCardToolCall(
+            "tc-plan-summary-after-list",
+            "## Plan Summary\n\n- Inspect src\n- Finalize plan",
+            "Plan Summary",
+          ),
+        ],
+      });
+      turns.push({ deltas: ["Plan ready below."], toolCalls: [] });
       // Parent follow-up
       turns.push({ deltas: ["Great."], toolCalls: [] });
 
@@ -2007,7 +2421,7 @@ describe("runner", () => {
 
       const state = states[tabId];
       expect(state.status).toBe("idle");
-      expect(streamTextMock).toHaveBeenCalledTimes(5);
+      expect(streamTextMock).toHaveBeenCalledTimes(6);
     });
 
     it("security subagent exec_run follows the normal approval path", async () => {
@@ -2059,9 +2473,16 @@ describe("runner", () => {
         ],
       });
       turns.push({
-        deltas: ["Security audit complete."],
-        toolCalls: [],
+        deltas: ["Posting security summary card."],
+        toolCalls: [
+          makeSummaryCardToolCall(
+            "tc-security-exec-summary-card",
+            "## Security Summary\n\nNo security issues found.",
+            "Security Summary",
+          ),
+        ],
       });
+      turns.push({ deltas: ["Security review ready below."], toolCalls: [] });
       turns.push({ deltas: ["No security issues found."], toolCalls: [] });
 
       requiresApprovalMock.mockImplementation((toolName: string) => {
@@ -2137,7 +2558,17 @@ describe("runner", () => {
         ],
       });
       turns.push({
-        deltas: ["Scoped review complete."],
+        deltas: ["Posting scoped review card."],
+        toolCalls: [
+          makeSummaryCardToolCall(
+            "tc-trigger-review-summary-card",
+            "## Scoped Review\n\nNo issues found in `src/agent/runner.ts`.",
+            "Scoped Review",
+          ),
+        ],
+      });
+      turns.push({
+        deltas: ["Review ready below."],
         toolCalls: [],
       });
 
@@ -2177,10 +2608,10 @@ describe("runner", () => {
         agentName: "Code Reviewer",
       });
       expect(String(state.chatMessages.at(-1)?.content)).toContain(
-        "Scoped review complete.",
+        "Review ready below.",
       );
       expect(state.error).toBeNull();
-      expect(streamTextMock).toHaveBeenCalledTimes(2);
+      expect(streamTextMock).toHaveBeenCalledTimes(3);
     });
 
     it("routes /security directly to the security subagent", async () => {
@@ -2203,7 +2634,17 @@ describe("runner", () => {
         ],
       });
       turns.push({
-        deltas: ["Security scan complete."],
+        deltas: ["Posting security summary card."],
+        toolCalls: [
+          makeSummaryCardToolCall(
+            "tc-trigger-security-summary-card",
+            "## Security Scan\n\nNo issues found in `src/agent/runner.ts`.",
+            "Security Scan",
+          ),
+        ],
+      });
+      turns.push({
+        deltas: ["Security review ready below."],
         toolCalls: [],
       });
 
@@ -2243,10 +2684,10 @@ describe("runner", () => {
         agentName: "Security Auditor",
       });
       expect(String(state.chatMessages.at(-1)?.content)).toContain(
-        "Security scan complete.",
+        "Security review ready below.",
       );
       expect(state.error).toBeNull();
-      expect(streamTextMock).toHaveBeenCalledTimes(2);
+      expect(streamTextMock).toHaveBeenCalledTimes(3);
     });
   });
 

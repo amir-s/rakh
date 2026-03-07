@@ -40,7 +40,11 @@ export function groupChatMessagesForBubbles(
     if (isAssistantMessage(msg)) {
       const prev = groups[groups.length - 1];
       // Merge into the previous assistant bubble only when the agent name matches.
-      if (prev && prev.kind === "assistant" && prev.agentName === msg.agentName) {
+      if (
+        prev &&
+        prev.kind === "assistant" &&
+        prev.agentName === msg.agentName
+      ) {
         prev.messages.push(msg);
         continue;
       }

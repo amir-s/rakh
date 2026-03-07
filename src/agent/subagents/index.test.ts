@@ -58,6 +58,7 @@ describe("getAllSubagents", () => {
           expect(["reject", "warn"]).toContain(artifact.validator.validationMode);
         }
       }
+
     }
   });
 });
@@ -215,6 +216,8 @@ describe("reviewer tool safety", () => {
     expect(reviewer).toBeDefined();
     expect(reviewer?.tools).not.toContain("workspace_editFile");
     expect(reviewer?.tools).not.toContain("workspace_writeFile");
+    expect(reviewer?.tools).toContain("agent_artifact_create");
+    expect(reviewer?.tools).toContain("agent_card_add");
   });
 });
 
@@ -225,15 +228,18 @@ describe("security tool safety", () => {
     expect(security?.tools).not.toContain("workspace_editFile");
     expect(security?.tools).not.toContain("workspace_writeFile");
     expect(security?.tools).toContain("exec_run");
+    expect(security?.tools).toContain("agent_artifact_create");
+    expect(security?.tools).toContain("agent_card_add");
   });
 });
 
 describe("github subagent", () => {
-  it("declares summary-only output with no artifacts", () => {
+  it("declares no artifacts and relies on summary cards via prompt instructions", () => {
     const github = getSubagent("github");
     expect(github).toBeDefined();
     expect(github?.output?.artifacts).toEqual([]);
     expect(github?.output?.parentNote).toContain("does not create artifacts");
+    expect(github?.systemPrompt).toContain('agent_card_add with kind: "summary"');
   });
 
   it("github tool allowlist excludes edit and write tools", () => {
@@ -242,6 +248,7 @@ describe("github subagent", () => {
     expect(github?.tools).not.toContain("workspace_editFile");
     expect(github?.tools).not.toContain("workspace_writeFile");
     expect(github?.tools).toContain("exec_run");
+    expect(github?.tools).toContain("agent_card_add");
   });
 });
 
