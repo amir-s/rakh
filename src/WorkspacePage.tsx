@@ -37,6 +37,7 @@ import {
 import { useVoiceInputController } from "@/components/voice-input/useVoiceInputController";
 import { useTabs } from "@/contexts/TabsContext";
 import { useAgent } from "@/agent/useAgents";
+import { useModels } from "@/agent/useModels";
 import { patchAgentState, voiceInputEnabledAtom } from "@/agent/atoms";
 import { getAllSubagents, getSubagentThemeColorToken } from "@/agent/subagents";
 import { groupChatMessagesForBubbles } from "@/agent/chatBubbleGroups";
@@ -58,6 +59,7 @@ export default function WorkspacePage() {
   // Agent state — always called (hooks must not be conditional)
   const agent = useAgent(activeTabId);
   const isAgentBusy = agent.status === "thinking" || agent.status === "working";
+  const { models } = useModels();
 
   const [inputByTab, setInputByTab] = useState<Record<string, string>>({});
   const input = inputByTab[activeTabId] ?? "";
@@ -249,6 +251,24 @@ export default function WorkspacePage() {
   };
 
 
+  const injectAssistantMessage = useCallback(
+    (content: string) => {
+      patchAgentState(activeTabId, (prev) => ({
+        ...prev,
+        chatMessages: [
+          ...prev.chatMessages,
+          {
+            id: Math.random().toString(36).slice(2) + Date.now().toString(36),
+            role: "assistant" as const,
+            content,
+            timestamp: Date.now(),
+          },
+        ],
+      }));
+    },
+    [activeTabId],
+  );
+
   const handleSubmit = useCallback(async () => {
     const text = input.trim();
     if (!text) return;
@@ -258,6 +278,39 @@ export default function WorkspacePage() {
         ...prev,
         showDebug: !(prev.showDebug ?? false),
       }));
+      setInput("");
+      if (textareaRef.current) textareaRef.current.style.height = "auto";
+      return;
+    }
+
+    if (text === "/model") {
+      const lines = models.map((m) => `- \`${m.id}\` — ${m.name}`);
+      const content = `**Available models:**\n\n${lines.join("\n") || "_No models configured._"}`;
+      injectAssistantMessage(content);
+      setInput("");
+      if (textareaRef.current) textareaRef.current.style.height = "auto";
+      return;
+    }
+
+    if (text.startsWith("/model ")) {
+      const modelId = text.slice("/model ".length).trim();
+      if (isAgentBusy) {
+        injectAssistantMessage("⚠ Cannot switch model while the agent is busy.");
+        setInput("");
+        if (textareaRef.current) textareaRef.current.style.height = "auto";
+        return;
+      }
+      const entry = models.find((m) => m.id === modelId);
+      if (!entry) {
+        injectAssistantMessage(
+          `⚠ Unknown model \`${modelId}\`. Use \`/model\` to list available models.`,
+        );
+      } else {
+        agent.setConfig({ model: modelId });
+        injectAssistantMessage(
+          `✓ Model switched to **${entry.name}** (\`${modelId}\`).`,
+        );
+      }
       setInput("");
       if (textareaRef.current) textareaRef.current.style.height = "auto";
       return;
@@ -281,6 +334,8 @@ export default function WorkspacePage() {
     voiceInput,
     agent,
     setInput,
+    models,
+    injectAssistantMessage,
   ]);
 
   const handleKeyDown = useCallback(
