@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.3](https://github.com/amir-s/rakh/compare/rakh-v0.1.2...rakh-v0.1.3) (2026-03-07)
+
+
+### Bug Fixes
+
+* avoid showing archived session artifacts in new tabs ([#3](https://github.com/amir-s/rakh/issues/3)) ([c626956](https://github.com/amir-s/rakh/commit/c62695683555453f8dab25636167fcd238000f2f))
+
 ## [0.1.2](https://github.com/amir-s/rakh/compare/rakh-v0.1.1...rakh-v0.1.2) (2026-03-06)
 
 
