@@ -66,6 +66,43 @@ export const voiceModelPathAtom = atomWithStorage<string>(
   "",
 );
 
+export type AppUpdaterStatus =
+  | "idle"
+  | "checking"
+  | "available"
+  | "up-to-date"
+  | "downloading"
+  | "installing"
+  | "restarting"
+  | "error";
+
+export interface AppUpdaterState {
+  status: AppUpdaterStatus;
+  availableVersion: string | null;
+  availableDate: string | null;
+  releaseNotes: string | null;
+  lastCheckedAt: number | null;
+  error: string | null;
+  downloadedBytes: number;
+  contentLength: number | null;
+}
+
+export const defaultAppUpdaterState: AppUpdaterState = {
+  status: "idle",
+  availableVersion: null,
+  availableDate: null,
+  releaseNotes: null,
+  lastCheckedAt: null,
+  error: null,
+  downloadedBytes: 0,
+  contentLength: null,
+};
+
+/** Ephemeral updater state for signed desktop app updates. */
+export const appUpdaterStateAtom = atom<AppUpdaterState>({
+  ...defaultAppUpdaterState,
+});
+
 /** Default model for new agents */
 export const DEFAULT_MODEL = "openai/gpt-5.2";
 

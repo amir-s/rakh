@@ -29,6 +29,7 @@
   },
   "bundle": {
     "active": true,
+    "createUpdaterArtifacts": true,
     "macOS": {
       "minimumSystemVersion": "10.15",
       "infoPlist": "Info.plist"
@@ -41,5 +42,16 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ]
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDNGMTFCQUU1MTg4RjY3M0YKUldRL1o0OFk1Ym9SUDc2L1lKcmoxbWZERlRXVTBET2RQcEswajJ2eklQY1J2MDVuTXdtVjNRbmwK",
+      "endpoints": [
+        "https://github.com/amir-s/rakh/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
+    }
   }
 }

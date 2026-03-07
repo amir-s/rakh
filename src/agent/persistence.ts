@@ -160,6 +160,11 @@ export async function upsertSession(tab: Tab): Promise<void> {
   }
 }
 
+/** Persist every workspace tab before a controlled app restart/update. */
+export async function upsertWorkspaceSessions(tabs: Tab[]): Promise<void> {
+  await Promise.all(tabs.map((tab) => upsertSession(tab)));
+}
+
 /** Mark a session as archived (hidden from UI, data preserved). */
 export async function archiveSession(id: string): Promise<void> {
   if (!isTauri()) return;

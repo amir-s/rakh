@@ -32,6 +32,7 @@ import {
   loadSessions,
   restoreSession,
   upsertSession,
+  upsertWorkspaceSessions,
   type PersistedSession,
 } from "./persistence";
 import { Tab } from "@/contexts/TabsContext";
@@ -234,6 +235,42 @@ describe("persistence", () => {
     expect(payload.session.worktreeBranch).toBe("codex/branch");
     expect(payload.session.worktreeDeclined).toBe(true);
     expect(payload.session.showDebug).toBe(true);
+  });
+
+  it("upsertWorkspaceSessions only persists workspace tabs", async () => {
+    setTauriAvailable(true);
+    stateByTab["tab-a"] = {
+      tabTitle: "Workspace A",
+      config: { cwd: "/repo-a", model: "model-a" },
+      plan: { markdown: "", version: 0, updatedAtMs: 0 },
+      chatMessages: [],
+      apiMessages: [],
+      todos: [],
+      reviewEdits: [],
+    };
+
+    await upsertWorkspaceSessions([
+      {
+        id: "tab-a",
+        label: "Workspace A",
+        icon: "folder",
+        mode: "workspace",
+      } as Tab,
+      {
+        id: "tab-b",
+        label: "New Tab",
+        icon: "chat_bubble_outline",
+        mode: "new",
+      } as Tab,
+    ]);
+
+    expect(invokeMock).toHaveBeenCalledTimes(1);
+    expect(invokeMock.mock.calls[0][0]).toBe("db_upsert_session");
+    const payload = invokeMock.mock.calls[0][1] as {
+      session: PersistedSession;
+    };
+    expect(payload.session.id).toBe("tab-a");
+    expect(payload.session.mode).toBe("workspace");
   });
 
   it("archive/loadArchived/restore/delete call the right db commands", async () => {

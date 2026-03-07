@@ -4,13 +4,16 @@ import { invoke } from "@tauri-apps/api/core";
 import { useAtom } from "jotai";
 import pkg from "../../package.json";
 import {
+  appUpdaterStateAtom,
   notifyOnAttentionAtom,
   settingsSidebarOpenAtom,
   themeModeAtom,
   themeNameAtom,
+  type AppUpdaterState,
   voiceInputEnabledAtom,
   voiceModelPathAtom,
 } from "@/agent/atoms";
+import { upsertWorkspaceSessions } from "@/agent/persistence";
 import {
   providersAtom,
   saveProvider,
@@ -27,12 +30,14 @@ import {
   type ThemeName,
 } from "@/styles/themes/registry";
 import {
+  Badge,
   Button,
   IconButton,
   SelectField,
   TextField,
   ToggleSwitch,
 } from "@/components/ui";
+import { useTabs } from "@/contexts/TabsContext";
 import {
   useEnvProviderKeys,
   isTauriRuntime,
@@ -40,6 +45,13 @@ import {
   type EnvProviderType,
   type EnvKeyEntry,
 } from "@/agent/useEnvProviderKeys";
+import {
+  checkForAppUpdates,
+  getAppUpdaterProgressValue,
+  getAppUpdaterStatusLabel,
+  getAppUpdaterStatusVariant,
+  installAppUpdate,
+} from "@/updater";
 
 type TestStatus = "idle" | "testing" | "ok" | "error";
 
@@ -78,6 +90,35 @@ async function fetchOpenAICompatibleModels(
       id,
       owned_by: "openai-compatible",
     }));
+}
+
+function formatUpdaterLastChecked(lastCheckedAt: number | null): string {
+  if (!lastCheckedAt) return "Automatic startup checks are enabled.";
+  return `Last checked ${new Date(lastCheckedAt).toLocaleString([], {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  })}.`;
+}
+
+async function confirmInstallUpdate(version: string): Promise<boolean> {
+  const message =
+    `Install Rakh v${version} now?\n\n` +
+    "Open workspace tabs will be saved and the app will restart.";
+
+  if (isTauriRuntime()) {
+    const { confirm } = await import("@tauri-apps/plugin-dialog");
+    return confirm(message, {
+      title: "Install update",
+      kind: "info",
+      okLabel: "Install",
+      cancelLabel: "Cancel",
+    });
+  }
+
+  if (typeof window === "undefined") return false;
+  return window.confirm(message);
 }
 
 function ProviderConfigurator({
@@ -288,6 +329,9 @@ interface SettingsSidebarInnerProps {
   voiceModelPath: string;
   voiceDownloadStatus: VoiceDownloadStatus;
   voiceDownloadError: string | null;
+  appUpdater: AppUpdaterState;
+  onCheckForUpdates: () => Promise<void>;
+  onInstallUpdate: () => Promise<void>;
   onToggleVoiceInput: (next: boolean) => Promise<void>;
   onClose: () => void;
 }
@@ -306,6 +350,9 @@ function SettingsSidebarInner({
   voiceModelPath,
   voiceDownloadStatus,
   voiceDownloadError,
+  appUpdater,
+  onCheckForUpdates,
+  onInstallUpdate,
   onToggleVoiceInput,
   onClose,
 }: SettingsSidebarInnerProps) {
@@ -381,6 +428,30 @@ function SettingsSidebarInner({
   }, [onClose]);
 
   const showImportHint = envProviderCandidates.length > 0;
+  const updaterStatusLabel = getAppUpdaterStatusLabel(appUpdater);
+  const updaterStatusVariant = getAppUpdaterStatusVariant(appUpdater);
+  const updaterProgressValue = getAppUpdaterProgressValue(appUpdater);
+  const isCheckingUpdates = appUpdater.status === "checking";
+  const isInstallingUpdate =
+    appUpdater.status === "downloading" ||
+    appUpdater.status === "installing" ||
+    appUpdater.status === "restarting";
+  const installButtonLabel = isInstallingUpdate
+    ? appUpdater.status === "downloading"
+      ? "Downloading…"
+      : appUpdater.status === "installing"
+        ? "Installing…"
+        : "Restarting…"
+    : appUpdater.availableVersion
+      ? `Install v${appUpdater.availableVersion}`
+      : "Install update";
+  const availableDateLabel = appUpdater.availableDate
+    ? new Date(appUpdater.availableDate).toLocaleDateString([], {
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+      })
+    : null;
 
   const handleSaveProvider = async (provider: ProviderInstance) => {
     await saveProvider(provider);
@@ -741,6 +812,107 @@ function SettingsSidebarInner({
             )}
           </div>
         </section>
+
+        <div className="settings-divider" />
+
+        <section className="settings-section">
+          <h2 className="settings-section-title">App Updates</h2>
+          <p className="settings-section-desc">
+            Signed releases are delivered from GitHub Releases.
+          </p>
+
+          <div className="settings-row">
+            <div className="settings-row-info">
+              <span className="settings-row-label">Current version</span>
+              <span className="settings-row-desc">v{pkg.version}</span>
+            </div>
+            <Badge variant={updaterStatusVariant}>{updaterStatusLabel}</Badge>
+          </div>
+
+          {appUpdater.availableVersion && (
+            <div className="settings-row">
+              <div className="settings-row-info">
+                <span className="settings-row-label">Available version</span>
+                <span className="settings-row-desc">
+                  v{appUpdater.availableVersion}
+                  {availableDateLabel ? ` • ${availableDateLabel}` : ""}
+                </span>
+              </div>
+            </div>
+          )}
+
+          <div className="mt-3 rounded-lg border border-border-subtle bg-surface/60 px-3 py-3">
+            <p className="text-xs leading-relaxed text-muted">
+              {formatUpdaterLastChecked(appUpdater.lastCheckedAt)}
+            </p>
+
+            {updaterProgressValue !== null && (
+              <p className="mt-2 text-xs leading-relaxed text-primary">
+                Download progress: {updaterProgressValue}%
+              </p>
+            )}
+
+            {appUpdater.error && (
+              <p className="mt-2 text-xs leading-relaxed text-error">
+                {appUpdater.error}
+              </p>
+            )}
+
+            {appUpdater.releaseNotes && (
+              <div className="mt-3">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-primary">
+                  Release notes
+                </p>
+                <p className="mt-2 whitespace-pre-wrap text-xs leading-relaxed text-muted">
+                  {appUpdater.releaseNotes}
+                </p>
+              </div>
+            )}
+
+            <div className="mt-3 flex flex-wrap gap-2">
+              <Button
+                className="settings-save-btn"
+                onClick={() => {
+                  void onCheckForUpdates();
+                }}
+                disabled={isCheckingUpdates || isInstallingUpdate}
+                variant={appUpdater.availableVersion ? "secondary" : "primary"}
+                size="xs"
+              >
+                <span
+                  className={cn(
+                    "material-symbols-outlined text-md",
+                    isCheckingUpdates && "animate-spin",
+                  )}
+                >
+                  {isCheckingUpdates ? "progress_activity" : "system_update_alt"}
+                </span>
+                {isCheckingUpdates ? "Checking…" : "Check for updates"}
+              </Button>
+
+              {appUpdater.availableVersion && (
+                <Button
+                  className="settings-save-btn"
+                  onClick={() => {
+                    void onInstallUpdate();
+                  }}
+                  disabled={isCheckingUpdates || isInstallingUpdate}
+                  size="xs"
+                >
+                  <span
+                    className={cn(
+                      "material-symbols-outlined text-md",
+                      isInstallingUpdate && "animate-spin",
+                    )}
+                  >
+                    {isInstallingUpdate ? "progress_activity" : "download"}
+                  </span>
+                  {installButtonLabel}
+                </Button>
+              )}
+            </div>
+          </div>
+        </section>
       </div>
 
       <div className="settings-footer">
@@ -757,10 +929,12 @@ function SettingsSidebarInner({
 }
 
 export default function SettingsSidebar() {
+  const { tabs } = useTabs();
   const [isOpen, setIsOpen] = useAtom(settingsSidebarOpenAtom);
   const [providers, setProviders] = useAtom(providersAtom);
   const [themeMode, setThemeMode] = useAtom(themeModeAtom);
   const [themeName, setThemeName] = useAtom(themeNameAtom);
+  const [appUpdater] = useAtom(appUpdaterStateAtom);
   const [notifyOnAttention, setNotifyOnAttention] = useAtom(
     notifyOnAttentionAtom,
   );
@@ -784,6 +958,24 @@ export default function SettingsSidebar() {
   const envKeysAvailable = useEnvProviderKeys();
 
   const close = () => setIsOpen(false);
+  const handleCheckForUpdates = useCallback(async () => {
+    await checkForAppUpdates();
+  }, []);
+
+  const handleInstallUpdate = useCallback(async () => {
+    if (!appUpdater.availableVersion) return;
+
+    const confirmed = await confirmInstallUpdate(appUpdater.availableVersion);
+    if (!confirmed) return;
+
+    try {
+      await installAppUpdate({
+        beforeInstall: () => upsertWorkspaceSessions(tabs),
+      });
+    } catch {
+      // updater state already captures failures for the settings UI
+    }
+  }, [appUpdater.availableVersion, tabs]);
 
   const handleToggleVoiceInput = useCallback(
     async (next: boolean) => {
@@ -857,6 +1049,9 @@ export default function SettingsSidebar() {
             voiceModelPath={voiceModelPath}
             voiceDownloadStatus={effectiveVoiceDownloadStatus}
             voiceDownloadError={voiceDownloadError}
+            appUpdater={appUpdater}
+            onCheckForUpdates={handleCheckForUpdates}
+            onInstallUpdate={handleInstallUpdate}
             onToggleVoiceInput={handleToggleVoiceInput}
             onClose={close}
           />

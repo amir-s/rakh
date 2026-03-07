@@ -18,6 +18,13 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_process::init())
+        .setup(|app| {
+            #[cfg(desktop)]
+            app.handle()
+                .plugin(tauri_plugin_updater::Builder::new().build())?;
+            Ok(())
+        })
         .manage(AppState {
             pty_writers: Mutex::new(HashMap::new()),
             pty_masters: Mutex::new(HashMap::new()),
