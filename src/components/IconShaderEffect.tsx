@@ -512,7 +512,7 @@ export default function IconShaderEffect({
 
 export function DemoIconShaderEffect() {
   return (
-    <div style={{ width: 400, aspectRatio: "1 / 1" }}>
+    <div style={{ width: "min(400px, 82vw)", aspectRatio: "1 / 1" }}>
       <IconShaderEffect
         src="https://i.postimg.cc/NjL9kqhy/icon.png"
         warpStrength={0}

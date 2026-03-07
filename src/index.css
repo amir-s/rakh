@@ -1,19 +1,20 @@
-@import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=Space+Grotesk:wght@500;700&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Space+Grotesk:wght@500;700&display=swap");
 @import "tailwindcss";
 
 @theme {
-  --color-ink-950: oklch(13% 0.024 250);
-  --color-ink-900: oklch(18% 0.03 250);
-  --color-brand-400: oklch(84% 0.148 165);
-  --color-brand-300: oklch(89% 0.106 167);
-  --color-brand-200: oklch(93% 0.06 167);
+  --color-ink-950: oklch(10% 0.025 260);
+  --color-ink-900: oklch(14% 0.03 258);
+  --color-brand-500: oklch(48% 0.2 261);
+  --color-brand-400: oklch(62% 0.2 259);
+  --color-brand-300: oklch(77% 0.13 253);
+  --color-brand-200: oklch(88% 0.08 252);
   --font-display: "Space Grotesk", "Avenir Next", sans-serif;
-  --font-sans: "IBM Plex Sans", "Segoe UI", sans-serif;
+  --font-sans: "JetBrains Mono", "SFMono-Regular", monospace;
 }
 
 :root {
   color: rgba(255, 255, 255, 0.96);
-  background: oklch(13% 0.024 250);
+  background: oklch(10% 0.025 260);
   font-family: var(--font-sans);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
@@ -22,16 +23,34 @@
 }
 
 html {
+  height: 100%;
   scroll-behavior: smooth;
 }
 
 body {
+  height: 100%;
   min-width: 320px;
   min-height: 100vh;
   margin: 0;
+  overflow: hidden;
   background:
-    radial-gradient(circle at top, rgba(92, 240, 193, 0.12), transparent 28%),
-    linear-gradient(180deg, rgba(8, 15, 25, 1), rgba(4, 7, 13, 1));
+    radial-gradient(circle at top, rgba(43, 108, 238, 0.18), transparent 30%),
+    radial-gradient(circle at 20% 18%, rgba(56, 96, 230, 0.1), transparent 18%),
+    linear-gradient(rgba(43, 108, 238, 0.06) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(43, 108, 238, 0.06) 1px, transparent 1px),
+    linear-gradient(180deg, rgba(5, 8, 17, 1), rgba(2, 5, 12, 1));
+  background-position:
+    top center,
+    left top,
+    -1px -1px,
+    -1px -1px,
+    center;
+  background-size:
+    auto,
+    auto,
+    40px 40px,
+    40px 40px,
+    auto;
 }
 
 a {
@@ -47,10 +66,89 @@ a {
 
 #root {
   min-height: 100vh;
+  height: 100%;
+  overflow: hidden;
+}
+
+.downloads-scroll {
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(73, 132, 255, 0.58) rgba(255, 255, 255, 0.04);
+}
+
+.downloads-scroll::-webkit-scrollbar {
+  width: 10px;
+}
+
+.downloads-scroll::-webkit-scrollbar-track {
+  margin: 6px 0;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.downloads-scroll::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background:
+    linear-gradient(
+      180deg,
+      rgba(126, 170, 255, 0.78),
+      rgba(56, 110, 235, 0.72)
+    ) padding-box;
+  background-clip: padding-box;
+}
+
+.downloads-scroll::-webkit-scrollbar-thumb:hover {
+  background:
+    linear-gradient(
+      180deg,
+      rgba(160, 194, 255, 0.9),
+      rgba(72, 126, 255, 0.84)
+    ) padding-box;
+  background-clip: padding-box;
+}
+
+.marquee-fade {
+  mask-image: linear-gradient(
+    90deg,
+    transparent,
+    black 8%,
+    black 92%,
+    transparent
+  );
+  -webkit-mask-image: linear-gradient(
+    90deg,
+    transparent,
+    black 8%,
+    black 92%,
+    transparent
+  );
+}
+
+.marquee-track {
+  display: flex;
+  width: max-content;
+  align-items: center;
+  animation: marquee-scroll 18s linear infinite;
+  will-change: transform;
+}
+
+.marquee-track--reverse {
+  animation-direction: reverse;
+  animation-duration: 22s;
+}
+
+@keyframes marquee-scroll {
+  from {
+    transform: translateX(0);
+  }
+
+  to {
+    transform: translateX(-50%);
+  }
 }
 
 ::selection {
-  background: rgba(92, 240, 193, 0.36);
-  color: rgba(7, 12, 20, 0.96);
+  background: rgba(43, 108, 238, 0.35);
+  color: rgba(255, 255, 255, 0.96);
 }
-
