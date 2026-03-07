@@ -33,6 +33,23 @@ interface State {
   activeTabId: string;
 }
 
+function createTabId(): string {
+  const uuid = globalThis.crypto?.randomUUID?.();
+  if (uuid) return `tab-${uuid}`;
+  return `tab-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function createNewTab(partial?: Partial<Omit<Tab, "id">>): Tab {
+  return {
+    id: createTabId(),
+    label: "New Tab",
+    icon: "chat_bubble_outline",
+    status: "idle",
+    mode: "new",
+    ...partial,
+  };
+}
+
 type Action =
   | { type: "SET_ACTIVE"; id: string }
   | { type: "ADD_TAB"; tab: Tab }
@@ -92,21 +109,16 @@ function reducer(state: State, action: Action): State {
    Initial state — one tab labelled "New Tab" (fallback when no sessions)
 ───────────────────────────────────────────────────────────────────────────── */
 
-const EMPTY_INITIAL: State = {
-  tabs: [
-    {
-      id: "tab-1",
-      label: "New Tab",
-      icon: "chat_bubble_outline",
-      status: "idle" as const,
-      mode: "new" as const,
-    },
-  ],
-  activeTabId: "tab-1",
-};
+function createEmptyInitialState(): State {
+  const tab = createNewTab();
+  return {
+    tabs: [tab],
+    activeTabId: tab.id,
+  };
+}
 
 function buildInitialState(sessions: PersistedSession[]): State {
-  if (sessions.length === 0) return EMPTY_INITIAL;
+  if (sessions.length === 0) return createEmptyInitialState();
   const tabs: Tab[] = sessions.map((s) => ({
     id: s.id,
     label: s.label,
@@ -160,17 +172,9 @@ export function TabsProvider({
   );
 
   const addTab = useCallback((partial?: Partial<Omit<Tab, "id">>) => {
-    const id = `tab-${Date.now()}`;
-    const tab: Tab = {
-      id,
-      label: "New Tab",
-      icon: "chat_bubble_outline",
-      status: "idle",
-      mode: "new",
-      ...partial,
-    };
+    const tab = createNewTab(partial);
     dispatch({ type: "ADD_TAB", tab });
-    return id;
+    return tab.id;
   }, []);
 
   const addTabWithId = useCallback((tab: Tab) => {
@@ -183,14 +187,7 @@ export function TabsProvider({
         const tab = state.tabs.find((t) => t.id === id);
         if (!tab || tab.mode === "new") return; // don't close the last new-session tab
         // Last workspace tab → replace with a fresh new-session tab
-        const newId = `tab-${Date.now()}`;
-        const newTab: Tab = {
-          id: newId,
-          label: "New Tab",
-          icon: "chat_bubble_outline",
-          status: "idle",
-          mode: "new",
-        };
+        const newTab = createNewTab();
         dispatch({ type: "ADD_TAB", tab: newTab });
         dispatch({ type: "CLOSE_TAB", id });
         return;

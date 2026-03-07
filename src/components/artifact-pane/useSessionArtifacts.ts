@@ -35,10 +35,10 @@ function isTauriRuntime() {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 }
 
-export function useSessionArtifactInventory(tabId: string) {
+export function useSessionArtifactInventory(tabId: string, enabled = true) {
   const [state, setState] = useState<SessionInventoryState>({
     tabId,
-    loading: isTauriRuntime(),
+    loading: isTauriRuntime() && enabled,
     error: null,
     inventory: EMPTY_INVENTORY,
     hasLoadedSuccessfully: false,
@@ -48,7 +48,14 @@ export function useSessionArtifactInventory(tabId: string) {
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
 
-    if (!isTauriRuntime()) {
+    if (!isTauriRuntime() || !enabled) {
+      setState({
+        tabId,
+        loading: false,
+        error: null,
+        inventory: EMPTY_INVENTORY,
+        hasLoadedSuccessfully: false,
+      });
       return;
     }
 
@@ -95,12 +102,12 @@ export function useSessionArtifactInventory(tabId: string) {
       cancelled = true;
       if (timer) clearTimeout(timer);
     };
-  }, [tabId]);
+  }, [enabled, tabId]);
 
   if (state.tabId !== tabId) {
     return {
       inventory: EMPTY_INVENTORY,
-      loading: isTauriRuntime(),
+      loading: isTauriRuntime() && enabled,
       error: null,
       hasLoadedSuccessfully: false,
     };

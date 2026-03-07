@@ -50,6 +50,7 @@ export default function WorkspacePage() {
   const { tabs, activeTabId, updateTab } = useTabs();
   const activeTab = tabs.find((t) => t.id === activeTabId);
   const isNewSession = activeTab?.mode !== "workspace";
+  const artifactInventoryEnabled = activeTab?.mode === "workspace";
   const voiceInputEnabled = useAtomValue(voiceInputEnabledAtom);
 
   // Agent state — always called (hooks must not be conditional)
@@ -90,7 +91,12 @@ export default function WorkspacePage() {
     artifactInventory,
     artifactInventoryLoading,
     artifactInventoryError,
-  } = useArtifactUpdates(activeTabId, !artifactOpen, agent.showDebug ?? false);
+  } = useArtifactUpdates(
+    activeTabId,
+    artifactInventoryEnabled,
+    !artifactOpen,
+    agent.showDebug ?? false,
+  );
   const artifactHasUpdates = unseenTabs.size > 0;
 
   // Chat controls state
