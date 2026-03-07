@@ -1,4 +1,10 @@
-import { useEffect, useState, useRef, useCallback } from "react";
+import {
+  useEffect,
+  useState,
+  useRef,
+  useCallback,
+  type MouseEvent as ReactMouseEvent,
+} from "react";
 import { useTabs } from "@/contexts/TabsContext";
 import { useAtom } from "jotai";
 import { motion, AnimatePresence } from "framer-motion";
@@ -226,7 +232,7 @@ export default function TopChrome() {
   useEffect(() => {
     if (!isTauriRuntime()) return;
     const unlisteners: Array<() => void> = [];
-    (async () => {
+    void (async () => {
       const { getCurrentWindow } = await import("@tauri-apps/api/window");
       const win = getCurrentWindow();
       setIsMaximized(await win.isMaximized());
@@ -252,13 +258,22 @@ export default function TopChrome() {
     return () => unlisteners.forEach((fn) => fn());
   }, []);
 
-  const callWindow = async (
-    action: "minimize" | "toggleMaximize" | "close",
-  ) => {
-    if (!isTauriRuntime()) return;
-    const { getCurrentWindow } = await import("@tauri-apps/api/window");
-    await getCurrentWindow()[action]();
-  };
+  const callWindow = useCallback(
+    async (action: "minimize" | "toggleMaximize" | "close") => {
+      if (!isTauriRuntime()) return;
+      const { getCurrentWindow } = await import("@tauri-apps/api/window");
+      await getCurrentWindow()[action]();
+    },
+    [],
+  );
+
+  const handleHeaderDoubleClick = useCallback(
+    (_event: ReactMouseEvent<HTMLElement>) => {
+      if (platform === "mac") return;
+      void callWindow("toggleMaximize");
+    },
+    [callWindow, platform],
+  );
 
   const isMac = platform === "mac";
   const isWin = platform === "windows";
@@ -274,7 +289,7 @@ export default function TopChrome() {
         data-focused={isFocused ? "true" : "false"}
         data-fullscreen={isFullscreen ? "true" : "false"}
         data-platform={platform}
-        onDoubleClick={() => callWindow("toggleMaximize")}
+        onDoubleClick={handleHeaderDoubleClick}
       >
         {/* macOS traffic-light spacer */}
         {isMac && !isFullscreen && (
@@ -432,7 +447,7 @@ export default function TopChrome() {
           >
             <button
               className="win-btn win-btn--minimize"
-              onClick={() => callWindow("minimize")}
+              onClick={() => void callWindow("minimize")}
               title="Minimise"
             >
               <IconMinimize />
@@ -442,14 +457,14 @@ export default function TopChrome() {
                 "win-btn win-btn--maximize",
                 isMaximized && "win-btn--restore",
               )}
-              onClick={() => callWindow("toggleMaximize")}
+              onClick={() => void callWindow("toggleMaximize")}
               title={isMaximized ? "Restore" : "Maximise"}
             >
               {isMaximized ? <IconRestore /> : <IconMaximize />}
             </button>
             <button
               className="win-btn win-btn--close"
-              onClick={() => callWindow("close")}
+              onClick={() => void callWindow("close")}
               title="Close"
             >
               <IconClose />
