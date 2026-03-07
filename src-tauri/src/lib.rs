@@ -51,6 +51,8 @@ pub fn run() {
             db::db_artifact_version,
             db::db_artifact_get,
             db::db_artifact_list,
+            db::providers_load,
+            db::providers_save,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
