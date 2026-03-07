@@ -13,8 +13,11 @@ import GitPane from "./artifact-pane/GitPane";
 import PlanPane from "./artifact-pane/PlanPane";
 import ReviewPane from "./artifact-pane/ReviewPane";
 import TodoPane from "./artifact-pane/TodoPane";
-import type { ArtifactTab, SessionArtifactInventory } from "./artifact-pane/types";
-import { useArtifactContentCache } from "./artifact-pane/useSessionArtifacts";
+import type {
+  ArtifactContentEntry,
+  ArtifactTab,
+  SessionArtifactInventory,
+} from "./artifact-pane/types";
 
 export { useArtifactUpdates } from "./artifact-pane/useArtifactUpdates";
 
@@ -27,6 +30,11 @@ interface ArtifactPaneProps {
   artifactInventory: SessionArtifactInventory;
   artifactInventoryLoading: boolean;
   artifactInventoryError: string | null;
+  getArtifactContentEntry: (
+    artifactId: string,
+    version: number,
+  ) => ArtifactContentEntry | undefined;
+  ensureArtifactContent: (artifactId: string, version: number) => Promise<void>;
 }
 
 export default function ArtifactPane({
@@ -38,13 +46,14 @@ export default function ArtifactPane({
   artifactInventory,
   artifactInventoryLoading,
   artifactInventoryError,
+  getArtifactContentEntry,
+  ensureArtifactContent,
 }: ArtifactPaneProps) {
   const { activeTabId } = useTabs();
   const todos = useAgentTodos(activeTabId);
   const reviewEdits = useAgentReviewEdits(activeTabId);
   const config = useAgentConfig(activeTabId);
   const showDebug = useAgentShowDebug(activeTabId);
-  const { getEntry, ensureArtifactContent } = useArtifactContentCache(activeTabId);
 
   const todoDone = todos.filter((todo) => todo.status === "done").length;
   const visibleTabs: ArtifactTab[] = showDebug
@@ -61,7 +70,7 @@ export default function ArtifactPane({
 
   const planGroup = artifactInventory.latestPlanGroup;
   const planEntry = planGroup
-    ? getEntry(planGroup.artifactId, planGroup.latest.version)
+    ? getArtifactContentEntry(planGroup.artifactId, planGroup.latest.version)
     : undefined;
 
   return (
@@ -154,7 +163,7 @@ export default function ArtifactPane({
             inventory={artifactInventory}
             loading={artifactInventoryLoading}
             error={artifactInventoryError}
-            getContentEntry={getEntry}
+            getContentEntry={getArtifactContentEntry}
             ensureArtifactContent={ensureArtifactContent}
           />
         ) : null}

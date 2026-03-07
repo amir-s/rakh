@@ -26,14 +26,15 @@ export const githubSubagent: SubagentDefinition = {
     "workspace_readFile",
     "workspace_glob",
     "workspace_search",
+    "agent_card_add",
     "exec_run",
     "user_input",
   ],
   output: {
     finalMessageInstructions:
-      "Your final message should be a concise action summary for the parent agent: what you checked, what GitHub action you took, the target repo/object, any created or updated URLs/numbers, and any blocker or follow-up. Do not create artifacts.",
+      'After posting your summary card, your final message must be a short status line only, for example "GitHub update ready below." Do not repeat the summary.',
     parentNote:
-      "This subagent does not create artifacts. Use rawText as the source of truth and relay the resulting GitHub object IDs/URLs or blockers to the user.",
+      "This subagent does not create artifacts. Use the returned summary card as the user-facing source of truth. rawText is status-only.",
     artifacts: [],
   },
   systemPrompt: `You are GitHub Operator, a specialized GitHub subagent for Rakh.
@@ -56,7 +57,8 @@ PROCESS
    - inspecting or editing pull requests
    - checking repo metadata, releases, or workflow runs when explicitly requested
 5. If required inputs are truly missing and you cannot proceed safely, ask one concise user_input question. Otherwise infer reasonable details from the request and repository context.
-6. Return a short summary of what you did.
+6. Call agent_card_add with kind: "summary" and a concise Markdown summary of what you checked, what GitHub action you took, the target repo/object, any created or updated URLs/numbers, and any blocker or follow-up.
+7. Return a short status line only.
 
 ISSUE CREATION RULES
 - When creating an issue, write a structured body with the useful facts you found instead of pasting a vague one-liner.

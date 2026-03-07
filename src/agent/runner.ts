@@ -44,6 +44,8 @@ import {
   consumeApprovalReason,
 } from "./approvals";
 import type {
+  ConversationCard,
+  SerializedConversationCard,
   AdvancedModelOptions,
   ApiMessage,
   ApiToolCall,
@@ -52,7 +54,10 @@ import type {
   ToolResult,
   ToolCallDisplay,
 } from "./types";
-import { DEFAULT_ADVANCED_OPTIONS } from "./types";
+import {
+  ARTIFACT_CARD_PARENT_INSTRUCTION,
+  DEFAULT_ADVANCED_OPTIONS,
+} from "./types";
 import { streamText, type ModelMessage } from "ai";
 import { createOpenAI } from "@ai-sdk/openai";
 import { createAnthropic } from "@ai-sdk/anthropic";
@@ -75,6 +80,7 @@ import {
   withArtifactFrameworkMetadata,
   type ArtifactManifest,
 } from "./tools/artifacts";
+import { buildConversationCard, type CardAddInput } from "./tools/agentControl";
 
 /* ─────────────────────────────────────────────────────────────────────────────
    Abort controller registry — one per running agent
@@ -659,6 +665,25 @@ function updateLastChatMessage(
   });
 }
 
+function appendCardsToChatMessage(
+  tabId: string,
+  messageId: string,
+  cards: ConversationCard[],
+): void {
+  if (cards.length === 0) return;
+  patchAgentState(tabId, (prev) => ({
+    ...prev,
+    chatMessages: prev.chatMessages.map((msg) =>
+      msg.id !== messageId
+        ? msg
+        : {
+            ...msg,
+            cards: [...(msg.cards ?? []), ...cards],
+          },
+    ),
+  }));
+}
+
 function toLoggable(value: unknown): unknown {
   return value instanceof Error ? serializeError(value) : value;
 }
@@ -688,6 +713,14 @@ interface PreparedSubagentArtifactToolCall {
   args: Record<string, unknown>;
   spec?: SubagentArtifactSpec;
   validation?: Omit<SubagentArtifactValidation, "artifactId">;
+}
+
+interface PreparedConversationCardToolCall {
+  card: ConversationCard;
+  result: {
+    ok: true;
+    data: { cardId: string; kind: ConversationCard["kind"] };
+  };
 }
 
 function makeSubagentToolError(
@@ -761,6 +794,51 @@ function renderSubagentArtifactSpec(spec: SubagentArtifactSpec): string {
   return lines.join("\n");
 }
 
+function prepareConversationCardToolCall(
+  rawArgs: Record<string, unknown>,
+): { ok: true; data: PreparedConversationCardToolCall } | {
+  ok: false;
+  result: ToolFailureResult;
+} {
+  const built = buildConversationCard(rawArgs as CardAddInput);
+  if (!built.ok) {
+    return { ok: false, result: built };
+  }
+  return {
+    ok: true,
+    data: {
+      card: built.data.card,
+      result: {
+        ok: true,
+        data: {
+          cardId: built.data.cardId,
+          kind: built.data.kind,
+        },
+      },
+    },
+  };
+}
+
+function serializeConversationCardForParent(
+  card: ConversationCard,
+): SerializedConversationCard {
+  if (card.kind === "summary") {
+    return {
+      kind: "summary",
+      ...(card.title ? { title: card.title } : {}),
+      markdown: card.markdown,
+    };
+  }
+
+  return {
+    kind: "artifact",
+    ...(card.title ? { title: card.title } : {}),
+    artifactId: card.artifactId,
+    ...(card.version !== undefined ? { version: card.version } : {}),
+    instruction: ARTIFACT_CARD_PARENT_INSTRUCTION,
+  };
+}
+
 /** Build the full system prompt for a subagent (base + output section). */
 function buildSubagentSystemPrompt(def: SubagentDefinition): string {
   const prompt = def.systemPrompt.trim();
@@ -776,6 +854,17 @@ function buildSubagentSystemPrompt(def: SubagentDefinition): string {
         "Create or update your durable outputs with agent_artifact_create / agent_artifact_version.",
         "Always set artifactType on new artifact payloads. Do not paste artifact JSON into the final message.",
         artifactSpecs.map(renderSubagentArtifactSpec).join("\n\n"),
+      ].join("\n"),
+    );
+  }
+
+  if (def.tools.includes("agent_card_add")) {
+    outputSections.push(
+      [
+        "CONVERSATION CARDS",
+        "Create user-visible conversation cards with agent_card_add.",
+        "Summary cards must use Markdown and contain the user-facing summary instead of the final message.",
+        "Artifact cards must reference an existing artifact by artifactId/version only. Do not treat artifact cards as content-bearing.",
       ].join("\n"),
     );
   }
@@ -815,6 +904,8 @@ export interface SubagentCallResult {
    * Sourced from output.parentNote on the SubagentDefinition.
    */
   note?: string;
+  /** User-visible cards serialized for the parent agent. */
+  cards: SerializedConversationCard[];
   /** Declared artifact manifests created or versioned during this subagent run. */
   artifacts: ArtifactManifest[];
   /** Validation outcomes for validator-backed artifacts produced during this run. */
@@ -893,6 +984,7 @@ async function runSubagentLoop(
   let finalText = "";
   let turns = 0;
   const MAX_SUBAGENT_ITERATIONS = 15;
+  const collectedCards: ConversationCard[] = [];
   const collectedArtifacts: ArtifactManifest[] = [];
   const artifactValidations: SubagentArtifactValidation[] = [];
 
@@ -1404,6 +1496,33 @@ async function runSubagentLoop(
           };
         }
 
+        if (tc.function.name === "agent_card_add") {
+          updateToolCallById({ status: "running" });
+          const preparedCard = prepareConversationCardToolCall(
+            parseArgs(tc.function.arguments),
+          );
+          if (!preparedCard.ok) {
+            updateToolCallById({
+              status: "error",
+              result: preparedCard.result.error,
+            });
+            return {
+              tool_call_id: tcId,
+              result: preparedCard.result,
+            };
+          }
+
+          updateToolCallById({
+            status: "done",
+            result: preparedCard.data.result.data,
+          });
+          return {
+            tool_call_id: tcId,
+            result: preparedCard.data.result,
+            card: preparedCard.data.card,
+          };
+        }
+
         const preArgs = parseArgs(tc.function.arguments);
         const preCwd = getAgentState(tabId).config.cwd;
         const preparedArtifactCall = await prepareSubagentArtifactToolCall(
@@ -1560,6 +1679,12 @@ async function runSubagentLoop(
     );
     localApiMessages.push(...toolApiMessages);
 
+    const cardsToAppend = toolResults.flatMap(({ card }) => (card ? [card] : []));
+    if (cardsToAppend.length > 0) {
+      appendCardsToChatMessage(tabId, assistantChatId, cardsToAppend);
+      collectedCards.push(...cardsToAppend);
+    }
+
     if (debugEnabled) {
       console.log(
         `[rakh:subagent][${tabId}][${subagentDef.id}]`,
@@ -1588,6 +1713,7 @@ async function runSubagentLoop(
       finishedAtMs: Date.now(),
       turns,
       rawText: finalText,
+      cards: collectedCards.map(serializeConversationCardForParent),
       artifacts: collectedArtifacts,
       artifactValidations,
       ...(note !== undefined ? { note } : {}),
@@ -2307,6 +2433,33 @@ async function agentLoop(
           };
         }
 
+        if (tc.function.name === "agent_card_add") {
+          updateToolCallById({ status: "running" });
+          const preparedCard = prepareConversationCardToolCall(
+            parseArgs(tc.function.arguments),
+          );
+          if (!preparedCard.ok) {
+            updateToolCallById({
+              status: "error",
+              result: preparedCard.result.error,
+            });
+            return {
+              tool_call_id: tcId,
+              result: preparedCard.result,
+            };
+          }
+
+          updateToolCallById({
+            status: "done",
+            result: preparedCard.data.result.data,
+          });
+          return {
+            tool_call_id: tcId,
+            result: preparedCard.data.result,
+            card: preparedCard.data.card,
+          };
+        }
+
         // ── Pre-validation gate ───────────────────────────────────────────
         const preArgs = parseArgs(tc.function.arguments);
         const preCwd = getAgentState(tabId).config.cwd;
@@ -2439,6 +2592,11 @@ async function agentLoop(
         ),
       }),
     );
+
+    const cardsToAppend = toolResults.flatMap(({ card }) => (card ? [card] : []));
+    if (cardsToAppend.length > 0) {
+      appendCardsToChatMessage(tabId, assistantChatId, cardsToAppend);
+    }
 
     patchAgentState(tabId, (prev) => ({
       ...prev,

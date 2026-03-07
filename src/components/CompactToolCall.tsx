@@ -33,6 +33,7 @@ const CUSTOM_EXPANDED_TOOLS = new Set([
 
 const NON_EXPANDABLE_TOOLS = new Set([
   "agent_title_set",
+  "agent_card_add",
   "agent_artifact_create",
   "agent_artifact_version",
   "agent_artifact_get",
@@ -54,6 +55,7 @@ const TOOL_ICON: Record<string, string> = {
   workspace_writeFile: "note_add",
   exec_run: "terminal",
   git_worktree_init: "account_tree",
+  agent_card_add: "dashboard_customize",
   agent_artifact_create: "inventory_2",
   agent_artifact_version: "layers",
   agent_artifact_get: "pageview",
@@ -77,6 +79,7 @@ const TOOL_LABEL: Record<string, string> = {
   workspace_writeFile: "Write File",
   exec_run: "Run Command",
   git_worktree_init: "Git Worktree",
+  agent_card_add: "Add Card",
   agent_artifact_create: "Create Artifact",
   agent_artifact_version: "Version Artifact",
   agent_artifact_get: "Get Artifact",
@@ -263,6 +266,26 @@ function buildCollapsedArgPreview(tc: ToolCallDisplay): string | null {
     }
     case "agent_title_get": {
       return "read tab title";
+    }
+    case "agent_card_add": {
+      const kind = typeof args.kind === "string" ? args.kind : "card";
+      const title = typeof args.title === "string" ? truncateText(args.title, 28) : "";
+      if (kind === "summary") {
+        const markdown =
+          typeof args.markdown === "string"
+            ? truncateText(args.markdown.replace(/\s+/g, " "), 40)
+            : "";
+        if (title && markdown) return `${title} · ${markdown}`;
+        if (title) return `${title} · summary`;
+        return markdown || "summary card";
+      }
+
+      const artifactId =
+        typeof args.artifactId === "string" ? args.artifactId : "artifact";
+      const version =
+        typeof args.version === "number" ? ` @v${args.version}` : " @latest";
+      if (title) return `${title} · ${truncateText(artifactId, 28)}${version}`;
+      return `${truncateText(artifactId, 36)}${version}`;
     }
     case "user_input": {
       const q =

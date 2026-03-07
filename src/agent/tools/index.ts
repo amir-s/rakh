@@ -17,6 +17,7 @@ import type { EditFileInput } from "./workspace";
 import { execRun } from "./exec";
 import { gitWorktreeInit } from "./git";
 import {
+  cardAdd,
   todoAdd,
   todoUpdate,
   todoList,
@@ -209,6 +210,9 @@ export async function dispatchTool(
 
     case "agent_todo_remove":
       return todoRemove(tabId, a);
+
+    case "agent_card_add":
+      return cardAdd(tabId, a);
 
     /* ── agent.artifact ────────────────────────────────────────────────── */
     case "agent_artifact_create":

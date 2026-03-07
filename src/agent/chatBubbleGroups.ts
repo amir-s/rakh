@@ -27,6 +27,10 @@ function isUserMessage(msg: ChatMessage): msg is UserChatMessage {
   return msg.role === "user";
 }
 
+function hasCards(msg: ChatMessage): boolean {
+  return Array.isArray(msg.cards) && msg.cards.length > 0;
+}
+
 /**
  * Group adjacent assistant turns so the UI can render them in a single bubble.
  * User messages are always rendered as standalone bubbles.
@@ -40,7 +44,18 @@ export function groupChatMessagesForBubbles(
     if (isAssistantMessage(msg)) {
       const prev = groups[groups.length - 1];
       // Merge into the previous assistant bubble only when the agent name matches.
-      if (prev && prev.kind === "assistant" && prev.agentName === msg.agentName) {
+      const prevLastMessage =
+        prev && prev.kind === "assistant"
+          ? prev.messages[prev.messages.length - 1]
+          : null;
+      if (
+        prev &&
+        prev.kind === "assistant" &&
+        prev.agentName === msg.agentName &&
+        prevLastMessage &&
+        !hasCards(prevLastMessage) &&
+        !hasCards(msg)
+      ) {
         prev.messages.push(msg);
         continue;
       }

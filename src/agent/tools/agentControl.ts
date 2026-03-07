@@ -6,7 +6,13 @@
 import { getAgentState, patchAgentState } from "../atoms";
 import { applyEditChanges } from "./workspace";
 import type { EditFileChange } from "./workspace";
-import type { AgentPlan, TodoItem, TodoStatus, ToolResult } from "../types";
+import type {
+  AgentPlan,
+  ConversationCard,
+  TodoItem,
+  TodoStatus,
+  ToolResult,
+} from "../types";
 
 /* ── helpers ────────────────────────────────────────────────────────────────── */
 
@@ -244,4 +250,135 @@ export interface TitleGetOutput {
 export function titleGet(tabId: string): ToolResult<TitleGetOutput> {
   const { tabTitle } = getAgentState(tabId);
   return { ok: true, data: { title: tabTitle } };
+}
+
+/* ── agent.card.add ───────────────────────────────────────────────────────── */
+
+export type CardAddInput =
+  | {
+      kind: "summary";
+      title?: string;
+      markdown: string;
+    }
+  | {
+      kind: "artifact";
+      title?: string;
+      artifactId: string;
+      version?: number;
+    };
+
+export interface CardAddOutput {
+  cardId: string;
+  kind: ConversationCard["kind"];
+}
+
+export interface CardAddBuildOutput extends CardAddOutput {
+  card: ConversationCard;
+}
+
+function normalizeOptionalTitle(title: unknown): string | undefined {
+  if (typeof title !== "string") return undefined;
+  const trimmed = title.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
+export function buildConversationCard(
+  input: CardAddInput,
+): ToolResult<CardAddBuildOutput> {
+  if (input.kind !== "summary" && input.kind !== "artifact") {
+    return {
+      ok: false,
+      error: {
+        code: "INVALID_ARGUMENT",
+        message: "kind must be 'summary' or 'artifact'",
+      },
+    };
+  }
+
+  const title = normalizeOptionalTitle(input.title);
+  const cardId = uid();
+
+  if (input.kind === "summary") {
+    const markdown = typeof input.markdown === "string" ? input.markdown.trim() : "";
+    if (!markdown) {
+      return {
+        ok: false,
+        error: {
+          code: "INVALID_ARGUMENT",
+          message: "summary markdown must not be empty",
+        },
+      };
+    }
+
+    const card: ConversationCard = {
+      id: cardId,
+      kind: "summary",
+      ...(title ? { title } : {}),
+      markdown,
+    };
+    return {
+      ok: true,
+      data: {
+        cardId,
+        kind: "summary",
+        card,
+      },
+    };
+  }
+
+  const artifactId =
+    typeof input.artifactId === "string" ? input.artifactId.trim() : "";
+  if (!artifactId) {
+    return {
+      ok: false,
+      error: {
+        code: "INVALID_ARGUMENT",
+        message: "artifactId must not be empty",
+      },
+    };
+  }
+
+  if (
+    input.version !== undefined &&
+    (!Number.isInteger(input.version) || input.version <= 0)
+  ) {
+    return {
+      ok: false,
+      error: {
+        code: "INVALID_ARGUMENT",
+        message: "version must be a positive integer when provided",
+      },
+    };
+  }
+
+  const card: ConversationCard = {
+    id: cardId,
+    kind: "artifact",
+    ...(title ? { title } : {}),
+    artifactId,
+    ...(input.version !== undefined ? { version: input.version } : {}),
+  };
+  return {
+    ok: true,
+    data: {
+      cardId,
+      kind: "artifact",
+      card,
+    },
+  };
+}
+
+export function cardAdd(
+  _tabId: string,
+  input: CardAddInput,
+): ToolResult<CardAddOutput> {
+  const built = buildConversationCard(input);
+  if (!built.ok) return built;
+  return {
+    ok: true,
+    data: {
+      cardId: built.data.cardId,
+      kind: built.data.kind,
+    },
+  };
 }

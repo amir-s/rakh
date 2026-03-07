@@ -27,14 +27,20 @@ export const reviewerSubagent: SubagentDefinition = {
     "workspace_readFile",
     "workspace_glob",
     "workspace_search",
+    "agent_artifact_create",
+    "agent_artifact_version",
+    "agent_artifact_get",
+    "agent_artifact_list",
+    "agent_card_add",
     // Clarifying questions
     "user_input",
   ],
   output: {
     finalMessageInstructions:
-      "Your final message should be a concise review summary for the parent agent. Do not include raw JSON in the message.",
+      'After posting your cards, your final message must be a short status line only, for example "Review ready below." Do not repeat the summary or raw JSON.',
     parentNote:
-      "Read the returned review artifact with agent_artifact_get before summarizing the findings for the user. " +
+      "Use the returned summary card as the user-facing review summary. " +
+      "Read the returned review artifact with agent_artifact_get before summarizing the findings for the user or acting on them. " +
       "Ask for explicit yes/no confirmation before making any code edits based on them. " +
       "Wait for the user's response before calling workspace_editFile or workspace_writeFile. " +
       "For future calls, always include a concrete scope (file(s), directory, or commit range) in the message.",
@@ -95,6 +101,8 @@ PROCESS
    - kind: "review-report"
    - contentFormat: "json"
    - content: a JSON object containing summary + findings
+5. Call agent_card_add with kind: "summary" and a concise Markdown summary of the review for the user.
+6. After saving the artifact, you may call agent_card_add with kind: "artifact" to reference it.
 
 REVIEW RULES
 - Never edit/write files and never attempt to call write/edit tools.
@@ -102,5 +110,6 @@ REVIEW RULES
 - Keep findings actionable and specific to code locations.
 - If no issues are found, use findings: [] in the artifact and say so in summary.
 - Do not claim you ran commands/tools you did not actually run.
-- Your final message should be a short human summary after the artifact is saved.`,
+- The summary card body is Markdown.
+- Your final message must be a short status line only, such as "Review ready below."`,
 };

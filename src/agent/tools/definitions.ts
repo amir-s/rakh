@@ -313,6 +313,42 @@ path/to/other.ts
       id: z.string().describe("Todo item ID"),
     }),
   }),
+  tool({
+    name: "agent_card_add",
+    description:
+      "Add a user-visible conversation card directly below the current assistant message. " +
+      "Use summary cards for user-facing Markdown summaries. Use artifact cards only as lightweight references after the artifact already exists. " +
+      'Always include `kind`. For `kind: "summary"`, include `markdown`. For `kind: "artifact"`, include `artifactId` and optionally `version`.',
+    inputSchema: z.object({
+      kind: z
+        .enum(["summary", "artifact"])
+        .describe(
+          'Card type. Use `"summary"` for Markdown summaries and `"artifact"` for artifact reference cards.',
+        ),
+      title: z
+        .string()
+        .optional()
+        .describe("Optional short card title shown above the card"),
+      markdown: z
+        .string()
+        .optional()
+        .describe('Required when `kind` is `"summary"`; user-visible Markdown content'),
+      artifactId: z
+        .string()
+        .optional()
+        .describe(
+          'Required when `kind` is `"artifact"`; stable artifact ID to reference',
+        ),
+      version: z
+        .number()
+        .int()
+        .positive()
+        .optional()
+        .describe(
+          'Optional artifact version when `kind` is `"artifact"` (default: latest)',
+        ),
+    }),
+  }),
 
   /* ── agent.artifact ───────────────────────────────────────────────────────── */
   tool({
@@ -429,7 +465,7 @@ path/to/other.ts
     description:
       "Delegate a task to a specialized subagent. " +
       "The subagent will run its own reasoning loop, explore the workspace as needed, " +
-      "and return any artifact references plus a concise summary. Use this when a task is better handled by a " +
+      "and return conversation cards plus any artifact references. Summary cards contain full Markdown text; artifact cards only contain refs and tell you to read the artifact directly. Use this when a task is better handled by a " +
       "focused specialist (e.g. the planner subagent for complex planning tasks).",
     inputSchema: z.object({
       subagentId: z

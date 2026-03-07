@@ -26,6 +26,7 @@ const {
   todoUpdateMock,
   todoListMock,
   todoRemoveMock,
+  cardAddMock,
   titleSetMock,
   titleGetMock,
   artifactCreateMock,
@@ -53,6 +54,7 @@ const {
   todoUpdateMock: vi.fn(),
   todoListMock: vi.fn(),
   todoRemoveMock: vi.fn(),
+  cardAddMock: vi.fn(),
   titleSetMock: vi.fn(),
   titleGetMock: vi.fn(),
   artifactCreateMock: vi.fn(),
@@ -91,6 +93,7 @@ vi.mock("./agentControl", () => ({
   todoUpdate: (...args: unknown[]) => todoUpdateMock(...args),
   todoList: (...args: unknown[]) => todoListMock(...args),
   todoRemove: (...args: unknown[]) => todoRemoveMock(...args),
+  cardAdd: (...args: unknown[]) => cardAddMock(...args),
   titleSet: (...args: unknown[]) => titleSetMock(...args),
   titleGet: (...args: unknown[]) => titleGetMock(...args),
 }));
@@ -138,6 +141,7 @@ describe("tools/index dispatchTool", () => {
     todoUpdateMock.mockReset();
     todoListMock.mockReset();
     todoRemoveMock.mockReset();
+    cardAddMock.mockReset();
     titleSetMock.mockReset();
     titleGetMock.mockReset();
     artifactCreateMock.mockReset();
@@ -199,6 +203,30 @@ describe("tools/index dispatchTool", () => {
 
     expect(listDirMock).toHaveBeenCalledWith("/cwd", { path: "src" });
     expect(result).toMatchObject({ ok: true });
+  });
+
+  it("routes agent_card_add calls to cardAdd", async () => {
+    cardAddMock.mockReturnValue({
+      ok: true,
+      data: { cardId: "card_1", kind: "summary" },
+    });
+
+    const result = await dispatchTool(
+      "tab",
+      "/cwd",
+      "agent_card_add",
+      { kind: "summary", markdown: "## Summary" },
+      "tc-card",
+    );
+
+    expect(cardAddMock).toHaveBeenCalledWith("tab", {
+      kind: "summary",
+      markdown: "## Summary",
+    });
+    expect(result).toEqual({
+      ok: true,
+      data: { cardId: "card_1", kind: "summary" },
+    });
   });
 
   it("handles workspace_editFile success and updates reviewEdits", async () => {

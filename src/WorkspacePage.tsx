@@ -10,6 +10,7 @@ import {
 } from "react";
 import { useAtomValue } from "jotai";
 import ArtifactPane, { useArtifactUpdates } from "@/components/ArtifactPane";
+import ConversationCards from "@/components/ConversationCards";
 import Terminal from "@/components/Terminal";
 import UserMessage from "@/components/UserMessage";
 import AgentMessage from "@/components/AgentMessage";
@@ -39,6 +40,7 @@ import { useAgent } from "@/agent/useAgents";
 import { patchAgentState, voiceInputEnabledAtom } from "@/agent/atoms";
 import { getAllSubagents, getSubagentThemeColorToken } from "@/agent/subagents";
 import { groupChatMessagesForBubbles } from "@/agent/chatBubbleGroups";
+import { useArtifactContentCache } from "@/components/artifact-pane/useSessionArtifacts";
 import { AnimatePresence, motion } from "framer-motion";
 import type { ToolCallDisplay } from "@/agent/types";
 
@@ -98,6 +100,8 @@ export default function WorkspacePage() {
     agent.showDebug ?? false,
   );
   const artifactHasUpdates = unseenTabs.size > 0;
+  const { getEntry: getArtifactContentEntry, ensureArtifactContent } =
+    useArtifactContentCache(activeTabId);
 
   // Chat controls state
   const contextWindowPct = agent.contextWindowPct;
@@ -362,12 +366,14 @@ export default function WorkspacePage() {
               const groupMessages = group.messages;
               const latestMessage = groupMessages[groupMessages.length - 1];
               const streaming = groupMessages.some((msg) => msg.streaming);
+              const cards = groupMessages.flatMap((msg) => msg.cards ?? []);
               const animated = groupMessages.some(
                 (msg) =>
                   !!msg.content ||
                   !!msg.reasoning ||
                   !!msg.reasoningStreaming ||
-                  !!(msg.toolCalls && msg.toolCalls.length > 0),
+                  !!(msg.toolCalls && msg.toolCalls.length > 0) ||
+                  !!(msg.cards && msg.cards.length > 0),
               );
 
               const isSubagent = !!group.agentName;
@@ -376,8 +382,8 @@ export default function WorkspacePage() {
                 : undefined;
 
               return (
-                <AgentMessage
-                  key={group.key}
+                <div key={group.key} className="conversation-group">
+                  <AgentMessage
                   name={group.agentName ?? "Rakh"}
                   icon={subagentMeta?.icon}
                   accentColor={subagentMeta?.color}
@@ -387,81 +393,90 @@ export default function WorkspacePage() {
                   collapsible={isSubagent}
                   defaultCollapsed={isSubagent}
                 >
-                  {groupMessages.map((msg, index) => {
-                    const showReasoning =
-                      !!msg.reasoning || !!msg.reasoningStreaming;
-                    const reasoningExpanded =
-                      reasoningExpandedById[msg.id] ?? false;
+                  {groupMessages.map((msg) => {
+                      const visibleToolCalls = msg.toolCalls ?? [];
+                      const showReasoning =
+                        !!msg.reasoning || !!msg.reasoningStreaming;
+                      const reasoningExpanded =
+                        reasoningExpandedById[msg.id] ?? false;
 
-                    return (
-                      <div key={msg.id} className={"agent-message-segment"}>
-                        {/* Reasoning content */}
-                        {showReasoning && (
-                          <ReasoningThought
-                            messageId={msg.id}
-                            reasoning={msg.reasoning}
-                            reasoningStreaming={msg.reasoningStreaming}
-                            reasoningStartedAtMs={msg.reasoningStartedAtMs}
-                            reasoningDurationMs={msg.reasoningDurationMs}
-                            expanded={reasoningExpanded}
-                            onToggle={toggleReasoning}
-                          />
-                        )}
+                      return (
+                        <div key={msg.id} className="agent-message-segment">
+                          {/* Reasoning content */}
+                          {showReasoning && (
+                            <ReasoningThought
+                              messageId={msg.id}
+                              reasoning={msg.reasoning}
+                              reasoningStreaming={msg.reasoningStreaming}
+                              reasoningStartedAtMs={msg.reasoningStartedAtMs}
+                              reasoningDurationMs={msg.reasoningDurationMs}
+                              expanded={reasoningExpanded}
+                              onToggle={toggleReasoning}
+                            />
+                          )}
 
-                        {/* Text content */}
-                        {msg.content && <Markdown>{msg.content}</Markdown>}
+                          {/* Text content */}
+                          {msg.content && <Markdown>{msg.content}</Markdown>}
 
-                        {/* Streaming cursor or thinking animation */}
-                        {msg.streaming &&
-                          (!msg.content &&
-                          !showReasoning &&
-                          (!msg.toolCalls || msg.toolCalls.length === 0) ? (
-                            <div className="thinking-dots mt-0.5 mb-0.5">
-                              <span />
-                              <span />
-                              <span />
+                          {/* Streaming cursor or thinking animation */}
+                          {msg.streaming &&
+                            (!msg.content &&
+                            !showReasoning &&
+                            visibleToolCalls.length === 0 ? (
+                              <div className="thinking-dots mt-0.5 mb-0.5">
+                                <span />
+                                <span />
+                                <span />
+                              </div>
+                            ) : (
+                              <span className="animate-blink ml-0.5">◍</span>
+                            ))}
+
+                          {/* Tool calls */}
+                          {visibleToolCalls.length > 0 && (
+                            <div className="mt-2 flex flex-col gap-1">
+                              {visibleToolCalls.map((tc) =>
+                                tc.tool === "user_input" &&
+                                tc.status === "awaiting_approval" ? (
+                                  <UserInputCard key={tc.id} toolCall={tc} />
+                                ) : tc.status === "awaiting_approval" ||
+                                  tc.status === "awaiting_worktree" ||
+                                  (tc.tool === "exec_run" &&
+                                    tc.status === "running") ? (
+                                  <ToolCallApproval
+                                    key={tc.id}
+                                    toolCall={tc}
+                                    cwd={agent.config.cwd}
+                                    tabId={activeTabId}
+                                  />
+                                ) : (
+                                  <CompactToolCall
+                                    key={tc.id}
+                                    tc={tc}
+                                    onInspect={() => setToolDetailsModal(tc)}
+                                    cwd={agent.config.cwd}
+                                    showDebug={agent.showDebug ?? false}
+                                  />
+                                ),
+                              )}
                             </div>
-                          ) : (
-                            <span className="animate-blink ml-0.5">◍</span>
-                          ))}
+                          )}
+                        </div>
+                      );
+                    })}
+                  </AgentMessage>
 
-                        {/* Tool calls */}
-                        {msg.toolCalls && msg.toolCalls.length > 0 && (
-                          <div className="mt-2 flex flex-col gap-1">
-                            {msg.toolCalls.map((tc) =>
-                              tc.tool === "user_input" &&
-                              tc.status === "awaiting_approval" ? (
-                                // User input card — question + options + free text
-                                <UserInputCard key={tc.id} toolCall={tc} />
-                              ) : tc.status === "awaiting_approval" ||
-                                tc.status === "awaiting_worktree" ||
-                                (tc.tool === "exec_run" &&
-                                  tc.status === "running") ? (
-                                // Full approval card (generic or worktree-specific)
-                                <ToolCallApproval
-                                  key={tc.id}
-                                  toolCall={tc}
-                                  cwd={agent.config.cwd}
-                                  tabId={activeTabId}
-                                />
-                              ) : (
-                                // Compact row: collapsible preview for applyPatch/exec_run,
-                                // modal-on-click for other inspectable tools.
-                                <CompactToolCall
-                                  key={tc.id}
-                                  tc={tc}
-                                  onInspect={() => setToolDetailsModal(tc)}
-                                  cwd={agent.config.cwd}
-                                  showDebug={agent.showDebug ?? false}
-                                />
-                              ),
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </AgentMessage>
+                  {cards.length > 0 ? (
+                    <ConversationCards
+                      cards={cards}
+                      accentColor={subagentMeta?.color}
+                      artifactInventory={artifactInventory}
+                      artifactInventoryLoading={artifactInventoryLoading}
+                      getArtifactContentEntry={getArtifactContentEntry}
+                      ensureArtifactContent={ensureArtifactContent}
+                    />
+                  ) : null}
+                </div>
               );
             })}
 
@@ -595,6 +610,8 @@ export default function WorkspacePage() {
                 artifactInventory={artifactInventory}
                 artifactInventoryLoading={artifactInventoryLoading}
                 artifactInventoryError={artifactInventoryError}
+                getArtifactContentEntry={getArtifactContentEntry}
+                ensureArtifactContent={ensureArtifactContent}
                 onRefineEdit={(filePath) => {
                   const hint = `Refine edit in ${filePath}: `;
                   setInput((prev) => (prev ? prev + "\n" + hint : hint));

@@ -33,6 +33,8 @@ vi.mock("./workspace", () => ({
 }));
 
 import {
+  buildConversationCard,
+  cardAdd,
   planGet,
   planEdit,
   planSet,
@@ -247,5 +249,86 @@ describe("agentControl tools", () => {
       data: { plan: { markdown: "## Plan", updatedAtMs: 123, version: 4 } },
     });
   });
-});
 
+  it("buildConversationCard validates summary/artifact inputs and returns normalized cards", () => {
+    expect(
+      buildConversationCard({} as never),
+    ).toEqual({
+      ok: false,
+      error: {
+        code: "INVALID_ARGUMENT",
+        message: "kind must be 'summary' or 'artifact'",
+      },
+    });
+
+    expect(
+      buildConversationCard({
+        kind: "summary",
+        markdown: "   ",
+      }),
+    ).toEqual({
+      ok: false,
+      error: {
+        code: "INVALID_ARGUMENT",
+        message: "summary markdown must not be empty",
+      },
+    });
+
+    const summary = buildConversationCard({
+      kind: "summary",
+      title: "  Review Summary  ",
+      markdown: "## Looks good",
+    });
+    expect(summary.ok).toBe(true);
+    if (!summary.ok) throw new Error("expected summary card success");
+    expect(summary.data.card).toMatchObject({
+      kind: "summary",
+      title: "Review Summary",
+      markdown: "## Looks good",
+    });
+
+    expect(
+      buildConversationCard({
+        kind: "artifact",
+        artifactId: "  ",
+      }),
+    ).toEqual({
+      ok: false,
+      error: {
+        code: "INVALID_ARGUMENT",
+        message: "artifactId must not be empty",
+      },
+    });
+
+    const artifact = buildConversationCard({
+      kind: "artifact",
+      title: "  Plan Artifact ",
+      artifactId: "plan_123",
+      version: 2,
+    });
+    expect(artifact.ok).toBe(true);
+    if (!artifact.ok) throw new Error("expected artifact card success");
+    expect(artifact.data.card).toMatchObject({
+      kind: "artifact",
+      title: "Plan Artifact",
+      artifactId: "plan_123",
+      version: 2,
+    });
+  });
+
+  it("cardAdd returns only the minimal acknowledgement payload", () => {
+    setState("tab");
+
+    const result = cardAdd("tab", {
+      kind: "summary",
+      markdown: "Summary body",
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error("expected card add success");
+    expect(result.data).toMatchObject({
+      kind: "summary",
+    });
+    expect(Object.keys(result.data)).toEqual(["cardId", "kind"]);
+  });
+});

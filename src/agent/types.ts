@@ -151,6 +151,50 @@ export interface ToolCallDisplay {
     | "denied";
 }
 
+export type ConversationCardKind = "summary" | "artifact";
+
+interface BaseConversationCard {
+  id: string;
+  kind: ConversationCardKind;
+  title?: string;
+}
+
+export interface SummaryConversationCard extends BaseConversationCard {
+  kind: "summary";
+  markdown: string;
+}
+
+export interface ArtifactConversationCard extends BaseConversationCard {
+  kind: "artifact";
+  artifactId: string;
+  version?: number;
+}
+
+export type ConversationCard =
+  | SummaryConversationCard
+  | ArtifactConversationCard;
+
+export const ARTIFACT_CARD_PARENT_INSTRUCTION =
+  "Read the artifact directly to get the content." as const;
+
+export interface SerializedSummaryConversationCard {
+  kind: "summary";
+  title?: string;
+  markdown: string;
+}
+
+export interface SerializedArtifactConversationCard {
+  kind: "artifact";
+  title?: string;
+  artifactId: string;
+  version?: number;
+  instruction: typeof ARTIFACT_CARD_PARENT_INSTRUCTION;
+}
+
+export type SerializedConversationCard =
+  | SerializedSummaryConversationCard
+  | SerializedArtifactConversationCard;
+
 export interface ChatMessage {
   id: string;
   role: "user" | "assistant";
@@ -174,6 +218,7 @@ export interface ChatMessage {
   /** e.g. "CALLING TOOL" */
   badge?: string;
   toolCalls?: ToolCallDisplay[];
+  cards?: ConversationCard[];
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────

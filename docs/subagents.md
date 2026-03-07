@@ -83,6 +83,10 @@ output: {
 In that mode, the subagent returns a concise summary only and does not persist a
 durable artifact.
 
+Conversation cards are intentionally not part of the formal subagent DNA.
+Subagents get `agent_card_add` in their tool allowlist and are instructed via
+prompt text to use it for user-facing summaries.
+
 ## How the Subagent Gets the Schema
 
 The schema is not fetched dynamically and it is not passed as a tool argument.
@@ -114,16 +118,18 @@ High-level flow:
 3. Runner builds a subagent-specific system prompt
 4. Subagent runs a private multi-turn tool loop
 5. Subagent optionally writes durable outputs as artifacts
-6. Runner validates produced artifacts against the declared contract
-7. Runner returns the result to the parent as:
+6. Subagent may also post user-visible conversation cards with `agent_card_add`
+7. Runner validates produced artifacts against the declared contract
+8. Runner returns the result to the parent as:
    - `rawText`
+   - `cards`
    - `artifacts`
    - `artifactValidations`
    - optional `note`
 
-The subagent final message is always just a summary. When artifacts exist, the
-durable payload lives there. When `artifacts: []`, `rawText` is the primary
-output.
+The subagent final message should be status-only text. User-facing summaries
+belong in summary cards. When artifacts exist, the durable payload lives there.
+When `artifacts: []`, summary cards are the primary user-facing output.
 
 ## Artifact Contract Enforcement
 
@@ -175,17 +181,20 @@ missing or malformed, for example:
 
 ## Parent-Agent Contract
 
-When present, subagent artifacts are the source of truth.
+When present, subagent artifacts are the durable machine-readable source of
+truth.
 
 Recommended pattern:
 
 1. Call `agent_subagent_call`
-2. Read `artifacts` from the returned result
-3. If artifacts are present, use `artifactId` to fetch the artifact body with `agent_artifact_get`
-4. Use the artifact content to summarize or act
-5. If artifacts are empty, use `rawText` plus `note` as the source of truth
+2. Read `cards` and `artifacts` from the returned result
+3. Summary cards may be shown directly or summarized further
+4. If artifacts are present, use `artifactId` to fetch the artifact body with `agent_artifact_get`
+5. Treat artifact cards as references only; they intentionally do not include
+   the artifact body
 6. Use `artifactValidations` and `artifact.validation` to inspect validation
    status when relevant
+7. Treat `rawText` as status-only text, not the canonical summary body
 
 This mirrors the older planner behavior, but now applies uniformly to
 structured subagent outputs too.
@@ -222,6 +231,7 @@ parent-initiated delegation.
    - registry presence
    - tool safety
    - artifact contract behavior if needed
+   - card serialization / prompt behavior if needed
 
 ## Current Artifact Contracts
 
@@ -240,7 +250,7 @@ parent-initiated delegation.
 ### GitHub Operator
 
 - Produces no artifacts
-- Uses `rawText` + `note` to summarize actions taken
+- Uses summary cards for user-facing output
 
 ### Security
 
@@ -256,8 +266,12 @@ parent-initiated delegation.
 
 ## Practical Design Rules
 
-- Keep the final message short. Do not duplicate artifact content in chat.
+- Keep the final message short and status-only. Do not duplicate summary-card
+  or artifact content in chat.
 - Put structured payloads in artifacts, not assistant text.
+- Use summary cards for user-facing Markdown summaries.
+- Use artifact cards only to point at artifacts; the parent should read the
+  artifact directly for real content.
 - Keep validator ids stable once artifacts may exist in the wild.
 - Prefer one artifact per logical output unless you intentionally need
   `cardinality: "many"`.
