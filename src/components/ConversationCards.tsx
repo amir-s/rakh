@@ -92,23 +92,25 @@ function ArtifactConversationCard({
   const title = resolveArtifactSummary(card, previewEntry, group);
   const canOpenDetail = group != null && detailVersion !== null;
   const canCopy = typeof hydratedArtifact?.content === "string";
-  const [copiedAt, setCopiedAt] = useState<number | null>(null);
-  const copied = copiedAt !== null;
+  const [copyFeedbackToken, setCopyFeedbackToken] = useState(0);
+  const copied = copyFeedbackToken > 0;
 
   useEffect(() => {
-    if (copiedAt === null) return;
+    if (copyFeedbackToken === 0) return;
     const timeoutId = window.setTimeout(() => {
-      setCopiedAt((current) => (current === copiedAt ? null : current));
+      setCopyFeedbackToken((current) =>
+        current === copyFeedbackToken ? 0 : current,
+      );
     }, 2200);
     return () => window.clearTimeout(timeoutId);
-  }, [copiedAt]);
+  }, [copyFeedbackToken]);
 
   const handleCopy = async () => {
     const content = hydratedArtifact?.content;
     if (typeof content !== "string") return;
     try {
       await navigator.clipboard.writeText(content);
-      setCopiedAt(Date.now());
+      setCopyFeedbackToken((current) => current + 1);
     } catch {
       // Ignore clipboard failures; the button is a convenience action.
     }
