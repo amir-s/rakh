@@ -122,9 +122,14 @@ function isRecord(value: unknown): value is Record<string, unknown> {
    buildProviderOptions — maps AdvancedModelOptions to AI SDK providerOptions
 ─────────────────────────────────────────────────────────────────────────── */
 
+function supportsAnthropicFastMode(modelSdkId?: string): boolean {
+  return typeof modelSdkId === "string" && modelSdkId.startsWith("claude-opus-4-6");
+}
+
 export function buildProviderOptions(
   provider: string | null,
   opts?: AdvancedModelOptions,
+  modelSdkId?: string,
 ): Record<string, Record<string, JsonValue>> | undefined {
   if (provider !== "openai" && provider !== "anthropic") return undefined;
 
@@ -172,8 +177,14 @@ export function buildProviderOptions(
   // Reasoning effort
   anthropic.effort = reasoningEffort;
 
-  // Latency profile
-  anthropic.speed = latencyCostProfile === "fast" ? "fast" : "standard";
+  // Fast mode is Anthropic model-specific. Omit the default "standard" mode
+  // entirely so unsupported models do not receive an invalid request field.
+  if (
+    latencyCostProfile === "fast" &&
+    supportsAnthropicFastMode(modelSdkId)
+  ) {
+    anthropic.speed = "fast";
+  }
 
   return { anthropic };
 }
@@ -1898,7 +1909,11 @@ async function agentLoop(
   const modelEntry = getModelCatalogEntry(modelId);
   const provider = modelEntry?.owned_by ?? null;
   const advancedOpts = getAgentState(tabId).config.advancedOptions;
-  const providerOptions = buildProviderOptions(provider, advancedOpts);
+  const providerOptions = buildProviderOptions(
+    provider,
+    advancedOpts,
+    modelEntry?.sdk_id?.trim(),
+  );
 
   // Loop until the model returns a turn with no tool calls
   for (let iteration = 0; iteration < 50; iteration++) {

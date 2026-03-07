@@ -931,7 +931,7 @@ describe("runner", () => {
       expect(result!.anthropic.effort).toBe(
         DEFAULT_ADVANCED_OPTIONS.reasoningEffort,
       );
-      expect(result!.anthropic.speed).toBe("standard");
+      expect(result!.anthropic).not.toHaveProperty("speed");
     });
 
     describe("OpenAI mappings", () => {
@@ -1046,19 +1046,39 @@ describe("runner", () => {
         },
       );
 
-      it("latency balanced → speed standard", () => {
-        const r = buildProviderOptions("anthropic", {
-          ...base,
-          latencyCostProfile: "balanced",
-        });
-        expect(r!.anthropic.speed).toBe("standard");
+      it("latency balanced → speed omitted", () => {
+        const r = buildProviderOptions(
+          "anthropic",
+          {
+            ...base,
+            latencyCostProfile: "balanced",
+          },
+          "claude-opus-4-6",
+        );
+        expect(r!.anthropic).not.toHaveProperty("speed");
       });
 
-      it("latency fast → speed fast", () => {
-        const r = buildProviderOptions("anthropic", {
-          ...base,
-          latencyCostProfile: "fast",
-        });
+      it("latency fast on unsupported models → speed omitted", () => {
+        const r = buildProviderOptions(
+          "anthropic",
+          {
+            ...base,
+            latencyCostProfile: "fast",
+          },
+          "claude-sonnet-4-6",
+        );
+        expect(r!.anthropic).not.toHaveProperty("speed");
+      });
+
+      it("latency fast on opus 4.6 → speed fast", () => {
+        const r = buildProviderOptions(
+          "anthropic",
+          {
+            ...base,
+            latencyCostProfile: "fast",
+          },
+          "claude-opus-4-6",
+        );
         expect(r!.anthropic.speed).toBe("fast");
       });
     });
@@ -1066,8 +1086,51 @@ describe("runner", () => {
 
   /* ── providerOptions integration test ─────────────────────────────────── */
 
-  it("passes providerOptions to streamText when advancedOptions are set", async () => {
+  it("passes supported Anthropic fast mode to streamText", async () => {
     const tabId = "tab-provider-options";
+    registerDynamicModels([
+      {
+        id: "anthropic/claude-opus",
+        name: "Claude Opus",
+        providerId: "test-anthropic-id",
+        owned_by: "anthropic",
+        tags: [],
+        sdk_id: "claude-opus-4-6",
+      },
+    ]);
+    setState(tabId, {
+      config: {
+        cwd: "",
+        model: "anthropic/claude-opus",
+        advancedOptions: {
+          reasoningVisibility: "detailed",
+          reasoningEffort: "high",
+          latencyCostProfile: "fast",
+        },
+      },
+    });
+    turns.push({ deltas: ["Done"], toolCalls: [] });
+
+    await runAgent(tabId, "hello");
+
+    const callArgs = streamTextMock.mock.calls[0]?.[0] as
+      | Record<string, unknown>
+      | undefined;
+    expect(callArgs).toBeDefined();
+    const po = callArgs!.providerOptions as
+      | Record<string, Record<string, unknown>>
+      | undefined;
+    expect(po).toBeDefined();
+    expect(po!.anthropic.thinking).toEqual({
+      type: "enabled",
+      budgetTokens: 4096,
+    });
+    expect(po!.anthropic.effort).toBe("high");
+    expect(po!.anthropic.speed).toBe("fast");
+  });
+
+  it("omits unsupported Anthropic fast mode from streamText", async () => {
+    const tabId = "tab-provider-options-no-fast-mode";
     registerDynamicModels([
       {
         id: "anthropic/claude-sonnet",
@@ -1075,7 +1138,7 @@ describe("runner", () => {
         providerId: "test-anthropic-id",
         owned_by: "anthropic",
         tags: [],
-        sdk_id: "claude-sonnet-4-5",
+        sdk_id: "claude-sonnet-4-6",
       },
     ]);
     setState(tabId, {
@@ -1106,7 +1169,7 @@ describe("runner", () => {
       budgetTokens: 4096,
     });
     expect(po!.anthropic.effort).toBe("high");
-    expect(po!.anthropic.speed).toBe("fast");
+    expect(po!.anthropic).not.toHaveProperty("speed");
   });
 
   it("omits providerOptions from streamText for openai-compatible providers", async () => {
