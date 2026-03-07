@@ -465,7 +465,7 @@ path/to/other.ts
     description:
       "Delegate a task to a specialized subagent. " +
       "The subagent will run its own reasoning loop, explore the workspace as needed, " +
-      "and return conversation cards plus any artifact references. Summary cards contain full Markdown text; artifact cards only contain refs and tell you to read the artifact directly. Use this when a task is better handled by a " +
+      "and return conversation cards plus any artifact references. Those returned cards are already visible to the user, so do not recreate them with agent_card_add. Summary cards contain full Markdown text; artifact cards only contain refs and tell you to read the artifact directly. Use this when a task is better handled by a " +
       "focused specialist (e.g. the planner subagent for complex planning tasks).",
     inputSchema: z.object({
       subagentId: z

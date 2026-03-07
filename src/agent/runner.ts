@@ -634,6 +634,8 @@ ${getAllSubagents()
   })
   .join("\n")}
 Use agent_subagent_call when delegating to a specialist is appropriate.
+When a subagent returns cards, those cards are already visible to the user.
+Read them, but do not recreate the same cards with agent_card_add.
 
 Be concise. Act like a focused senior engineer.`;
 }
@@ -670,7 +672,6 @@ function appendCardsToChatMessage(
   messageId: string,
   cards: ConversationCard[],
 ): void {
-  if (cards.length === 0) return;
   patchAgentState(tabId, (prev) => ({
     ...prev,
     chatMessages: prev.chatMessages.map((msg) =>
@@ -678,10 +679,71 @@ function appendCardsToChatMessage(
         ? msg
         : {
             ...msg,
-            cards: [...(msg.cards ?? []), ...cards],
+            cards: cards.length > 0 ? cards : undefined,
           },
     ),
   }));
+}
+
+type ConversationCardSlot =
+  | { status: "pending" }
+  | { status: "done"; card: ConversationCard }
+  | { status: "skipped" };
+
+function createConversationCardAccumulator(
+  tabId: string,
+  messageId: string,
+  toolCalls: ApiToolCall[],
+): {
+  markDone: (toolCallId: string, card: ConversationCard) => void;
+  markSkipped: (toolCallId: string) => void;
+  getResolvedCards: () => ConversationCard[];
+} {
+  const existingCards =
+    getAgentState(tabId).chatMessages.find((msg) => msg.id === messageId)
+      ?.cards ?? [];
+  const slotIndexByToolCallId = new Map<string, number>();
+  const slots: ConversationCardSlot[] = [];
+
+  for (const toolCall of toolCalls) {
+    if (toolCall.function.name !== "agent_card_add") continue;
+    slotIndexByToolCallId.set(toolCall.id, slots.length);
+    slots.push({ status: "pending" });
+  }
+
+  function publishResolvedPrefix(): void {
+    if (slots.length === 0) return;
+    const visibleCards: ConversationCard[] = [];
+    for (const slot of slots) {
+      if (slot.status === "pending") break;
+      if (slot.status === "done") visibleCards.push(slot.card);
+    }
+    appendCardsToChatMessage(tabId, messageId, [
+      ...existingCards,
+      ...visibleCards,
+    ]);
+  }
+
+  function updateSlot(toolCallId: string, next: ConversationCardSlot): void {
+    const slotIndex = slotIndexByToolCallId.get(toolCallId);
+    if (slotIndex === undefined) return;
+    slots[slotIndex] = next;
+    publishResolvedPrefix();
+  }
+
+  return {
+    markDone(toolCallId: string, card: ConversationCard): void {
+      updateSlot(toolCallId, { status: "done", card });
+    },
+    markSkipped(toolCallId: string): void {
+      updateSlot(toolCallId, { status: "skipped" });
+    },
+    getResolvedCards(): ConversationCard[] {
+      return slots.flatMap((slot) =>
+        slot.status === "done" ? [slot.card] : [],
+      );
+    },
+  };
 }
 
 function toLoggable(value: unknown): unknown {
@@ -1450,6 +1512,12 @@ async function runSubagentLoop(
     // No tool calls → turn is complete.
     if (parsedToolCalls.length === 0) break;
 
+    const turnCardAccumulator = createConversationCardAccumulator(
+      tabId,
+      assistantChatId,
+      parsedToolCalls,
+    );
+
     // Execute tool calls with identical approval rules as the main agent.
     const toolResults = await Promise.all(
       parsedToolCalls.map(async (tc) => {
@@ -1502,6 +1570,7 @@ async function runSubagentLoop(
             parseArgs(tc.function.arguments),
           );
           if (!preparedCard.ok) {
+            turnCardAccumulator.markSkipped(tcId);
             updateToolCallById({
               status: "error",
               result: preparedCard.result.error,
@@ -1516,6 +1585,7 @@ async function runSubagentLoop(
             status: "done",
             result: preparedCard.data.result.data,
           });
+          turnCardAccumulator.markDone(tcId, preparedCard.data.card);
           return {
             tool_call_id: tcId,
             result: preparedCard.data.result,
@@ -1679,10 +1749,9 @@ async function runSubagentLoop(
     );
     localApiMessages.push(...toolApiMessages);
 
-    const cardsToAppend = toolResults.flatMap(({ card }) => (card ? [card] : []));
-    if (cardsToAppend.length > 0) {
-      appendCardsToChatMessage(tabId, assistantChatId, cardsToAppend);
-      collectedCards.push(...cardsToAppend);
+    const resolvedTurnCards = turnCardAccumulator.getResolvedCards();
+    if (resolvedTurnCards.length > 0) {
+      collectedCards.push(...resolvedTurnCards);
     }
 
     if (debugEnabled) {
@@ -2314,6 +2383,12 @@ async function agentLoop(
     // --- Execute tool calls in parallel ---
     patchAgentState(tabId, { status: "working" });
 
+    const turnCardAccumulator = createConversationCardAccumulator(
+      tabId,
+      assistantChatId,
+      parsedToolCalls,
+    );
+
     const toolResults = await Promise.all(
       parsedToolCalls.map(async (tc) => {
         const tcId = tc.id;
@@ -2439,6 +2514,7 @@ async function agentLoop(
             parseArgs(tc.function.arguments),
           );
           if (!preparedCard.ok) {
+            turnCardAccumulator.markSkipped(tcId);
             updateToolCallById({
               status: "error",
               result: preparedCard.result.error,
@@ -2453,6 +2529,7 @@ async function agentLoop(
             status: "done",
             result: preparedCard.data.result.data,
           });
+          turnCardAccumulator.markDone(tcId, preparedCard.data.card);
           return {
             tool_call_id: tcId,
             result: preparedCard.data.result,
@@ -2592,11 +2669,6 @@ async function agentLoop(
         ),
       }),
     );
-
-    const cardsToAppend = toolResults.flatMap(({ card }) => (card ? [card] : []));
-    if (cardsToAppend.length > 0) {
-      appendCardsToChatMessage(tabId, assistantChatId, cardsToAppend);
-    }
 
     patchAgentState(tabId, (prev) => ({
       ...prev,

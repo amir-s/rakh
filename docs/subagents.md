@@ -188,7 +188,8 @@ Recommended pattern:
 
 1. Call `agent_subagent_call`
 2. Read `cards` and `artifacts` from the returned result
-3. Summary cards may be shown directly or summarized further
+3. Returned cards are already visible to the user; do not recreate the same
+   cards with `agent_card_add`
 4. If artifacts are present, use `artifactId` to fetch the artifact body with `agent_artifact_get`
 5. Treat artifact cards as references only; they intentionally do not include
    the artifact body

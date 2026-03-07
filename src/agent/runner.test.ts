@@ -236,6 +236,12 @@ function parseToolMessageResult(
   return JSON.parse(String(toolMessage?.content));
 }
 
+async function flushAsyncWork(rounds = 6): Promise<void> {
+  for (let index = 0; index < rounds; index += 1) {
+    await Promise.resolve();
+  }
+}
+
 describe("runner", () => {
   beforeEach(() => {
     registerDynamicModels([
@@ -408,6 +414,23 @@ describe("runner", () => {
     );
     expect(systemMessage.content).toContain(
       "Always include a concrete scope (file(s), directory, or commit range) in the message.",
+    );
+  });
+
+  it("tells the parent agent not to recreate cards returned by subagents", async () => {
+    const tabId = "tab-system-prompt-subagent-cards";
+    setState(tabId);
+    turns.push({ deltas: ["Hello"], toolCalls: [] });
+
+    await runAgent(tabId, "hi");
+
+    const systemMessage = states[tabId].apiMessages[0];
+    expect(systemMessage.role).toBe("system");
+    expect(systemMessage.content).toContain(
+      "When a subagent returns cards, those cards are already visible to the user.",
+    );
+    expect(systemMessage.content).toContain(
+      "Read them, but do not recreate the same cards with agent_card_add.",
     );
   });
 
@@ -721,6 +744,74 @@ describe("runner", () => {
       ok: true,
       data: { cardId: expect.any(String), kind: "artifact" },
     });
+  });
+
+  it("renders completed card tool results before the rest of the tool batch finishes", async () => {
+    const tabId = "tab-agent-cards-mid-batch";
+    setState(tabId);
+
+    let resolveGlob:
+      | ((value: { ok: true; data: { matches: string[] } }) => void)
+      | undefined;
+
+    dispatchToolMock.mockImplementation((...args: unknown[]) => {
+      if (args[2] !== "workspace_glob") {
+        return Promise.resolve({ ok: true, data: { ok: true } });
+      }
+      return new Promise((resolve) => {
+        resolveGlob = resolve as (
+          value: { ok: true; data: { matches: string[] } },
+        ) => void;
+      });
+    });
+
+    turns.push(
+      {
+        deltas: ["Posting cards."],
+        toolCalls: [
+          makeSummaryCardToolCall(
+            "tc-card-summary",
+            "## Summary\n\n- First card",
+            "Summary Card",
+          ),
+          {
+            id: "tc-glob",
+            name: "workspace_glob",
+            arguments: { patterns: ["*.ts"] },
+          },
+        ],
+      },
+      { deltas: ["Done."], toolCalls: [] },
+    );
+
+    const runPromise = runAgent(tabId, "post cards");
+    await flushAsyncWork();
+
+    const inFlightAssistant = states[tabId].chatMessages.find(
+      (message) =>
+        message.role === "assistant" &&
+        Array.isArray(message.cards) &&
+        message.cards.length > 0,
+    );
+    expect(inFlightAssistant).toBeDefined();
+    expect(inFlightAssistant?.cards).toMatchObject([
+      {
+        kind: "summary",
+        title: "Summary Card",
+        markdown: "## Summary\n\n- First card",
+      },
+    ]);
+    expect(
+      (
+        inFlightAssistant?.toolCalls as
+          | Array<Record<string, unknown>>
+          | undefined
+      )?.map((toolCall) => toolCall.status),
+    ).toEqual(["done", "running"]);
+
+    expect(resolveGlob).toBeTypeOf("function");
+    resolveGlob?.({ ok: true, data: { matches: [] } });
+    await runPromise;
   });
 
   it("reuses one runId across main + subagent tool dispatches and sets agentId", async () => {
