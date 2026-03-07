@@ -36,9 +36,10 @@ function isTauriRuntime() {
 }
 
 export function useSessionArtifactInventory(tabId: string, enabled = true) {
+  const runtimeEnabled = isTauriRuntime() && enabled;
   const [state, setState] = useState<SessionInventoryState>({
     tabId,
-    loading: isTauriRuntime() && enabled,
+    loading: runtimeEnabled,
     error: null,
     inventory: EMPTY_INVENTORY,
     hasLoadedSuccessfully: false,
@@ -48,16 +49,7 @@ export function useSessionArtifactInventory(tabId: string, enabled = true) {
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
 
-    if (!isTauriRuntime() || !enabled) {
-      setState({
-        tabId,
-        loading: false,
-        error: null,
-        inventory: EMPTY_INVENTORY,
-        hasLoadedSuccessfully: false,
-      });
-      return;
-    }
+    if (!runtimeEnabled) return;
 
     const poll = async () => {
       const result = await artifactList(tabId, {
@@ -102,18 +94,34 @@ export function useSessionArtifactInventory(tabId: string, enabled = true) {
       cancelled = true;
       if (timer) clearTimeout(timer);
     };
-  }, [enabled, tabId]);
+  }, [runtimeEnabled, tabId]);
 
-  if (state.tabId !== tabId) {
+  if (!runtimeEnabled) {
     return {
       inventory: EMPTY_INVENTORY,
-      loading: isTauriRuntime() && enabled,
+      loading: false,
       error: null,
       hasLoadedSuccessfully: false,
     };
   }
 
-  return state;
+  if (state.tabId !== tabId) {
+    return {
+      inventory: EMPTY_INVENTORY,
+      loading: true,
+      error: null,
+      hasLoadedSuccessfully: false,
+    };
+  }
+
+  return {
+    ...state,
+    loading:
+      state.loading ||
+      (!state.hasLoadedSuccessfully &&
+        state.error === null &&
+        state.inventory.groups.length === 0),
+  };
 }
 
 export function useArtifactContentCache(tabId: string) {
