@@ -1504,12 +1504,150 @@ pub fn db_delete_session(id: String, state: State<'_, AppState>) -> Result<(), S
     result
 }
 
+/* ── Provider config (disk-backed) ───────────────────────────────────────── */
+
+fn providers_config_path() -> Result<PathBuf, String> {
+    Ok(app_store_root()?.join("config").join("providers.json"))
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderRecord {
+    pub id: String,
+    pub name: String,
+    #[serde(rename = "type")]
+    pub provider_type: String,
+    pub api_key: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub base_url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cached_models: Option<Vec<Value>>,
+}
+
+#[tauri::command]
+pub fn providers_load() -> Result<Vec<ProviderRecord>, String> {
+    tool_log("providers_load", "start", json!({}));
+    let path = providers_config_path()?;
+    if !path.exists() {
+        tool_log("providers_load", "ok", json!({ "count": 0, "reason": "file_absent" }));
+        return Ok(vec![]);
+    }
+    let raw =
+        fs::read_to_string(&path).map_err(|e| format!("INTERNAL: cannot read providers: {}", e))?;
+    let records: Vec<ProviderRecord> = serde_json::from_str(&raw)
+        .map_err(|e| format!("INTERNAL: cannot parse providers: {}", e))?;
+    tool_log("providers_load", "ok", json!({ "count": records.len() }));
+    Ok(records)
+}
+
+#[tauri::command]
+pub fn providers_save(providers: Vec<ProviderRecord>) -> Result<(), String> {
+    tool_log("providers_save", "start", json!({ "count": providers.len() }));
+    let path = providers_config_path()?;
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|e| format!("INTERNAL: cannot create config dir: {}", e))?;
+    }
+    let raw = serde_json::to_string_pretty(&providers)
+        .map_err(|e| format!("INTERNAL: cannot serialise providers: {}", e))?;
+    let tmp = path.with_extension(format!("json.tmp-{}", now_ms()));
+    fs::write(&tmp, raw.as_bytes())
+        .map_err(|e| format!("INTERNAL: cannot write providers tmp: {}", e))?;
+    match fs::rename(&tmp, &path) {
+        Ok(()) => {}
+        Err(e) => {
+            if path.exists() {
+                let _ = fs::remove_file(&tmp);
+            } else {
+                return Err(format!("INTERNAL: cannot rename providers file: {}", e));
+            }
+        }
+    }
+    tool_log("providers_save", "ok", json!({ "count": providers.len() }));
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::path::PathBuf;
     use std::sync::OnceLock;
     use tempfile::tempdir;
+
+    static PROVIDER_TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+
+    #[test]
+    fn test_providers_load_returns_empty_when_absent() {
+        let _guard = PROVIDER_TEST_LOCK
+            .get_or_init(|| Mutex::new(()))
+            .lock()
+            .unwrap();
+        let tmp = tempdir().unwrap();
+        let prev_home = std::env::var("HOME").ok();
+        std::env::set_var("HOME", tmp.path());
+
+        let result = providers_load().expect("providers_load should not error");
+        assert!(result.is_empty(), "Expected empty list when file is absent");
+
+        match prev_home {
+            Some(v) => std::env::set_var("HOME", v),
+            None => std::env::remove_var("HOME"),
+        }
+    }
+
+    #[test]
+    fn test_providers_roundtrip() {
+        let _guard = PROVIDER_TEST_LOCK
+            .get_or_init(|| Mutex::new(()))
+            .lock()
+            .unwrap();
+        let tmp = tempdir().unwrap();
+        let prev_home = std::env::var("HOME").ok();
+        std::env::set_var("HOME", tmp.path());
+
+        let records = vec![
+            ProviderRecord {
+                id: "id-1".to_string(),
+                name: "OpenAI".to_string(),
+                provider_type: "openai".to_string(),
+                api_key: "sk-test-openai".to_string(),
+                base_url: None,
+                cached_models: None,
+            },
+            ProviderRecord {
+                id: "id-2".to_string(),
+                name: "Local Ollama".to_string(),
+                provider_type: "openai-compatible".to_string(),
+                api_key: "".to_string(),
+                base_url: Some("http://localhost:11434/v1".to_string()),
+                cached_models: None,
+            },
+        ];
+
+        providers_save(records.clone()).expect("providers_save should succeed");
+
+        let loaded = providers_load().expect("providers_load should succeed");
+        assert_eq!(loaded.len(), 2);
+        assert_eq!(loaded[0].id, "id-1");
+        assert_eq!(loaded[0].name, "OpenAI");
+        assert_eq!(loaded[0].api_key, "sk-test-openai");
+        assert!(loaded[0].base_url.is_none());
+        assert_eq!(loaded[1].id, "id-2");
+        assert_eq!(
+            loaded[1].base_url.as_deref(),
+            Some("http://localhost:11434/v1")
+        );
+
+        // Verify the file exists on disk and is a human-readable JSON array
+        let config_path = providers_config_path().unwrap();
+        let raw = std::fs::read_to_string(&config_path).unwrap();
+        assert!(raw.trim().starts_with('['), "File should be a JSON array");
+
+        match prev_home {
+            Some(v) => std::env::set_var("HOME", v),
+            None => std::env::remove_var("HOME"),
+        }
+    }
 
     fn init_artifact_schema(conn: &Connection) {
         conn.execute_batch(
