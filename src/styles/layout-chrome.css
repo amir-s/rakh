@@ -200,18 +200,100 @@
 
 /* ── Tab popover ─────────────────────────────────────────────────────────── */
 .tab-popover {
-  padding: 6px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 180px;
+  max-width: 320px;
+  padding: 8px 10px;
   background: var(--color-elevated);
   border: 1px solid var(--color-border-mid);
   border-radius: 6px;
   color: var(--color-text);
-  font-size: var(--text-sm);
-  font-weight: 500;
-  white-space: nowrap;
   box-shadow: var(--shadow-soft);
-  max-width: 400px;
+}
+
+.tab-popover__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+
+.tab-popover__workspace {
+  flex: 1;
   overflow: hidden;
+  color: var(--color-muted);
+  font-size: var(--text-xxs);
+  font-weight: 700;
+  letter-spacing: 0.08em;
   text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.tab-popover__title {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--color-text);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  line-height: 1.35;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.tab-popover__status {
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-end;
+  flex-shrink: 0;
+}
+
+.tab-popover__status-pill {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  overflow: hidden;
+  padding: 1px 6px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.tab-popover__status-pill[data-tone="idle"] {
+  color: var(--color-muted);
+  background: color-mix(in srgb, var(--color-muted) 10%, transparent);
+  border-color: color-mix(in srgb, var(--color-muted) 18%, transparent);
+}
+
+.tab-popover__status-pill[data-tone="attention"] {
+  color: var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 12%, transparent);
+  border-color: color-mix(in srgb, var(--color-primary) 20%, transparent);
+}
+
+.tab-popover__status-pill[data-tone="working"] {
+  color: var(--color-status-working);
+  background: color-mix(in srgb, var(--color-status-working) 14%, transparent);
+  border-color: color-mix(
+    in srgb,
+    var(--color-status-working) 24%,
+    transparent
+  );
+}
+
+.tab-popover__status-pill[data-tone="done"] {
+  color: var(--color-status-done);
+  background: color-mix(in srgb, var(--color-status-done) 14%, transparent);
+  border-color: color-mix(in srgb, var(--color-status-done) 24%, transparent);
 }
 
 /* ── New-tab button ──────────────────────────────────────────────────────── */
@@ -410,4 +492,3 @@
   color: var(--color-error) !important;
   background: color-mix(in srgb, var(--color-error) 12%, transparent);
 }
-
