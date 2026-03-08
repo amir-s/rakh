@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.4.0](https://github.com/amir-s/rakh/compare/rakh-v0.3.2...rakh-v0.4.0) (2026-03-08)
+
+
+### Features
+
+* **chat:** add slash command autocomplete ([#7](https://github.com/amir-s/rakh/issues/7)) ([#53](https://github.com/amir-s/rakh/issues/53)) ([258b107](https://github.com/amir-s/rakh/commit/258b107e8c6d388f8edb6da95be574ba86d4f092))
+* **chat:** replace workspace textarea with lexical editor ([#49](https://github.com/amir-s/rakh/issues/49)) ([29d889c](https://github.com/amir-s/rakh/commit/29d889cdbe80dd721c3f33d680898311eef4e3ed))
+
 ## [0.3.2](https://github.com/amir-s/rakh/compare/rakh-v0.3.1...rakh-v0.3.2) (2026-03-08)
 
 
