@@ -1,15 +1,19 @@
 // @vitest-environment jsdom
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { Provider } from "jotai";
 import TopChrome from "./TopChrome";
+import type { Tab } from "@/contexts/TabsContext";
 import {
+  DEFAULT_MODEL,
   appUpdaterStateAtom,
   defaultAppUpdaterState,
   jotaiStore,
+  patchAgentState,
   settingsSidebarOpenAtom,
 } from "@/agent/atoms";
+import type { AgentStatus, ChatMessage } from "@/agent/types";
 
 const tabsContextMock = vi.hoisted(() => ({
   value: {
@@ -21,7 +25,7 @@ const tabsContextMock = vi.hoisted(() => ({
         status: "idle" as const,
         mode: "workspace" as const,
       },
-    ],
+    ] as Tab[],
     activeTabId: "tab-1",
     setActiveTab: vi.fn(),
     addTab: vi.fn(),
@@ -98,6 +102,57 @@ function setNavigatorPlatform(value: string) {
   });
 }
 
+function renderTopChrome() {
+  return render(
+    <Provider store={jotaiStore}>
+      <TopChrome />
+    </Provider>,
+  );
+}
+
+function setAgentState(
+  tabId: string,
+  {
+    chatMessages = [],
+    cwd = "",
+    status = "idle",
+    tabTitle = "",
+    worktreeBranch,
+  }: {
+    chatMessages?: ChatMessage[];
+    cwd?: string;
+    status?: AgentStatus;
+    tabTitle?: string;
+    worktreeBranch?: string;
+  } = {},
+) {
+  patchAgentState(tabId, {
+    chatMessages,
+    config: {
+      cwd,
+      model: DEFAULT_MODEL,
+      ...(worktreeBranch ? { worktreeBranch } : {}),
+    },
+    status,
+    tabTitle,
+  });
+}
+
+function hoverTab(label: string) {
+  const tab = screen.getByText(label).closest('[role="tab"]');
+  if (!(tab instanceof HTMLElement)) {
+    throw new Error(`Unable to find tab for ${label}`);
+  }
+  fireEvent.mouseEnter(tab);
+  return tab;
+}
+
+function revealTooltip() {
+  act(() => {
+    vi.advanceTimersByTime(500);
+  });
+}
+
 describe("TopChrome", () => {
   beforeEach(() => {
     cleanup();
@@ -110,8 +165,8 @@ describe("TopChrome", () => {
         id: "tab-1",
         label: "Workspace",
         icon: "chat_bubble_outline",
-        status: "idle",
-        mode: "workspace",
+        status: "idle" as const,
+        mode: "workspace" as const,
       },
     ];
     tabsContextMock.value.activeTabId = "tab-1";
@@ -121,19 +176,12 @@ describe("TopChrome", () => {
     tabsContextMock.value.closeTab.mockReset();
     tabsContextMock.value.reorderTabs.mockReset();
     sessionRestoreMock.restoreMostRecentArchivedTab.mockReset();
+    setAgentState("tab-1");
   });
 
   afterEach(() => {
     cleanup();
   });
-
-  function renderTopChrome() {
-    return render(
-      <Provider store={jotaiStore}>
-        <TopChrome />
-      </Provider>,
-    );
-  }
 
   it("hides the settings update badge when no update is available", () => {
     renderTopChrome();
@@ -232,5 +280,208 @@ describe("TopChrome", () => {
     expect(sessionRestoreMock.restoreMostRecentArchivedTab).toHaveBeenCalledWith(
       tabsContextMock.value.addTabWithId,
     );
+  });
+});
+
+describe("TopChrome tooltip", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    cleanup();
+    jotaiStore.set(appUpdaterStateAtom, { ...defaultAppUpdaterState });
+    jotaiStore.set(settingsSidebarOpenAtom, false);
+    tabsContextMock.value.tabs = [
+      {
+        id: "tab-1",
+        label: "Workspace",
+        icon: "chat_bubble_outline",
+        status: "idle" as const,
+        mode: "workspace" as const,
+      },
+    ];
+    tabsContextMock.value.activeTabId = "tab-1";
+    patchAgentState("tab-1", {
+      chatMessages: [],
+      config: {
+        cwd: "",
+        model: DEFAULT_MODEL,
+      },
+      status: "idle",
+      tabTitle: "",
+    });
+  });
+
+  afterEach(() => {
+    vi.runOnlyPendingTimers();
+    vi.useRealTimers();
+    cleanup();
+  });
+
+  it("shows structured tooltip content after the hover delay", () => {
+    patchAgentState("tab-1", {
+      chatMessages: [],
+      config: {
+        cwd: "/Users/amir/projects/my-project",
+        model: DEFAULT_MODEL,
+        worktreeBranch: "feat/auth",
+      },
+      status: "working",
+      tabTitle: "Fix login session handling",
+    });
+
+    renderTopChrome();
+
+    hoverTab("Workspace");
+    expect(screen.queryByText("my-project [feat/auth]")).toBeNull();
+
+    act(() => {
+      vi.advanceTimersByTime(499);
+    });
+    expect(screen.queryByText("my-project [feat/auth]")).toBeNull();
+
+    revealTooltip();
+
+    expect(screen.getByText("my-project [feat/auth]")).not.toBeNull();
+    expect(screen.getByText("Fix login session handling")).not.toBeNull();
+    expect(screen.getByText("Working")).not.toBeNull();
+    expect(document.querySelector(".tab-popover__status-pill")?.textContent).toBe(
+      "Working",
+    );
+    expect(document.querySelector(".tab-popover__header .tab-popover__status-pill")).not.toBeNull();
+  });
+
+  it("shows done for settled tabs that already produced activity", () => {
+    patchAgentState("tab-1", {
+      chatMessages: [
+        {
+          id: "msg-1",
+          role: "assistant",
+          content: "Finished the refactor.",
+          timestamp: 1,
+        },
+      ],
+      config: {
+        cwd: "/Users/amir/projects/refactor-db",
+        model: DEFAULT_MODEL,
+      },
+      status: "idle",
+      tabTitle: "",
+    });
+
+    renderTopChrome();
+
+    hoverTab("Workspace");
+    revealTooltip();
+
+    expect(screen.getByText("refactor-db")).not.toBeNull();
+    expect(screen.getByText("Done")).not.toBeNull();
+    const popover = document.querySelector(".tab-popover");
+    expect(popover?.querySelector(".tab-popover__title")).toBeNull();
+  });
+
+  it("shows a new-session fallback without an idle pill", () => {
+    tabsContextMock.value.tabs = [
+      {
+        id: "tab-new",
+        label: "New Tab",
+        icon: "chat_bubble_outline",
+        status: "idle" as const,
+        mode: "new" as const,
+      },
+    ];
+    tabsContextMock.value.activeTabId = "tab-new";
+    patchAgentState("tab-new", {
+      chatMessages: [],
+      config: {
+        cwd: "",
+        model: DEFAULT_MODEL,
+      },
+      status: "idle",
+      tabTitle: "",
+    });
+
+    renderTopChrome();
+
+    hoverTab("New Tab");
+    revealTooltip();
+
+    expect(screen.getByText("New session")).not.toBeNull();
+    expect(document.querySelector(".tab-popover__status-pill")).toBeNull();
+  });
+
+  it("prioritizes awaiting approval over the base agent status", () => {
+    patchAgentState("tab-1", {
+      chatMessages: [
+        {
+          id: "msg-1",
+          role: "assistant",
+          content: "",
+          timestamp: 1,
+          toolCalls: [
+            {
+              id: "tc-1",
+              tool: "exec_run",
+              args: { cmd: "npm test" },
+              status: "awaiting_approval",
+            },
+          ],
+        },
+      ],
+      config: {
+        cwd: "/Users/amir/projects/my-project",
+        model: DEFAULT_MODEL,
+      },
+      status: "working",
+      tabTitle: "Run checks",
+    });
+
+    renderTopChrome();
+
+    hoverTab("Workspace");
+    revealTooltip();
+
+    expect(screen.getByText("Requires attention")).not.toBeNull();
+    expect(screen.queryByText("Working")).toBeNull();
+  });
+
+  it("prioritizes awaiting worktree over other statuses", () => {
+    patchAgentState("tab-1", {
+      chatMessages: [
+        {
+          id: "msg-1",
+          role: "assistant",
+          content: "",
+          timestamp: 1,
+          toolCalls: [
+            {
+              id: "tc-1",
+              tool: "git_worktree_init",
+              args: {},
+              status: "awaiting_worktree",
+            },
+            {
+              id: "tc-2",
+              tool: "exec_run",
+              args: { cmd: "npm test" },
+              status: "awaiting_approval",
+            },
+          ],
+        },
+      ],
+      config: {
+        cwd: "/Users/amir/projects/my-project",
+        model: DEFAULT_MODEL,
+      },
+      status: "thinking",
+      tabTitle: "Prepare worktree",
+    });
+
+    renderTopChrome();
+
+    hoverTab("Workspace");
+    revealTooltip();
+
+    expect(screen.getByText("Requires attention")).not.toBeNull();
+    expect(screen.queryByText("Working")).toBeNull();
+    expect(screen.queryByText("Done")).toBeNull();
   });
 });

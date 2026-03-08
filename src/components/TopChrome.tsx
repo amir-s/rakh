@@ -5,13 +5,16 @@ import {
   useCallback,
   type MouseEvent as ReactMouseEvent,
 } from "react";
-import { useTabs } from "@/contexts/TabsContext";
-import { useAtom } from "jotai";
+import { useTabs, type Tab } from "@/contexts/TabsContext";
+import { useAtom, useAtomValue } from "jotai";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   settingsSidebarOpenAtom,
   appUpdaterStateAtom,
+  agentChatMessagesAtomFamily,
+  agentConfigAtomFamily,
   agentStatusAtomFamily,
+  agentTabTitleAtomFamily,
   jotaiStore,
 } from "@/agent/atoms";
 import { restoreMostRecentArchivedTab } from "@/agent/sessionRestore";
@@ -19,9 +22,16 @@ import CloseTabModal from "@/components/CloseTabModal";
 import ArchivedTabsMenu from "@/components/ArchivedTabsMenu";
 import { cn } from "@/utils/cn";
 import { shouldShowAppUpdateBadge } from "@/updater";
+import type { AgentStatus, ChatMessage } from "@/agent/types";
 
 /* ── Types ──────────────────────────────────────────────────────────────── */
 type Platform = "mac" | "windows" | "other";
+type TooltipStatusTone = "attention" | "working" | "done";
+
+interface TooltipStatusDisplay {
+  label: string;
+  tone: TooltipStatusTone;
+}
 
 function detectPlatform(): Platform {
   const p = (navigator.platform ?? "").toLowerCase();
@@ -35,6 +45,84 @@ function isTauriRuntime(): boolean {
   return (
     typeof window !== "undefined" &&
     ("__TAURI_INTERNALS__" in window || "__TAURI__" in window)
+  );
+}
+
+function getWorkspaceName(cwd: string, branch?: string): string {
+  const trimmedCwd = cwd.trim();
+  if (!trimmedCwd) return "Workspace";
+  const folder = trimmedCwd.split("/").filter(Boolean).pop() ?? trimmedCwd;
+  return branch ? `${folder} [${branch}]` : folder;
+}
+
+function resolveTooltipStatus(
+  status: AgentStatus,
+  chatMessages: ChatMessage[],
+  tabTitle: string,
+): TooltipStatusDisplay | null {
+  const toolCalls = chatMessages.flatMap((message) => message.toolCalls ?? []);
+  const requiresAttention =
+    status === "error" ||
+    toolCalls.some(
+      (toolCall) =>
+        toolCall.status === "awaiting_worktree" ||
+        toolCall.status === "awaiting_approval",
+    );
+  if (requiresAttention) {
+    return { label: "Requires attention", tone: "attention" };
+  }
+
+  if (status === "thinking" || status === "working") {
+    return { label: "Working", tone: "working" };
+  }
+
+  const hasCompletedActivity =
+    chatMessages.length > 0 || tabTitle.trim().length > 0 || status === "done";
+  if (hasCompletedActivity) {
+    return { label: "Done", tone: "done" };
+  }
+
+  return null;
+}
+
+function TabPopoverContent({
+  tabId,
+  mode,
+}: {
+  tabId: string;
+  mode: Tab["mode"];
+}) {
+  const config = useAtomValue(agentConfigAtomFamily(tabId));
+  const tabTitle = useAtomValue(agentTabTitleAtomFamily(tabId));
+  const status = useAtomValue(agentStatusAtomFamily(tabId));
+  const chatMessages = useAtomValue(agentChatMessagesAtomFamily(tabId));
+
+  const workspaceName =
+    mode === "new"
+      ? "New session"
+      : getWorkspaceName(config.cwd, config.worktreeBranch);
+  const trimmedTitle = tabTitle.trim();
+  const tooltipStatus = resolveTooltipStatus(status, chatMessages, trimmedTitle);
+
+  return (
+    <>
+      <div className="tab-popover__header">
+        <div className="tab-popover__workspace">{workspaceName}</div>
+        {tooltipStatus ? (
+          <div className="tab-popover__status">
+            <span
+              className="tab-popover__status-pill"
+              data-tone={tooltipStatus.tone}
+            >
+              {tooltipStatus.label}
+            </span>
+          </div>
+        ) : null}
+      </div>
+      {trimmedTitle ? (
+        <div className="tab-popover__title">{trimmedTitle}</div>
+      ) : null}
+    </>
   );
 }
 
@@ -451,7 +539,7 @@ export default function TopChrome() {
                       zIndex: 10000,
                     }}
                   >
-                    {tab.label || "Untitled"}
+                    <TabPopoverContent tabId={tab.id} mode={tab.mode} />
                   </motion.div>
                 );
               })()}
