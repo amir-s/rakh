@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.2](https://github.com/amir-s/rakh/compare/rakh-v0.3.1...rakh-v0.3.2) (2026-03-08)
+
+
+### Bug Fixes
+
+* add macOS microphone entitlement for production builds ([#47](https://github.com/amir-s/rakh/issues/47)) ([8697c9c](https://github.com/amir-s/rakh/commit/8697c9c799a1d79db8cadc8015c5488b9306c95c))
+
 ## [0.3.1](https://github.com/amir-s/rakh/compare/rakh-v0.3.0...rakh-v0.3.1) (2026-03-07)
 
 
