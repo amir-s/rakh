@@ -14,6 +14,7 @@ import {
   agentStatusAtomFamily,
   jotaiStore,
 } from "@/agent/atoms";
+import { restoreMostRecentArchivedTab } from "@/agent/sessionRestore";
 import CloseTabModal from "@/components/CloseTabModal";
 import ArchivedTabsMenu from "@/components/ArchivedTabsMenu";
 import { cn } from "@/utils/cn";
@@ -87,8 +88,15 @@ const IconClose = () => (
 
 /* ── Component ──────────────────────────────────────────────────────────── */
 export default function TopChrome() {
-  const { tabs, activeTabId, setActiveTab, addTab, closeTab, reorderTabs } =
-    useTabs();
+  const {
+    tabs,
+    activeTabId,
+    setActiveTab,
+    addTab,
+    addTabWithId,
+    closeTab,
+    reorderTabs,
+  } = useTabs();
   const [, setSettingsSidebarOpen] = useAtom(settingsSidebarOpenAtom);
   const [appUpdater] = useAtom(appUpdaterStateAtom);
   const showUpdateBadge = shouldShowAppUpdateBadge(appUpdater);
@@ -183,27 +191,47 @@ export default function TopChrome() {
     };
   }, []);
 
+  // ── Window state ─────────────────────────────────────────────────────
+  const [platform, setPlatform] = useState<Platform>("other");
+  const [isMaximized, setIsMaximized] = useState(false);
+  const [isFocused, setIsFocused] = useState(true);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
   // ── Keyboard shortcuts ────────────────────────────────────────────────
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.ctrlKey && e.key === "Tab" && !e.shiftKey) {
+      const key = e.key.toLowerCase();
+      const isMac = platform === "mac";
+
+      if (e.ctrlKey && key === "tab" && !e.shiftKey) {
         e.preventDefault();
         const idx = tabs.findIndex((t) => t.id === activeTabId);
         setActiveTab(tabs[(idx + 1) % tabs.length].id);
         return;
       }
-      if (e.ctrlKey && e.key === "Tab" && e.shiftKey) {
+      if (e.ctrlKey && key === "tab" && e.shiftKey) {
         e.preventDefault();
         const idx = tabs.findIndex((t) => t.id === activeTabId);
         setActiveTab(tabs[(idx - 1 + tabs.length) % tabs.length].id);
         return;
       }
-      if (e.metaKey && e.key === "t") {
+      if (e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey && key === "t") {
         e.preventDefault();
         addTab();
         return;
       }
-      if (e.metaKey && e.key === "w") {
+      if (
+        ((isMac && e.metaKey && !e.ctrlKey) ||
+          (!isMac && e.ctrlKey && !e.metaKey)) &&
+        !e.altKey &&
+        e.shiftKey &&
+        key === "t"
+      ) {
+        e.preventDefault();
+        void restoreMostRecentArchivedTab(addTabWithId);
+        return;
+      }
+      if (e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey && key === "w") {
         e.preventDefault();
         const activeTab = tabs.find((t) => t.id === activeTabId);
         if (tabs.length === 1 && activeTab?.mode === "new") {
@@ -221,13 +249,15 @@ export default function TopChrome() {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [tabs, activeTabId, setActiveTab, addTab, handleCloseTab]);
-
-  // ── Window state ─────────────────────────────────────────────────────
-  const [platform, setPlatform] = useState<Platform>("other");
-  const [isMaximized, setIsMaximized] = useState(false);
-  const [isFocused, setIsFocused] = useState(true);
-  const [isFullscreen, setIsFullscreen] = useState(false);
+  }, [
+    tabs,
+    activeTabId,
+    setActiveTab,
+    addTab,
+    addTabWithId,
+    handleCloseTab,
+    platform,
+  ]);
 
   useEffect(() => {
     setPlatform(detectPlatform());
@@ -326,11 +356,23 @@ export default function TopChrome() {
                   tab.id === activeTabId && "tab--active",
                   dragTabId === tab.id && "tab--dragging",
                 )}
-                onMouseDown={(e) => e.stopPropagation()}
+                onMouseDown={(e) => {
+                  e.stopPropagation();
+                  if (e.button === 1) {
+                    e.preventDefault();
+                  }
+                }}
                 onPointerDown={(e) => {
                   e.stopPropagation();
+                  if (e.button !== 0) return;
                   dragTabIdRef.current = tab.id;
                   setDragTabId(tab.id);
+                }}
+                onAuxClick={(e) => {
+                  if (e.button !== 1) return;
+                  e.preventDefault();
+                  e.stopPropagation();
+                  handleCloseTab(tab.id);
                 }}
                 onPointerEnter={() => {
                   if (!dragTabIdRef.current || dragTabIdRef.current === tab.id)

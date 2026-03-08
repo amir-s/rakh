@@ -9,10 +9,10 @@ import {
   themeModeAtom,
   themeNameAtom,
   notifyOnAttentionAtom,
-  patchAgentState,
   agentAtomFamily,
 } from "@/agent/atoms";
 import { loadProviders, providersAtom } from "@/agent/db";
+import { hydratePersistedSession } from "@/agent/sessionRestore";
 import WorkspacePage from "@/WorkspacePage";
 import SettingsSidebar from "@/components/SettingsSidebar";
 import {
@@ -23,7 +23,7 @@ import {
   isSessionEmpty,
   type PersistedSession,
 } from "@/agent/persistence";
-import type { AgentStatus, AdvancedModelOptions, ToolCallDisplay } from "@/agent/types";
+import type { AgentStatus, ToolCallDisplay } from "@/agent/types";
 import { focusTab, showNotification } from "@/notifications";
 import { preloadEnvProviderKeys } from "@/agent/useEnvProviderKeys";
 import { getThemeSubagentColorVariables } from "@/styles/themes/registry";
@@ -252,46 +252,7 @@ export default function App() {
               }
             }
 
-            let restoredAdvancedOptions: AdvancedModelOptions | undefined;
-            try {
-              const parsed = s.advancedOptions
-                ? (JSON.parse(s.advancedOptions) as Partial<AdvancedModelOptions>)
-                : {};
-              if (
-                parsed.reasoningVisibility ||
-                parsed.reasoningEffort ||
-                parsed.latencyCostProfile
-              ) {
-                restoredAdvancedOptions = parsed as AdvancedModelOptions;
-              }
-            } catch {
-              // ignore malformed JSON
-            }
-
-            patchAgentState(s.id, {
-              status: restoreError ? "error" : "idle",
-              tabTitle: s.tabTitle,
-              config: {
-                cwd: s.cwd,
-                model: s.model,
-                worktreePath: s.worktreePath || undefined,
-                worktreeBranch: s.worktreeBranch || undefined,
-                worktreeDeclined: s.worktreeDeclined || undefined,
-                advancedOptions: restoredAdvancedOptions,
-              },
-              plan: {
-                markdown: s.planMarkdown,
-                version: s.planVersion,
-                updatedAtMs: s.planUpdatedAt,
-              },
-              chatMessages: JSON.parse(s.chatMessages),
-              apiMessages: JSON.parse(s.apiMessages),
-              todos: JSON.parse(s.todos),
-              reviewEdits: JSON.parse(s.reviewEdits ?? "[]"),
-              streamingContent: null,
-              error: restoreError,
-              showDebug: s.showDebug ?? false,
-            });
+            hydratePersistedSession(s, { restoreError });
           } catch (e) {
             console.error("rakh: failed to restore session", s.id, e);
           }

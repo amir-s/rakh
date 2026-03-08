@@ -1,9 +1,8 @@
 import { useEffect, useState, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { patchAgentState } from "@/agent/atoms";
+import { restoreArchivedTab } from "@/agent/sessionRestore";
 import {
   loadArchivedSessions,
-  restoreSession,
   deleteSession,
   type PersistedSession,
 } from "@/agent/persistence";
@@ -65,35 +64,7 @@ export default function ArchivedTabsMenu() {
 
   const handleRestore = useCallback(
     async (session: PersistedSession) => {
-      await restoreSession(session);
-      try {
-        patchAgentState(session.id, {
-          status: "idle",
-          tabTitle: session.tabTitle,
-          config: { cwd: session.cwd, model: session.model },
-          plan: {
-            markdown: session.planMarkdown,
-            version: session.planVersion,
-            updatedAtMs: session.planUpdatedAt,
-          },
-          chatMessages: JSON.parse(session.chatMessages),
-          apiMessages: JSON.parse(session.apiMessages),
-          todos: JSON.parse(session.todos),
-          reviewEdits: JSON.parse(session.reviewEdits ?? "[]"),
-          streamingContent: null,
-          error: null,
-          showDebug: session.showDebug ?? false,
-        });
-      } catch (e) {
-        console.error("rakh: failed to hydrate restored session", e);
-      }
-      addTabWithId({
-        id: session.id,
-        label: session.label,
-        icon: session.icon,
-        status: "idle",
-        mode: session.mode as "new" | "workspace",
-      });
+      await restoreArchivedTab(session, addTabWithId);
       setOpen(false);
       setSessions((prev) => prev.filter((s) => s.id !== session.id));
     },
