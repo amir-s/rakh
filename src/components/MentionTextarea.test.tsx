@@ -20,6 +20,7 @@ import {
   MentionTextarea,
   type MentionTextareaHandle,
 } from "./MentionTextarea";
+import type { SlashCommandDefinition } from "@/agent/slashCommands";
 
 const tauriMocks = vi.hoisted(() => ({
   invokeMock: vi.fn(),
@@ -109,11 +110,13 @@ function ControlledMentionTextarea({
   handleRef,
   initialValue = "",
   onKeyDown,
+  slashCommands,
 }: {
   cwd?: string;
   handleRef?: RefObject<MentionTextareaHandle | null>;
   initialValue?: string;
   onKeyDown?: (event: KeyboardEvent<HTMLTextAreaElement>) => void;
+  slashCommands?: SlashCommandDefinition[];
 }) {
   const [value, setValue] = useState(initialValue);
 
@@ -130,12 +133,37 @@ function ControlledMentionTextarea({
         onChange={(event) => setValue(event.target.value)}
         onKeyDown={onKeyDown}
         placeholder="Type a message…"
+        slashCommands={slashCommands}
         value={value}
       />
       <div data-testid="value">{value}</div>
     </>
   );
 }
+
+const slashCommands: SlashCommandDefinition[] = [
+  {
+    command: "/plan",
+    displayLabel: "/plan <task>",
+    description: "Run the Planner subagent to explore and write a structured plan.",
+    insertText: "/plan ",
+    takesArguments: true,
+  },
+  {
+    command: "/model",
+    displayLabel: "/model [id]",
+    description: "List available models or switch the active model.",
+    insertText: "/model ",
+    takesArguments: true,
+  },
+  {
+    command: "/help",
+    aliases: ["/?"],
+    description: "Show this list.",
+    insertText: "/help ",
+    takesArguments: false,
+  },
+];
 
 describe("MentionTextarea", () => {
   beforeEach(() => {
@@ -394,5 +422,174 @@ describe("MentionTextarea", () => {
     });
 
     expect(document.activeElement).not.toBe(textbox);
+  });
+
+  it("shows slash suggestions at the start of the input, filters them, and inserts with Enter", async () => {
+    const handleRef = createRef<MentionTextareaHandle>();
+
+    render(
+      <ControlledMentionTextarea
+        handleRef={handleRef}
+        initialValue="/pl"
+        slashCommands={slashCommands}
+      />,
+    );
+
+    const textbox = screen.getByRole("textbox");
+    setEditorRect(textbox);
+
+    act(() => {
+      handleRef.current?.focus();
+      handleRef.current?.setSelectionRange(3, 3);
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("/plan <task>")).not.toBeNull();
+    });
+    expect(screen.queryByText("/model [id]")).toBeNull();
+
+    fireEvent.keyDown(textbox, { key: "Enter" });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("value").textContent).toBe("/plan ");
+    });
+  });
+
+  it("matches the /? alias and inserts the canonical /help command with Tab", async () => {
+    const handleRef = createRef<MentionTextareaHandle>();
+
+    render(
+      <ControlledMentionTextarea
+        handleRef={handleRef}
+        initialValue="/?"
+        slashCommands={slashCommands}
+      />,
+    );
+
+    const textbox = screen.getByRole("textbox");
+    setEditorRect(textbox);
+
+    act(() => {
+      handleRef.current?.focus();
+      handleRef.current?.setSelectionRange(2, 2);
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("/help")).not.toBeNull();
+    });
+
+    fireEvent.keyDown(textbox, { key: "Tab" });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("value").textContent).toBe("/help ");
+    });
+    expect(screen.queryByText("Show this list.")).toBeNull();
+  });
+
+  it("lets Enter reach the parent handler after selecting a zero-argument slash command", async () => {
+    const handleRef = createRef<MentionTextareaHandle>();
+    const onKeyDown = vi.fn((event: KeyboardEvent<HTMLTextAreaElement>) => {
+      event.preventDefault();
+    });
+
+    render(
+      <ControlledMentionTextarea
+        handleRef={handleRef}
+        initialValue="/h"
+        onKeyDown={onKeyDown}
+        slashCommands={slashCommands}
+      />,
+    );
+
+    const textbox = screen.getByRole("textbox");
+    setEditorRect(textbox);
+
+    act(() => {
+      handleRef.current?.focus();
+      handleRef.current?.setSelectionRange(2, 2);
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("/help")).not.toBeNull();
+    });
+
+    fireEvent.keyDown(textbox, { key: "Enter" });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("value").textContent).toBe("/help ");
+    });
+    expect(screen.queryByText("Show this list.")).toBeNull();
+
+    fireEvent.keyDown(textbox, { key: "Enter" });
+
+    expect(onKeyDown).toHaveBeenCalledTimes(1);
+  });
+
+  it("dismisses the slash autocomplete on Escape and lets Enter reach the parent handler afterwards", async () => {
+    const handleRef = createRef<MentionTextareaHandle>();
+    const onKeyDown = vi.fn((event: KeyboardEvent<HTMLTextAreaElement>) => {
+      event.preventDefault();
+    });
+
+    render(
+      <MentionTextarea
+        ref={handleRef}
+        onChange={vi.fn()}
+        onKeyDown={onKeyDown}
+        placeholder="Type a message…"
+        slashCommands={slashCommands}
+        value="/"
+      />,
+    );
+
+    const textbox = screen.getByRole("textbox");
+    setEditorRect(textbox);
+
+    act(() => {
+      handleRef.current?.focus();
+      handleRef.current?.setSelectionRange(1, 1);
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("/plan <task>")).not.toBeNull();
+    });
+
+    act(() => {
+      fireEvent.keyDown(textbox, { key: "Escape" });
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByText("/plan <task>")).toBeNull();
+    });
+
+    act(() => {
+      fireEvent.keyDown(textbox, { key: "Enter" });
+    });
+
+    expect(onKeyDown).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not show the slash autocomplete after the first token", async () => {
+    const handleRef = createRef<MentionTextareaHandle>();
+
+    render(
+      <ControlledMentionTextarea
+        handleRef={handleRef}
+        initialValue="/plan write tests"
+        slashCommands={slashCommands}
+      />,
+    );
+
+    const textbox = screen.getByRole("textbox");
+    setEditorRect(textbox);
+
+    act(() => {
+      handleRef.current?.focus();
+      handleRef.current?.setSelectionRange(17, 17);
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByText("/plan <task>")).toBeNull();
+    });
   });
 });

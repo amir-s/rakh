@@ -643,6 +643,19 @@
   background: transparent;
   color: var(--color-text);
   border-radius: 4px;
+}
+
+.mention-item__title {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mention-item__description {
+  margin-top: 2px;
+  color: var(--color-muted);
+  font-size: calc(var(--text-xs) - 1px);
+  line-height: 1.4;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -651,4 +664,8 @@
 .mention-item--active {
   background: var(--color-hover);
   color: var(--color-primary);
+}
+
+.mention-item--active .mention-item__description {
+  color: color-mix(in srgb, var(--color-primary) 75%, var(--color-text));
 }

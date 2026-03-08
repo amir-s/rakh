@@ -104,7 +104,18 @@ vi.mock("@/agent/atoms", () => ({
 }));
 
 vi.mock("@/agent/subagents", () => ({
-  getAllSubagents: () => [],
+  getAllSubagents: () => [
+    {
+      id: "planner",
+      name: "Planner",
+      icon: "assignment",
+      description:
+        "Analyses a task, explores the codebase, and writes a structured plan with todos.",
+      triggerCommand: "/plan",
+      triggerCommandDisplay: "/plan <task>",
+      triggerCommandTakesArguments: true,
+    },
+  ],
   getSubagentThemeColorToken: () => "var(--color-primary)",
 }));
 
@@ -330,6 +341,22 @@ function emitTranscript(text: string) {
   });
 }
 
+function applyLastPatch<T extends object>(state: T): T {
+  const updater = workspaceMocks.patchAgentStateMock.mock.calls.at(-1)?.[1];
+  if (typeof updater !== "function") {
+    throw new Error("Expected patchAgentState to be called with an updater");
+  }
+  return updater(state);
+}
+
+type PatchedChatState = {
+  chatMessages: Array<{ role?: string; content?: string }>;
+  showDebug: boolean;
+  status: string;
+  error: unknown;
+  errorDetails: unknown;
+};
+
 describe("WorkspacePage chat input", () => {
   beforeEach(() => {
     cleanup();
@@ -446,5 +473,133 @@ describe("WorkspacePage chat input", () => {
     expect(document.activeElement).toBe(textbox);
     const focusText = document.getSelection()?.focusNode?.textContent ?? "";
     expect(focusText.endsWith("Refine edit in src/test.ts: ")).toBe(true);
+  });
+
+  it("injects local help content for /help without sending a message", async () => {
+    render(<WorkspacePage />);
+
+    const textbox = screen.getByRole("textbox");
+    setTextboxRect(textbox);
+
+    emitTranscript("/help");
+
+    await waitFor(() => {
+      expect(textbox.textContent).toBe("/help");
+    });
+
+    fireEvent.keyDown(textbox, { key: "Enter" });
+
+    expect(workspaceMocks.sendMessageMock).not.toHaveBeenCalled();
+    const nextState = applyLastPatch<PatchedChatState>({
+      chatMessages: [],
+      showDebug: false,
+      status: "idle",
+      error: null,
+      errorDetails: null,
+    });
+    expect(nextState.chatMessages).toHaveLength(1);
+    expect(nextState.chatMessages[0]?.role).toBe("assistant");
+    expect(nextState.chatMessages[0]?.content).toContain("**Available slash commands:**");
+    expect(nextState.chatMessages[0]?.content).toContain("`/plan <task>`");
+  });
+
+  it("treats /? as an alias for /help", async () => {
+    render(<WorkspacePage />);
+
+    const textbox = screen.getByRole("textbox");
+    setTextboxRect(textbox);
+
+    emitTranscript("/?");
+
+    await waitFor(() => {
+      expect(textbox.textContent).toBe("/?");
+    });
+
+    fireEvent.keyDown(textbox, { key: "Enter" });
+
+    await waitFor(() => {
+      expect(workspaceMocks.patchAgentStateMock).toHaveBeenCalled();
+    });
+
+    expect(workspaceMocks.sendMessageMock).not.toHaveBeenCalled();
+    const nextState = applyLastPatch<PatchedChatState>({
+      chatMessages: [],
+      showDebug: false,
+      status: "idle",
+      error: null,
+      errorDetails: null,
+    });
+    expect(nextState.chatMessages[0]?.content).toContain("`/help`");
+  });
+
+  it("accepts /plan from the slash menu before submitting it on the next Enter", async () => {
+    render(<WorkspacePage />);
+
+    const textbox = screen.getByRole("textbox");
+    setTextboxRect(textbox);
+
+    emitTranscript("/pl");
+
+    await waitFor(() => {
+      expect(screen.getByText("/plan <task>")).not.toBeNull();
+    });
+
+    fireEvent.keyDown(textbox, { key: "Enter" });
+
+    await waitFor(() => {
+      expect(textbox.textContent).toBe("/plan ");
+    });
+    expect(workspaceMocks.sendMessageMock).not.toHaveBeenCalled();
+
+    fireEvent.keyDown(textbox, { key: "Enter" });
+
+    expect(workspaceMocks.sendMessageMock).toHaveBeenCalledWith("/plan");
+  });
+
+  it("keeps the local /model behavior", async () => {
+    render(<WorkspacePage />);
+
+    const textbox = screen.getByRole("textbox");
+    setTextboxRect(textbox);
+
+    emitTranscript("/model");
+
+    await waitFor(() => {
+      expect(textbox.textContent).toBe("/model");
+    });
+
+    fireEvent.keyDown(textbox, { key: "Enter" });
+
+    expect(workspaceMocks.sendMessageMock).not.toHaveBeenCalled();
+    const nextState = applyLastPatch<PatchedChatState>({
+      chatMessages: [],
+      showDebug: false,
+      status: "idle",
+      error: null,
+      errorDetails: null,
+    });
+    expect(nextState.chatMessages[0]?.content).toContain("**Available models:**");
+    expect(nextState.chatMessages[0]?.content).toContain("`model-1`");
+  });
+
+  it("keeps the local /debug toggle behavior", async () => {
+    render(<WorkspacePage />);
+
+    const textbox = screen.getByRole("textbox");
+    setTextboxRect(textbox);
+
+    emitTranscript("/debug");
+
+    await waitFor(() => {
+      expect(textbox.textContent).toBe("/debug");
+    });
+
+    fireEvent.keyDown(textbox, { key: "Enter" });
+
+    expect(workspaceMocks.sendMessageMock).not.toHaveBeenCalled();
+    const nextState = applyLastPatch({
+      showDebug: false,
+    });
+    expect(nextState.showDebug).toBe(true);
   });
 });

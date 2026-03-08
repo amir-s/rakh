@@ -119,6 +119,18 @@ export interface SubagentDefinition {
   triggerCommand?: string;
 
   /**
+   * Optional display label for slash-command discoverability surfaces.
+   * Example: triggerCommand "/plan" with triggerCommandDisplay "/plan <task>".
+   */
+  triggerCommandDisplay?: string;
+
+  /**
+   * Whether the slash command normally expects trailing input after selection.
+   * Defaults to true when a trigger command is defined.
+   */
+  triggerCommandTakesArguments?: boolean;
+
+  /**
    * Concrete situations when the main agent should invoke this subagent.
    * Rendered as bullet points under the subagent entry in the main system prompt.
    */

@@ -42,6 +42,11 @@ import { useTabs } from "@/contexts/TabsContext";
 import { useAgent } from "@/agent/useAgents";
 import { useModels } from "@/agent/useModels";
 import { patchAgentState, voiceInputEnabledAtom } from "@/agent/atoms";
+import {
+  formatSlashCommandHelpMarkdown,
+  getSlashCommandCatalog,
+  matchesSlashCommandInput,
+} from "@/agent/slashCommands";
 import { getAllSubagents, getSubagentThemeColorToken } from "@/agent/subagents";
 import { groupChatMessagesForBubbles } from "@/agent/chatBubbleGroups";
 import { useArtifactContentCache } from "@/components/artifact-pane/useSessionArtifacts";
@@ -125,6 +130,11 @@ export default function WorkspacePage() {
     }
     return byName;
   }, []);
+  const slashCommands = useMemo(() => getSlashCommandCatalog(), []);
+  const helpCommand = useMemo(
+    () => slashCommands.find((command) => command.command === "/help") ?? null,
+    [slashCommands],
+  );
 
   const textareaRef = useRef<MentionTextareaHandle>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -261,6 +271,12 @@ export default function WorkspacePage() {
     const text = input.trim();
     if (!text) return;
 
+    if (helpCommand && matchesSlashCommandInput(text, helpCommand)) {
+      injectAssistantMessage(formatSlashCommandHelpMarkdown(slashCommands));
+      setInput("");
+      return;
+    }
+
     if (text === "/debug") {
       patchAgentState(activeTabId, (prev) => ({
         ...prev,
@@ -313,12 +329,14 @@ export default function WorkspacePage() {
   }, [
     input,
     activeTabId,
+    helpCommand,
     isAgentBusy,
     voiceInput,
     agent,
     setInput,
     models,
     injectAssistantMessage,
+    slashCommands,
   ]);
 
   const handleKeyDown = useCallback(
@@ -578,6 +596,7 @@ export default function WorkspacePage() {
                   onChange={handleInput}
                   onKeyDown={handleKeyDown}
                   cwd={agent.config.cwd}
+                  slashCommands={slashCommands}
                   placeholder="Type a message…"
                   rows={1}
                   disabled={false}

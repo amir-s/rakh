@@ -12,6 +12,7 @@ export const securitySubagent: SubagentDefinition = {
   description:
     "Audits code and security-relevant configuration in a requested scope and returns actionable findings. Always include a concrete scope (file(s), directory, or commit range) in the message. Does not modify code.",
   triggerCommand: "/security",
+  triggerCommandTakesArguments: true,
   requiresApproval: false,
   recommendedModels: [],
   whenToUse: [

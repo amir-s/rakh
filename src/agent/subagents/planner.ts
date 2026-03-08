@@ -11,6 +11,8 @@ export const plannerSubagent: SubagentDefinition = {
   description:
     "Analyses a task, explores the codebase, and writes a structured plan with todos.",
   triggerCommand: "/plan",
+  triggerCommandDisplay: "/plan <task>",
+  triggerCommandTakesArguments: true,
   requiresApproval: false,
   recommendedModels: [],
   whenToUse: [

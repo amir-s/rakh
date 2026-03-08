@@ -11,6 +11,7 @@ export const githubSubagent: SubagentDefinition = {
   description:
     "Handles GitHub tasks with the gh CLI: issue creation, triage, assignment, commenting, PR/repo operations, and other repo-side actions. May do quick read-only codebase checks first to gather context. Returns a concise action summary only.",
   triggerCommand: "/github",
+  triggerCommandTakesArguments: true,
   requiresApproval: false,
   recommendedModels: [],
   whenToUse: [
