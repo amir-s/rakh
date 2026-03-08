@@ -447,7 +447,7 @@ export default function WorkspacePage() {
                   badge={latestMessage.badge}
                   animated={animated}
                   collapsible={isSubagent}
-                  defaultCollapsed={isSubagent}
+                  defaultCollapsed={false}
                 >
                   {groupMessages.map((msg) => {
                       const visibleToolCalls = msg.toolCalls ?? [];
