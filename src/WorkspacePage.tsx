@@ -26,7 +26,10 @@ import ErrorDetailsModal, {
 import ToolCallDetailsModal from "@/components/ToolCallDetailsModal";
 import CompactToolCall from "@/components/CompactToolCall";
 import ReasoningThought from "@/components/ReasoningThought";
-import { MentionTextarea } from "@/components/MentionTextarea";
+import {
+  MentionTextarea,
+  type MentionTextareaHandle,
+} from "@/components/MentionTextarea";
 import { Button } from "@/components/ui";
 import {
   VoiceInputRecordingRow,
@@ -123,7 +126,7 @@ export default function WorkspacePage() {
     return byName;
   }, []);
 
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const textareaRef = useRef<MentionTextareaHandle>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const isDragging = useRef(false);
 
@@ -151,14 +154,6 @@ export default function WorkspacePage() {
     updateTab,
   ]);
 
-  // Recompute textarea height when switching tabs
-  useEffect(() => {
-    if (!textareaRef.current) return;
-    textareaRef.current.style.height = "auto";
-    textareaRef.current.style.height =
-      Math.min(textareaRef.current.scrollHeight, 120) + "px";
-  }, [activeTabId]);
-
   // Auto-focus chat input when switching from new session to workspace
   useEffect(() => {
     if (!isNewSession) {
@@ -177,20 +172,16 @@ export default function WorkspacePage() {
 
   const appendTranscriptToInput = useCallback(
     (transcript: string) => {
+      let nextValue = transcript;
       setInput((prev) => {
         const trimmed = prev.trim();
-        if (!trimmed) return transcript;
-        return `${trimmed}\n${transcript}`;
+        nextValue = !trimmed ? transcript : `${trimmed}\n${transcript}`;
+        return nextValue;
       });
 
       requestAnimationFrame(() => {
-        const el = textareaRef.current;
-        if (!el) return;
-        el.focus();
-        el.style.height = "auto";
-        el.style.height = Math.min(el.scrollHeight, 120) + "px";
-        const pos = el.value.length;
-        el.setSelectionRange(pos, pos);
+        textareaRef.current?.focus();
+        textareaRef.current?.setSelectionRange(nextValue.length, nextValue.length);
       });
     },
     [setInput],
@@ -245,9 +236,6 @@ export default function WorkspacePage() {
     if (voiceInput.error) {
       voiceInput.clearError();
     }
-    const el = e.target;
-    el.style.height = "auto";
-    el.style.height = Math.min(el.scrollHeight, 120) + "px";
   };
 
 
@@ -279,7 +267,6 @@ export default function WorkspacePage() {
         showDebug: !(prev.showDebug ?? false),
       }));
       setInput("");
-      if (textareaRef.current) textareaRef.current.style.height = "auto";
       return;
     }
 
@@ -288,7 +275,6 @@ export default function WorkspacePage() {
       const content = `**Available models:**\n\n${lines.join("\n") || "_No models configured._"}`;
       injectAssistantMessage(content);
       setInput("");
-      if (textareaRef.current) textareaRef.current.style.height = "auto";
       return;
     }
 
@@ -297,7 +283,6 @@ export default function WorkspacePage() {
       if (isAgentBusy) {
         injectAssistantMessage("⚠ Cannot switch model while the agent is busy.");
         setInput("");
-        if (textareaRef.current) textareaRef.current.style.height = "auto";
         return;
       }
       const entry = models.find((m) => m.id === modelId);
@@ -312,7 +297,6 @@ export default function WorkspacePage() {
         );
       }
       setInput("");
-      if (textareaRef.current) textareaRef.current.style.height = "auto";
       return;
     }
 
@@ -326,7 +310,6 @@ export default function WorkspacePage() {
     voiceInput.clearError();
     setInput("");
     agent.sendMessage(text);
-    if (textareaRef.current) textareaRef.current.style.height = "auto";
   }, [
     input,
     activeTabId,
@@ -669,14 +652,18 @@ export default function WorkspacePage() {
                 ensureArtifactContent={ensureArtifactContent}
                 onRefineEdit={(filePath) => {
                   const hint = `Refine edit in ${filePath}: `;
-                  setInput((prev) => (prev ? prev + "\n" + hint : hint));
-                  textareaRef.current?.focus();
-                  // Reset height so the textarea grows properly
-                  if (textareaRef.current) {
-                    textareaRef.current.style.height = "auto";
-                    textareaRef.current.style.height =
-                      Math.min(textareaRef.current.scrollHeight, 120) + "px";
-                  }
+                  let nextValue = hint;
+                  setInput((prev) => {
+                    nextValue = prev ? `${prev}\n${hint}` : hint;
+                    return nextValue;
+                  });
+                  requestAnimationFrame(() => {
+                    textareaRef.current?.focus();
+                    textareaRef.current?.setSelectionRange(
+                      nextValue.length,
+                      nextValue.length,
+                    );
+                  });
                 }}
               />
             </motion.div>
