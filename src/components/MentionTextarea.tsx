@@ -39,6 +39,11 @@ import {
   type LexicalNode,
   type NodeKey,
 } from "lexical";
+import type { SlashCommandDefinition } from "@/agent/slashCommands";
+import {
+  filterSlashCommands,
+  matchesSlashCommandInput,
+} from "@/agent/slashCommands";
 import { cn } from "@/utils/cn";
 
 export interface MentionTextareaProps {
@@ -46,6 +51,7 @@ export interface MentionTextareaProps {
   onChange: (e: ChangeEvent<HTMLTextAreaElement>) => void;
   onKeyDown?: (e: KeyboardEvent<HTMLTextAreaElement>) => void;
   cwd?: string;
+  slashCommands?: SlashCommandDefinition[];
   placeholder?: string;
   disabled?: boolean;
   className?: string;
@@ -65,15 +71,23 @@ type SelectionRange = {
 };
 
 type AutocompleteState = {
-  triggerId: "mention";
+  triggerId: "mention" | "slash";
   query: string;
   startPos: number;
   endPos: number;
 };
 
 type TriggerDefinition = {
-  id: "mention";
+  id: AutocompleteState["triggerId"];
   match: (textBeforeCursor: string) => null | Omit<AutocompleteState, "triggerId" | "endPos">;
+};
+
+type AutocompleteOption = {
+  key: string;
+  title: string;
+  description?: string;
+  insertText: string;
+  slashCommand?: SlashCommandDefinition;
 };
 
 type SelectionPoint =
@@ -297,6 +311,7 @@ export const MentionTextarea = forwardRef<
     onChange,
     onKeyDown,
     cwd,
+    slashCommands = [],
     placeholder,
     disabled = false,
     className,
@@ -311,7 +326,7 @@ export const MentionTextarea = forwardRef<
   const editorTextRef = useRef(value);
   const selectionRef = useRef<SelectionRange>({ start: value.length, end: value.length });
   const suppressOnChangeRef = useRef(false);
-  const mentionListRef = useRef<HTMLUListElement>(null);
+  const autocompleteListRef = useRef<HTMLUListElement>(null);
   const domDragDepthRef = useRef(0);
 
   const [files, setFiles] = useState<string[]>([]);
@@ -328,6 +343,18 @@ export const MentionTextarea = forwardRef<
 
   const triggerDefinitions = useMemo<TriggerDefinition[]>(
     () => [
+      {
+        id: "slash",
+        match(textBeforeCursor) {
+          const match = /^\/([^\s]*)$/.exec(textBeforeCursor);
+          if (!match) return null;
+
+          return {
+            query: match[1],
+            startPos: 0,
+          };
+        },
+      },
       {
         id: "mention",
         match(textBeforeCursor) {
@@ -425,16 +452,33 @@ export const MentionTextarea = forwardRef<
     [onChange, setEditorValue, syncAutocomplete],
   );
 
-  const filteredFiles = useMemo(() => {
-    if (autocomplete?.triggerId !== "mention") {
+  const autocompleteOptions = useMemo<AutocompleteOption[]>(() => {
+    if (!autocomplete) {
       return [];
     }
 
-    const normalizedQuery = autocomplete.query.toLowerCase();
-    return files
-      .filter((file) => file.toLowerCase().includes(normalizedQuery))
-      .slice(0, MAX_RESULTS);
-  }, [autocomplete, files]);
+    if (autocomplete.triggerId === "mention") {
+      const normalizedQuery = autocomplete.query.toLowerCase();
+      return files
+        .filter((file) => file.toLowerCase().includes(normalizedQuery))
+        .slice(0, MAX_RESULTS)
+        .map((file) => ({
+          key: `mention:${file}`,
+          title: file,
+          insertText: `@${file} `,
+        }));
+    }
+
+    return filterSlashCommands(slashCommands, autocomplete.query, MAX_RESULTS).map(
+      (definition) => ({
+        key: `slash:${definition.command}`,
+        title: definition.displayLabel ?? definition.command,
+        description: definition.description,
+        insertText: definition.insertText ?? definition.command,
+        slashCommand: definition,
+      }),
+    );
+  }, [autocomplete, files, slashCommands]);
 
   const autocompleteKey = autocomplete
     ? `${autocomplete.triggerId}:${autocomplete.query}`
@@ -445,12 +489,12 @@ export const MentionTextarea = forwardRef<
       : 0;
 
   const safeSelectedIndex =
-    filteredFiles.length > 0
-      ? Math.min(selectedIndex, filteredFiles.length - 1)
+    autocompleteOptions.length > 0
+      ? Math.min(selectedIndex, autocompleteOptions.length - 1)
       : 0;
 
-  const insertMention = useCallback(
-    (file: string) => {
+  const applyAutocompleteSelection = useCallback(
+    (option: AutocompleteOption) => {
       const currentValue = editorTextRef.current;
       const currentSelection = selectionRef.current;
       const activeAutocomplete = autocomplete;
@@ -459,7 +503,7 @@ export const MentionTextarea = forwardRef<
 
       const before = currentValue.slice(0, activeAutocomplete.startPos);
       const after = currentValue.slice(currentSelection.end);
-      const inserted = `@${file} `;
+      const inserted = option.insertText;
       const nextValue = before + inserted + after;
       const nextCursor = before.length + inserted.length;
 
@@ -593,13 +637,13 @@ export const MentionTextarea = forwardRef<
   }, [cwd]);
 
   useEffect(() => {
-    if (!autocomplete || filteredFiles.length === 0) return;
+    if (!autocomplete || autocompleteOptions.length === 0) return;
 
-    const list = mentionListRef.current;
+    const list = autocompleteListRef.current;
     if (!list) return;
 
     const selected = list.querySelector<HTMLElement>(
-      `[data-mention-index="${safeSelectedIndex}"]`,
+      `[data-autocomplete-index="${safeSelectedIndex}"]`,
     );
     if (!selected) return;
 
@@ -613,7 +657,7 @@ export const MentionTextarea = forwardRef<
     } else if (itemBottom > viewBottom) {
       list.scrollTop = itemBottom - list.clientHeight;
     }
-  }, [autocomplete, filteredFiles.length, safeSelectedIndex]);
+  }, [autocomplete, autocompleteOptions.length, safeSelectedIndex]);
 
   useEffect(() => {
     const unlistenFns: Array<() => void> = [];
@@ -727,14 +771,14 @@ export const MentionTextarea = forwardRef<
         event.nativeEvent.stopImmediatePropagation?.();
       };
 
-      if (autocomplete && filteredFiles.length > 0) {
+      if (autocomplete && autocompleteOptions.length > 0) {
         if (event.key === "ArrowDown") {
           consumeEvent();
           setAutocompleteSelection((current) => {
             const currentIndex = current.key === autocompleteKey ? current.index : 0;
             return {
               key: autocompleteKey,
-              index: (currentIndex + 1) % filteredFiles.length,
+              index: (currentIndex + 1) % autocompleteOptions.length,
             };
           });
           return;
@@ -746,15 +790,33 @@ export const MentionTextarea = forwardRef<
             const currentIndex = current.key === autocompleteKey ? current.index : 0;
             return {
               key: autocompleteKey,
-              index: (currentIndex - 1 + filteredFiles.length) % filteredFiles.length,
+              index:
+                (currentIndex - 1 + autocompleteOptions.length) %
+                autocompleteOptions.length,
             };
           });
           return;
         }
 
         if (event.key === "Enter" || event.key === "Tab") {
+          const selectedOption = autocompleteOptions[safeSelectedIndex];
+          const shouldSubmitExactSlashCommand =
+            event.key === "Enter" &&
+            autocomplete.triggerId === "slash" &&
+            !!selectedOption?.slashCommand &&
+            selectedOption.slashCommand.takesArguments === false &&
+            matchesSlashCommandInput(
+              editorTextRef.current,
+              selectedOption.slashCommand,
+            );
+
+          if (shouldSubmitExactSlashCommand) {
+            onKeyDown?.(event as unknown as KeyboardEvent<HTMLTextAreaElement>);
+            return;
+          }
+
           consumeEvent();
-          insertMention(filteredFiles[safeSelectedIndex]);
+          applyAutocompleteSelection(selectedOption);
           return;
         }
 
@@ -768,7 +830,14 @@ export const MentionTextarea = forwardRef<
 
       onKeyDown?.(event as unknown as KeyboardEvent<HTMLTextAreaElement>);
     },
-    [autocomplete, autocompleteKey, filteredFiles, insertMention, onKeyDown, safeSelectedIndex],
+    [
+      applyAutocompleteSelection,
+      autocomplete,
+      autocompleteKey,
+      autocompleteOptions,
+      onKeyDown,
+      safeSelectedIndex,
+    ],
   );
 
   const handleFocusCapture = useCallback(() => {
@@ -862,19 +931,19 @@ export const MentionTextarea = forwardRef<
           {placeholder}
         </div>
       )}
-      {autocomplete && filteredFiles.length > 0 && (
-        <ul ref={mentionListRef} className="mention-list">
-          {filteredFiles.map((file, index) => (
+      {autocomplete && autocompleteOptions.length > 0 && (
+        <ul ref={autocompleteListRef} className="mention-list">
+          {autocompleteOptions.map((option, index) => (
             <li
-              key={file}
-              data-mention-index={index}
+              key={option.key}
+              data-autocomplete-index={index}
               className={cn(
                 "mention-item",
                 index === safeSelectedIndex && "mention-item--active",
               )}
               onMouseDown={(event) => {
                 event.preventDefault();
-                insertMention(file);
+                applyAutocompleteSelection(option);
               }}
               onMouseEnter={() =>
                 setAutocompleteSelection({
@@ -883,7 +952,10 @@ export const MentionTextarea = forwardRef<
                 })
               }
             >
-              {file}
+              <div className="mention-item__title">{option.title}</div>
+              {option.description ? (
+                <div className="mention-item__description">{option.description}</div>
+              ) : null}
             </li>
           ))}
         </ul>

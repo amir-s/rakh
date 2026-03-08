@@ -12,6 +12,7 @@ export const copywriterSubagent: SubagentDefinition = {
   description:
     "Reviews user-facing copy in the codebase and suggests improvements. Does not make edits — returns suggestions to the parent agent.",
   triggerCommand: "/copywrite",
+  triggerCommandTakesArguments: true,
   requiresApproval: false,
   recommendedModels: [],
   whenToUse: [

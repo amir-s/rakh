@@ -12,6 +12,7 @@ export const reviewerSubagent: SubagentDefinition = {
   description:
     "Reviews code in a requested scope and returns actionable findings to the parent agent. Always include a concrete scope (file(s), directory, or commit range) in the message. Does not modify code.",
   triggerCommand: "/review",
+  triggerCommandTakesArguments: true,
   requiresApproval: false,
   recommendedModels: [],
   whenToUse: [
