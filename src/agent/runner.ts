@@ -1886,8 +1886,9 @@ async function runSubagentLoop(
 
 /**
  * Retry the last user message after an error.
- * Strips the last user message (and any partial assistant turn) from both the
- * API and chat message histories, then calls runAgent with the same message.
+ * Strips the failed assistant turn from both histories but keeps the user chat
+ * message visible throughout, then calls runAgent which re-adds it to the API
+ * history and streams a fresh assistant response.
  */
 export async function retryAgent(tabId: string): Promise<void> {
   const state = getAgentState(tabId);
@@ -1910,7 +1911,9 @@ export async function retryAgent(tabId: string): Promise<void> {
   // Strip apiMessages back to before the last user message
   const strippedApiMessages = state.apiMessages.slice(0, lastUserIndex);
 
-  // Strip chatMessages back to before the last user chat message
+  // Keep the last user chat message visible so the UI never shows a blank
+  // gap between the strip and runAgent re-appending it. Only strip the
+  // failed assistant turn(s) that follow it.
   let lastUserChatIndex = -1;
   for (let i = state.chatMessages.length - 1; i >= 0; i--) {
     if (state.chatMessages[i].role === "user") {
@@ -1920,10 +1923,11 @@ export async function retryAgent(tabId: string): Promise<void> {
   }
   const strippedChatMessages =
     lastUserChatIndex >= 0
-      ? state.chatMessages.slice(0, lastUserChatIndex)
+      ? state.chatMessages.slice(0, lastUserChatIndex + 1)
       : state.chatMessages;
 
-  // Reset state to before the last user message so runAgent can re-add it cleanly
+  // Reset state — the user message stays in chatMessages so it remains
+  // visible. runAgent is told not to re-append it to avoid a duplicate.
   patchAgentState(tabId, {
     apiMessages: strippedApiMessages,
     chatMessages: strippedChatMessages,
@@ -1932,7 +1936,7 @@ export async function retryAgent(tabId: string): Promise<void> {
     errorAction: null,
   });
 
-  await runAgent(tabId, lastUserMessage);
+  await runAgent(tabId, lastUserMessage, undefined, { skipUserChatAppend: true });
 }
 
 /**
@@ -1944,6 +1948,7 @@ export async function runAgent(
   tabId: string,
   userMessage: string,
   attachments?: AttachedImage[],
+  options?: { skipUserChatAppend?: boolean },
 ): Promise<void> {
   // Cancel any in-flight run for this tab
   stopAgent(tabId);
@@ -1975,7 +1980,9 @@ export async function runAgent(
       error: null,
       errorAction: null,
       errorDetails: null,
-      chatMessages: [...prev.chatMessages, triggerUserMsg],
+      chatMessages: options?.skipUserChatAppend
+        ? prev.chatMessages
+        : [...prev.chatMessages, triggerUserMsg],
       streamingContent: null,
     }));
 
@@ -2171,7 +2178,9 @@ export async function runAgent(
     error: null,
     errorAction: null,
     errorDetails: null,
-    chatMessages: [...prev.chatMessages, userChatMsg],
+    chatMessages: options?.skipUserChatAppend
+      ? prev.chatMessages
+      : [...prev.chatMessages, userChatMsg],
     apiMessages: newApiMessages,
     streamingContent: null,
   }));
