@@ -23,6 +23,27 @@ jobs:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
 
+      - name: Update Cargo.lock
+        if: ${{ steps.release.outputs.prs_created == 'true' }}
+        env:
+          PR_DATA: ${{ steps.release.outputs.prs }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          BRANCH_NAME=$(echo "$PR_DATA" | jq -r '.[0].headBranchName')
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin "$BRANCH_NAME"
+          git checkout "$BRANCH_NAME"
+          cd src-tauri
+          cargo update -p app
+          git add Cargo.lock
+          if git diff --staged --quiet; then
+            echo "Cargo.lock is up to date"
+          else
+            git commit -m "chore: update Cargo.lock"
+            git push origin "$BRANCH_NAME"
+          fi
+
   publish-tauri:
     if: ${{ needs.release-please.outputs.release_created == 'true' }}
     needs: release-please
