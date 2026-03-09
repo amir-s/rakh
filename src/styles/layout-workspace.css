@@ -248,6 +248,18 @@
 .chat-input-meta span:hover {
   color: var(--color-primary);
 }
+.chat-input-meta-model-btn {
+  cursor: pointer;
+  background: transparent;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  transition: color var(--t-fast);
+}
+.chat-input-meta-model-btn:hover {
+  color: var(--color-primary);
+}
 
 .workspace-error-details-btn {
   color: var(--color-error);

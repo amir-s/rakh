@@ -205,6 +205,14 @@ vi.mock("@/components/ToolCallDetailsModal", () => ({
   default: () => null,
 }));
 
+vi.mock("@/components/ModelPickerModal", () => ({
+  default: ({ onClose }: { onClose: () => void }) => (
+    <div data-testid="model-picker-modal">
+      <button onClick={onClose}>Close picker</button>
+    </div>
+  ),
+}));
+
 vi.mock("@/components/CompactToolCall", () => ({
   default: () => null,
 }));
@@ -593,7 +601,7 @@ describe("WorkspacePage chat input", () => {
     expect(workspaceMocks.sendMessageMock).toHaveBeenCalledWith("/plan");
   });
 
-  it("keeps the local /model behavior", async () => {
+  it("opens the model picker modal on /model without sending a message", async () => {
     render(<WorkspacePage />);
 
     const textbox = screen.getByRole("textbox");
@@ -608,15 +616,9 @@ describe("WorkspacePage chat input", () => {
     fireEvent.keyDown(textbox, { key: "Enter" });
 
     expect(workspaceMocks.sendMessageMock).not.toHaveBeenCalled();
-    const nextState = applyLastPatch<PatchedChatState>({
-      chatMessages: [],
-      showDebug: false,
-      status: "idle",
-      error: null,
-      errorDetails: null,
+    await waitFor(() => {
+      expect(screen.getByTestId("model-picker-modal")).not.toBeNull();
     });
-    expect(nextState.chatMessages[0]?.content).toContain("**Available models:**");
-    expect(nextState.chatMessages[0]?.content).toContain("`model-1`");
   });
 
   it("keeps the local /debug toggle behavior", async () => {
