@@ -2725,7 +2725,9 @@ describe("runner", () => {
       const state = states[tabId];
       expect(state.status).toBe("idle");
       expect(state.error).toBeNull();
-      // Should have user + assistant in chat (re-added by runAgent)
+      // User message is kept throughout (never removed), stale assistant
+      // placeholder from the failed turn is stripped. runAgent streams the
+      // fresh assistant response without re-appending a duplicate user bubble.
       expect(state.chatMessages).toHaveLength(2);
       expect(state.chatMessages[0]).toMatchObject({
         role: "user",
@@ -2736,6 +2738,43 @@ describe("runner", () => {
         content: "Done!",
         streaming: false,
       });
+    });
+
+    it("never removes the user message from chatMessages — no duplicate and no flash", async () => {
+      const tabId = "tab-retry-no-flash";
+
+      // Simulate the exact post-error state: user bubble + stale empty
+      // assistant bubble left by the failed streaming turn.
+      setState(tabId, {
+        status: "error",
+        error: "network timeout",
+        apiMessages: [
+          { role: "system", content: "system prompt" },
+          { role: "user", content: "fix the bug" },
+        ],
+        chatMessages: [
+          { role: "user", content: "fix the bug", id: "u1", timestamp: 1 },
+          { role: "assistant", content: "", id: "a1", timestamp: 2, streaming: false },
+        ],
+      });
+
+      turns.push({ deltas: ["Fixed!"], toolCalls: [] });
+      await retryAgent(tabId);
+
+      const state = states[tabId];
+      // Exactly one user message — no duplicate, no gap
+      const userMsgs = state.chatMessages.filter((m) => m.role === "user");
+      expect(userMsgs).toHaveLength(1);
+      expect(userMsgs[0]).toMatchObject({ content: "fix the bug" });
+
+      // Stale empty assistant bubble is gone; only the new response remains
+      const assistantMsgs = state.chatMessages.filter((m) => m.role === "assistant");
+      expect(assistantMsgs).toHaveLength(1);
+      expect(assistantMsgs[0]).toMatchObject({ content: "Fixed!", streaming: false });
+
+      expect(state.chatMessages).toHaveLength(2);
+      expect(state.status).toBe("idle");
+      expect(state.error).toBeNull();
     });
 
     it("preserves earlier conversation turns and only retries the last user message", async () => {
