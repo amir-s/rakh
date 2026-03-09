@@ -42,6 +42,15 @@ vi.mock("@/contexts/TabsContext", () => ({
   useTabs: () => tabsContextMock.value,
 }));
 
+const FAKE_PREVIEW_URL = `data:image/png;base64,${'Z'.repeat(8192)}`;
+
+const FAKE_ATTACHMENT = {
+  id: "img-1",
+  name: "screenshot.png",
+  previewUrl: FAKE_PREVIEW_URL,
+  mimeType: "image/png",
+};
+
 function buildFixture() {
   const longSystemPrompt = "system prompt ".repeat(600);
   const longUserMessage = `attach this screenshot data:image/png;base64,${"A".repeat(4096)}`;
@@ -69,6 +78,7 @@ function buildFixture() {
         role: "user",
         content: longChatMessage,
         timestamp: 1,
+        attachments: [{ ...FAKE_ATTACHMENT }],
       },
       {
         id: "chat-assistant",
@@ -100,6 +110,7 @@ function buildFixture() {
       {
         role: "user",
         content: longUserMessage,
+        attachments: [{ ...FAKE_ATTACHMENT }],
       },
       {
         role: "assistant",
@@ -248,6 +259,21 @@ describe("DebugPane copy bundle", () => {
     expect(bundle.agent.chatMessages[1].toolCalls?.[0]?.result).toEqual(
       state.chatMessages[1].toolCalls?.[0]?.result,
     );
+
+    // Attachments: previewUrl redacted, other fields preserved
+    const chatUserMsg = bundle.agent.chatMessages[0];
+    expect(chatUserMsg.attachments).toHaveLength(1);
+    expect(chatUserMsg.attachments?.[0]?.previewUrl).not.toContain("base64");
+    expect(chatUserMsg.attachments?.[0]?.previewUrl).toContain("redacted");
+    expect(chatUserMsg.attachments?.[0]?.name).toBe("screenshot.png");
+    expect(chatUserMsg.attachments?.[0]?.mimeType).toBe("image/png");
+
+    const apiUserMsg = bundle.agent.apiMessages[1];
+    if (apiUserMsg.role !== "user") throw new Error("Expected user api message");
+    expect(apiUserMsg.attachments).toHaveLength(1);
+    expect(apiUserMsg.attachments?.[0]?.previewUrl).not.toContain("base64");
+    expect(apiUserMsg.attachments?.[0]?.previewUrl).toContain("redacted");
+    expect(apiUserMsg.attachments?.[0]?.name).toBe("screenshot.png");
   });
 
   it("copies the full bundle when shrinking is disabled", async () => {
@@ -275,5 +301,14 @@ describe("DebugPane copy bundle", () => {
     expect(bundle.agent.apiMessages).toEqual(state.apiMessages);
     expect(bundle.agent.chatMessages).toEqual(state.chatMessages);
     expect(bundle.agent.streamingContent).toBe(state.streamingContent);
+
+    // Attachments preserved verbatim when shrinking is off
+    expect(bundle.agent.chatMessages[0].attachments?.[0]?.previewUrl).toBe(
+      FAKE_PREVIEW_URL,
+    );
+    const apiUserMsgFull = bundle.agent.apiMessages[1];
+    if (apiUserMsgFull.role !== "user")
+      throw new Error("Expected user api message");
+    expect(apiUserMsgFull.attachments?.[0]?.previewUrl).toBe(FAKE_PREVIEW_URL);
   });
 });

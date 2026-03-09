@@ -50,6 +50,9 @@ export interface MentionTextareaProps {
   value: string;
   onChange: (e: ChangeEvent<HTMLTextAreaElement>) => void;
   onKeyDown?: (e: KeyboardEvent<HTMLTextAreaElement>) => void;
+  onImageDrop?: (files: File[]) => void;
+  onImagePathDrop?: (paths: string[]) => void;
+  onDragActiveChange?: (active: boolean) => void;
   cwd?: string;
   slashCommands?: SlashCommandDefinition[];
   placeholder?: string;
@@ -156,6 +159,19 @@ function normalizePath(filePath: string, cwd?: string): string {
   }
 
   return normalizedPath;
+}
+
+const IMAGE_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".bmp", ".ico"]);
+
+function isImageFile(file: File): boolean {
+  if (file.type.startsWith("image/")) return true;
+  const ext = file.name.slice(file.name.lastIndexOf(".")).toLowerCase();
+  return IMAGE_EXTENSIONS.has(ext);
+}
+
+function isImagePath(filePath: string): boolean {
+  const ext = filePath.slice(filePath.lastIndexOf(".")).toLowerCase();
+  return IMAGE_EXTENSIONS.has(ext);
 }
 
 function hasDraggedFiles(dataTransfer: DataTransfer | null): boolean {
@@ -310,6 +326,9 @@ export const MentionTextarea = forwardRef<
     value,
     onChange,
     onKeyDown,
+    onImageDrop,
+    onImagePathDrop,
+    onDragActiveChange,
     cwd,
     slashCommands = [],
     placeholder,
@@ -543,6 +562,15 @@ export const MentionTextarea = forwardRef<
     [applyControlledValue, cwd],
   );
 
+  const handleImageFiles = useCallback(
+    (files: File[]) => {
+      if (files.length > 0 && onImageDrop) {
+        onImageDrop(files);
+      }
+    },
+    [onImageDrop],
+  );
+
   const isPositionInsideEditor = useCallback((position: { x: number; y: number }) => {
     const element = editorElementRef.current;
     if (!element) return false;
@@ -668,22 +696,31 @@ export const MentionTextarea = forwardRef<
         TauriEvent.DRAG_ENTER,
         (event) => {
           if (!mounted) return;
+          onDragActiveChange?.(true);
           setIsDropTarget(isPositionInsideEditor(event.payload.position));
         },
       );
       const unlistenDragLeave = await listen(TauriEvent.DRAG_LEAVE, () => {
         if (!mounted) return;
+        onDragActiveChange?.(false);
         setIsDropTarget(false);
       });
       const unlistenDragDrop = await listen<TauriDragPayload>(
         TauriEvent.DRAG_DROP,
         (event) => {
           if (!mounted) return;
+          onDragActiveChange?.(false);
           setIsDropTarget(false);
           if (!isPositionInsideEditor(event.payload.position)) {
             return;
           }
-          insertDroppedPaths(event.payload.paths);
+          // Split: image paths go to onImagePathDrop, everything else inserts @path text.
+          const imagePaths = event.payload.paths.filter((p) => isImagePath(p));
+          const nonImagePaths = event.payload.paths.filter(
+            (p) => !isImagePath(p),
+          );
+          if (imagePaths.length > 0) onImagePathDrop?.(imagePaths);
+          insertDroppedPaths(nonImagePaths);
         },
       );
 
@@ -698,7 +735,7 @@ export const MentionTextarea = forwardRef<
         unlisten();
       }
     };
-  }, [insertDroppedPaths, isPositionInsideEditor]);
+  }, [insertDroppedPaths, isPositionInsideEditor, onImagePathDrop, onDragActiveChange]);
 
   const handleEditorRef = useCallback(
     (editor: LexicalEditor | null) => {
@@ -888,7 +925,13 @@ export const MentionTextarea = forwardRef<
       domDragDepthRef.current = 0;
       setIsDropTarget(false);
 
-      const paths = Array.from(event.dataTransfer.files)
+      const allFiles = Array.from(event.dataTransfer.files);
+      const imageFiles = allFiles.filter(isImageFile);
+      const nonImageFiles = allFiles.filter((f) => !isImageFile(f));
+
+      handleImageFiles(imageFiles);
+
+      const paths = nonImageFiles
         .map((file) => {
           const tauriFile = file as File & { path?: string };
           return tauriFile.path ?? file.name;
@@ -897,7 +940,7 @@ export const MentionTextarea = forwardRef<
 
       insertDroppedPaths(paths);
     },
-    [insertDroppedPaths],
+    [insertDroppedPaths, handleImageFiles],
   );
 
   const initialValueRef = useRef(value);

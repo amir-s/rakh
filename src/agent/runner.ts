@@ -44,6 +44,7 @@ import {
   consumeApprovalReason,
 } from "./approvals";
 import type {
+  AttachedImage,
   ConversationCard,
   SerializedConversationCard,
   AdvancedModelOptions,
@@ -293,8 +294,26 @@ function mapApiMessagesToModelMessages(messages: ApiMessage[]): ModelMessage[] {
       }
     }
 
-    if (msg.role === "system" || msg.role === "user") {
-      mapped.push({ role: msg.role, content: msg.content ?? "" });
+    if (msg.role === "system") {
+      mapped.push({ role: "system", content: msg.content ?? "" });
+      continue;
+    }
+
+    if (msg.role === "user") {
+      const imgs = msg.attachments;
+      if (imgs && imgs.length > 0) {
+        const parts: Array<Record<string, unknown>> = [
+          ...imgs.map((img) => ({
+            type: "image",
+            image: img.previewUrl,
+            mimeType: img.mimeType,
+          })),
+          ...(msg.content ? [{ type: "text", text: msg.content }] : []),
+        ];
+        mapped.push({ role: "user", content: parts } as unknown as ModelMessage);
+      } else {
+        mapped.push({ role: "user", content: msg.content ?? "" });
+      }
       continue;
     }
 
@@ -1924,6 +1943,7 @@ export async function retryAgent(tabId: string): Promise<void> {
 export async function runAgent(
   tabId: string,
   userMessage: string,
+  attachments?: AttachedImage[],
 ): Promise<void> {
   // Cancel any in-flight run for this tab
   stopAgent(tabId);
@@ -1947,6 +1967,7 @@ export async function runAgent(
       role: "user",
       content: userMessage,
       timestamp: Date.now(),
+      ...(attachments && attachments.length > 0 ? { attachments } : {}),
     };
     patchAgentState(tabId, (prev) => ({
       ...prev,
@@ -2080,6 +2101,7 @@ export async function runAgent(
     role: "user",
     content: userMessage,
     timestamp: Date.now(),
+    ...(attachments && attachments.length > 0 ? { attachments } : {}),
   };
 
   // Detect git repo on first turn so the system prompt can include the GIT ISOLATION section.
@@ -2139,6 +2161,7 @@ export async function runAgent(
     {
       role: "user" as const,
       content: userMessage,
+      ...(attachments && attachments.length > 0 ? { attachments } : {}),
     },
   ];
 
