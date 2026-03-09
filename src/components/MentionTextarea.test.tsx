@@ -569,6 +569,51 @@ describe("MentionTextarea", () => {
     expect(onKeyDown).toHaveBeenCalledTimes(1);
   });
 
+  it("re-fetches the file list when the textarea is focused", async () => {
+    const handleRef = createRef<MentionTextareaHandle>();
+
+    render(
+      <ControlledMentionTextarea
+        handleRef={handleRef}
+        initialValue="@src"
+      />,
+    );
+
+    const textbox = screen.getByRole("textbox");
+    setEditorRect(textbox);
+
+    // Initial focus shows the default file list
+    act(() => {
+      handleRef.current?.focus();
+      handleRef.current?.setSelectionRange(4, 4);
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("src/components/MentionTextarea.tsx")).not.toBeNull();
+    });
+
+    // Queue a new file list for the next fetch
+    tauriMocks.invokeMock.mockResolvedValueOnce({
+      matches: ["src/brand-new-file.tsx"],
+      truncated: false,
+    });
+
+    // Blur then re-focus; focus triggers a re-fetch, and repositioning the
+    // cursor re-activates the autocomplete against the refreshed list.
+    act(() => {
+      handleRef.current?.blur();
+    });
+    act(() => {
+      handleRef.current?.focus();
+      handleRef.current?.setSelectionRange(4, 4);
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("src/brand-new-file.tsx")).not.toBeNull();
+    });
+    expect(screen.queryByText("src/components/MentionTextarea.tsx")).toBeNull();
+  });
+
   it("does not show the slash autocomplete after the first token", async () => {
     const handleRef = createRef<MentionTextareaHandle>();
 
