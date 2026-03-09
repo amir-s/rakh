@@ -56,6 +56,11 @@ Tool schemas live in
 wrappers live in
 [`src/agent/tools/artifacts.ts`](../src/agent/tools/artifacts.ts).
 
+In the desktop app, artifact pane updates are not poll-based anymore. The UI
+does one initial `agent_artifact_list` read per session view, then listens for
+backend `artifact_changed` Tauri events and refetches manifests when matching
+session artifacts change.
+
 ### Create
 
 `agent_artifact_create` creates a new artifact with version `1`.
@@ -91,6 +96,38 @@ For validator-backed JSON artifacts, `artifactGet()` also returns:
 
 The content is returned unchanged. Validation is supplemental metadata, not a
 transformation step.
+
+## Artifact Change Events
+
+Artifact writes also produce a lightweight UI notification event.
+
+The Rust backend emits `artifact_changed` after successful
+`db_artifact_create` and `db_artifact_version` calls. The frontend subscribes
+through `listenForArtifactChanges()` in
+[`src/agent/tools/artifacts.ts`](../src/agent/tools/artifacts.ts).
+
+Current payload shape:
+
+```json
+{
+  "sessionId": "tab-1",
+  "artifactId": "plan_deadbeef",
+  "version": 2,
+  "kind": "plan",
+  "runId": "run_1",
+  "agentId": "agent_main",
+  "change": "versioned",
+  "createdAt": 1741540000000
+}
+```
+
+Notes:
+
+- `change` is `created` or `versioned`
+- the event is advisory; the UI still treats `agent_artifact_list` as the
+  source of truth
+- listeners filter by `sessionId` so tabs only react to their own artifact
+  changes
 
 ## Framework Metadata
 

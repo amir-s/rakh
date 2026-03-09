@@ -14,8 +14,6 @@ import type {
 } from "./types";
 import { ARTIFACT_FILTER_ALL } from "./types";
 
-export const ARTIFACT_POLL_MS = 2_000;
-
 const KNOWN_RENDER_KINDS = new Set<ArtifactRenderKind>([
   "plan",
   "review-report",

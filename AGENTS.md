@@ -68,7 +68,8 @@ cd src-tauri && cargo test
 - `src/agent/tools/exec.ts` - command execution wrappers
 - `src/agent/tools/git.ts` - `git_worktree_init`, which creates isolated
   worktrees through the backend `git_worktree_add` command
-- `src/agent/tools/artifacts.ts` - durable artifact wrappers
+- `src/agent/tools/artifacts.ts` - durable artifact wrappers plus artifact
+  change event subscription helpers
 - `src/agent/tools/agentControl.ts` - title and todo tools
 - `src/agent/tools/definitions.ts` - tool schemas exposed to the model
 - `src/agent/tools/index.ts` - central dispatch for non-intercepted tools
@@ -76,7 +77,9 @@ cd src-tauri && cargo test
 ### UI components
 
 - `src/components/ArtifactPane.tsx` and `src/components/artifact-pane/*` -
-  plans, todos, review diffs, git, debug, and durable artifact views
+  plans, todos, review diffs, git, debug, and durable artifact views; session
+  inventory now refreshes via Tauri `artifact_changed` events instead of timer
+  polling
 - `src/components/Terminal.tsx` - xterm.js terminal backed by Tauri PTY
 - `src/components/ToolCallApproval.tsx` / `src/components/UserInputCard.tsx` -
   approval and user-input surfaces
@@ -89,7 +92,8 @@ cd src-tauri && cargo test
 the backend modules:
 
 - `src-tauri/src/db.rs` - sessions, archived sessions, artifacts, blob storage,
-  provider env keys
+  provider env keys, and `artifact_changed` event emission after artifact
+  writes
 - `src-tauri/src/fs_ops.rs` - file and search operations
 - `src-tauri/src/exec.rs` - non-interactive command execution plus abort/stop
 - `src-tauri/src/pty.rs` - PTY lifecycle for the integrated terminal
@@ -130,6 +134,9 @@ If you add a new `AgentState` field that must survive restarts, update all of:
 - Path validation rejects leading `/` and normalized `..` traversal.
 - Frontend paths are POSIX-style even on Windows.
 - Tool results use `{ ok: true, data } | { ok: false, error }`.
+- Push-style frontend updates use the Tauri event API; artifact pane refreshes
+  listen for `artifact_changed` and then refetch manifests for the affected
+  session.
 - Sensitive tools go through `src/agent/approvals.ts`.
 - `workspace_writeFile` and `workspace_editFile` pre-compute original diffs so
   chat review cards and the review pane both show stable before/after state.

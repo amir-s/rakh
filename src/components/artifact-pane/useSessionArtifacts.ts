@@ -1,12 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { artifactGet, artifactList } from "@/agent/tools/artifacts";
+import {
+  artifactGet,
+  artifactList,
+  listenForArtifactChanges,
+} from "@/agent/tools/artifacts";
 import type {
   ArtifactContentCache,
   ArtifactContentEntry,
   SessionArtifactInventory,
 } from "./types";
 import {
-  ARTIFACT_POLL_MS,
   buildSessionArtifactInventory,
   getArtifactContentKey,
 } from "./model";
@@ -31,6 +34,9 @@ interface ArtifactCacheState {
   entries: ArtifactContentCache;
 }
 
+const ARTIFACT_SUBSCRIPTION_RETRY_BASE_MS = 1_000;
+const ARTIFACT_SUBSCRIPTION_RETRY_MAX_MS = 30_000;
+
 function isTauriRuntime() {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 }
@@ -47,52 +53,111 @@ export function useSessionArtifactInventory(tabId: string, enabled = true) {
 
   useEffect(() => {
     let cancelled = false;
-    let timer: ReturnType<typeof setTimeout> | undefined;
+    let refreshInFlight = false;
+    let refreshQueued = false;
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
+    let retryDelayMs = ARTIFACT_SUBSCRIPTION_RETRY_BASE_MS;
+    let shouldCatchUpOnResubscribe = false;
+    let unlisten: (() => void) | null = null;
 
     if (!runtimeEnabled) return;
 
-    const poll = async () => {
+    const refreshInventory = async () => {
+      if (cancelled) return;
+      if (refreshInFlight) {
+        refreshQueued = true;
+        return;
+      }
+
+      refreshInFlight = true;
       const result = await artifactList(tabId, {
         latestOnly: false,
         limit: 1_000,
       });
 
-      if (cancelled) return;
+      try {
+        if (cancelled) return;
 
-      if (result.ok) {
-        setState({
-          tabId,
-          loading: false,
-          error: null,
-          inventory: buildSessionArtifactInventory(result.data.artifacts),
-          hasLoadedSuccessfully: true,
-        });
-      } else {
-        setState((prev) =>
-          prev.tabId !== tabId
-            ? {
-                tabId,
-                loading: false,
-                error: result.error.message,
-                inventory: EMPTY_INVENTORY,
-                hasLoadedSuccessfully: false,
-              }
-            : {
-                ...prev,
-                loading: false,
-                error: result.error.message,
-              },
-        );
+        if (result.ok) {
+          setState({
+            tabId,
+            loading: false,
+            error: null,
+            inventory: buildSessionArtifactInventory(result.data.artifacts),
+            hasLoadedSuccessfully: true,
+          });
+        } else {
+          setState((prev) =>
+            prev.tabId !== tabId
+              ? {
+                  tabId,
+                  loading: false,
+                  error: result.error.message,
+                  inventory: EMPTY_INVENTORY,
+                  hasLoadedSuccessfully: false,
+                }
+              : {
+                  ...prev,
+                  loading: false,
+                  error: result.error.message,
+                },
+          );
+        }
+      } finally {
+        refreshInFlight = false;
+        if (!cancelled && refreshQueued) {
+          refreshQueued = false;
+          void refreshInventory();
+        }
       }
-
-      timer = setTimeout(poll, ARTIFACT_POLL_MS);
     };
 
-    void poll();
+    const scheduleSubscriptionRetry = () => {
+      if (cancelled || retryTimer) return;
+      shouldCatchUpOnResubscribe = true;
+      const currentDelay = retryDelayMs;
+      retryDelayMs = Math.min(
+        retryDelayMs * 2,
+        ARTIFACT_SUBSCRIPTION_RETRY_MAX_MS,
+      );
+      retryTimer = setTimeout(() => {
+        retryTimer = undefined;
+        void subscribeToArtifactChanges();
+      }, currentDelay);
+    };
+
+    const subscribeToArtifactChanges = async () => {
+      if (cancelled) return;
+      const nextUnlisten = await listenForArtifactChanges(tabId, () => {
+        void refreshInventory();
+      });
+
+      if (cancelled) {
+        nextUnlisten?.();
+        return;
+      }
+
+      if (!nextUnlisten) {
+        scheduleSubscriptionRetry();
+        return;
+      }
+
+      retryDelayMs = ARTIFACT_SUBSCRIPTION_RETRY_BASE_MS;
+      unlisten = nextUnlisten;
+
+      if (shouldCatchUpOnResubscribe) {
+        shouldCatchUpOnResubscribe = false;
+        void refreshInventory();
+      }
+    };
+
+    void refreshInventory();
+    void subscribeToArtifactChanges();
 
     return () => {
       cancelled = true;
-      if (timer) clearTimeout(timer);
+      if (retryTimer) clearTimeout(retryTimer);
+      unlisten?.();
     };
   }, [runtimeEnabled, tabId]);
 

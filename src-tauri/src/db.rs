@@ -13,7 +13,7 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
-use tauri::State;
+use tauri::{AppHandle, Emitter, State};
 use uuid::Uuid;
 
 /* ── PersistedSession ─────────────────────────────────────────────────────── */
@@ -87,6 +87,26 @@ pub struct ArtifactManifest {
     pub created_at: i64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub content: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum ArtifactChangeKind {
+    Created,
+    Versioned,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ArtifactChangeEvent {
+    pub session_id: String,
+    pub artifact_id: String,
+    pub version: i64,
+    pub kind: String,
+    pub run_id: String,
+    pub agent_id: String,
+    pub change: ArtifactChangeKind,
+    pub created_at: i64,
 }
 
 #[derive(Debug, Deserialize)]
@@ -432,6 +452,22 @@ fn manifest_row_to_api(
         created_at: row.created_at,
         content,
     })
+}
+
+fn artifact_change_event_from_manifest(
+    manifest: &ArtifactManifest,
+    change: ArtifactChangeKind,
+) -> ArtifactChangeEvent {
+    ArtifactChangeEvent {
+        session_id: manifest.session_id.clone(),
+        artifact_id: manifest.artifact_id.clone(),
+        version: manifest.version,
+        kind: manifest.kind.clone(),
+        run_id: manifest.run_id.clone(),
+        agent_id: manifest.agent_id.clone(),
+        change,
+        created_at: manifest.created_at,
+    }
 }
 
 fn load_latest_manifest_row(
@@ -1024,6 +1060,7 @@ pub fn db_artifact_create(
     run_id: String,
     agent_id: String,
     input: ArtifactCreateInput,
+    app_handle: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<ArtifactManifest, String> {
     let start = Instant::now();
@@ -1122,16 +1159,20 @@ pub fn db_artifact_create(
     })();
 
     match &result {
-        Ok(v) => tool_log(
-            "db_artifact_create",
-            "ok",
-            json!({
-                "durationMs": start.elapsed().as_millis() as u64,
-                "artifactId": v.artifact_id,
-                "version": v.version,
-                "blobHash": v.blob_hash
-            }),
-        ),
+        Ok(v) => {
+            let payload = artifact_change_event_from_manifest(v, ArtifactChangeKind::Created);
+            let _ = app_handle.emit("artifact_changed", &payload);
+            tool_log(
+                "db_artifact_create",
+                "ok",
+                json!({
+                    "durationMs": start.elapsed().as_millis() as u64,
+                    "artifactId": v.artifact_id,
+                    "version": v.version,
+                    "blobHash": v.blob_hash
+                }),
+            )
+        }
         Err(e) => tool_log(
             "db_artifact_create",
             "err",
@@ -1151,6 +1192,7 @@ pub fn db_artifact_version(
     run_id: String,
     agent_id: String,
     input: ArtifactVersionInput,
+    app_handle: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<ArtifactManifest, String> {
     let start = Instant::now();
@@ -1258,16 +1300,20 @@ pub fn db_artifact_version(
     })();
 
     match &result {
-        Ok(v) => tool_log(
-            "db_artifact_version",
-            "ok",
-            json!({
-                "durationMs": start.elapsed().as_millis() as u64,
-                "artifactId": v.artifact_id,
-                "version": v.version,
-                "blobHash": v.blob_hash
-            }),
-        ),
+        Ok(v) => {
+            let payload = artifact_change_event_from_manifest(v, ArtifactChangeKind::Versioned);
+            let _ = app_handle.emit("artifact_changed", &payload);
+            tool_log(
+                "db_artifact_version",
+                "ok",
+                json!({
+                    "durationMs": start.elapsed().as_millis() as u64,
+                    "artifactId": v.artifact_id,
+                    "version": v.version,
+                    "blobHash": v.blob_hash
+                }),
+            )
+        }
         Err(e) => tool_log(
             "db_artifact_version",
             "err",
@@ -1956,6 +2002,82 @@ mod tests {
             Some(v) => std::env::set_var("HOME", v),
             None => std::env::remove_var("HOME"),
         }
+    }
+
+    #[test]
+    fn test_artifact_change_event_created_serializes() {
+        let manifest = ArtifactManifest {
+            session_id: "tab-1".to_string(),
+            run_id: "run_1".to_string(),
+            agent_id: "agent_main".to_string(),
+            artifact_seq: 1,
+            artifact_id: "plan_deadbeef".to_string(),
+            version: 1,
+            kind: "plan".to_string(),
+            summary: "Plan".to_string(),
+            parent: None,
+            metadata: json!({}),
+            content_format: "markdown".to_string(),
+            blob_hash: "blob_hash".to_string(),
+            size_bytes: 42,
+            created_at: 123,
+            content: None,
+        };
+
+        let event =
+            artifact_change_event_from_manifest(&manifest, ArtifactChangeKind::Created);
+
+        assert_eq!(
+            serde_json::to_value(event).unwrap(),
+            json!({
+                "sessionId": "tab-1",
+                "artifactId": "plan_deadbeef",
+                "version": 1,
+                "kind": "plan",
+                "runId": "run_1",
+                "agentId": "agent_main",
+                "change": "created",
+                "createdAt": 123,
+            })
+        );
+    }
+
+    #[test]
+    fn test_artifact_change_event_versioned_serializes() {
+        let manifest = ArtifactManifest {
+            session_id: "tab-2".to_string(),
+            run_id: "run_2".to_string(),
+            agent_id: "agent_subagent".to_string(),
+            artifact_seq: 7,
+            artifact_id: "review_cafebabe".to_string(),
+            version: 3,
+            kind: "review-report".to_string(),
+            summary: "Review".to_string(),
+            parent: None,
+            metadata: json!({ "scope": "src" }),
+            content_format: "json".to_string(),
+            blob_hash: "blob_hash_2".to_string(),
+            size_bytes: 99,
+            created_at: 456,
+            content: None,
+        };
+
+        let event =
+            artifact_change_event_from_manifest(&manifest, ArtifactChangeKind::Versioned);
+
+        assert_eq!(
+            serde_json::to_value(event).unwrap(),
+            json!({
+                "sessionId": "tab-2",
+                "artifactId": "review_cafebabe",
+                "version": 3,
+                "kind": "review-report",
+                "runId": "run_2",
+                "agentId": "agent_subagent",
+                "change": "versioned",
+                "createdAt": 456,
+            })
+        );
     }
 
     #[test]

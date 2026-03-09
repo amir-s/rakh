@@ -63,6 +63,11 @@ It composes:
 - integrated terminal via xterm.js + Tauri PTY
 - optional voice input backed by the Rust Whisper commands
 
+The artifact pane is push-driven. `useSessionArtifactInventory()` performs an
+initial `artifactList()` fetch, then subscribes to backend `artifact_changed`
+events through the Tauri event API and refreshes inventory only when matching
+session artifacts change.
+
 ### State model
 
 [`src/agent/atoms.ts`](../src/agent/atoms.ts) is the shared state boundary
@@ -170,7 +175,8 @@ commands from the backend modules.
 Current backend modules:
 
 - [`src-tauri/src/db.rs`](../src-tauri/src/db.rs): session persistence, archived
-  sessions, artifact manifests/blob helpers, and provider env key loading
+  sessions, artifact manifests/blob helpers, artifact change event emission,
+  and provider env key loading
 - [`src-tauri/src/fs_ops.rs`](../src-tauri/src/fs_ops.rs): directory listing,
   stat, file reads/writes/deletes, glob, and grep-backed search
 - [`src-tauri/src/exec.rs`](../src-tauri/src/exec.rs): command execution,
@@ -183,6 +189,11 @@ Current backend modules:
 - [`src-tauri/src/shell_env.rs`](../src-tauri/src/shell_env.rs): login-shell
   environment discovery helpers
 - [`src-tauri/src/utils.rs`](../src-tauri/src/utils.rs): shared helpers
+
+The backend already uses Tauri events for streaming-style UI updates. PTY and
+exec output are emitted as app events, and artifact writes now emit an
+`artifact_changed` event after successful create/version persistence so the
+frontend can refresh the artifact pane without polling.
 
 ## Persistence and storage
 
