@@ -36,11 +36,10 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           BRANCH_NAME=$(echo "$PR_DATA" | jq -r '.[0].headBranchName')
-          REMOTE_REF="refs/remotes/origin/$BRANCH_NAME"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git fetch origin "refs/heads/$BRANCH_NAME:$REMOTE_REF"
-          git checkout -B "$BRANCH_NAME" "$REMOTE_REF"
+          git fetch origin "refs/heads/$BRANCH_NAME"
+          git checkout -B "$BRANCH_NAME" FETCH_HEAD
           cd src-tauri
           cargo update -p app
           git add Cargo.lock
