@@ -82,6 +82,8 @@ describe("persistence", () => {
       apiMessages: [{ role: "user", content: "hello" }],
       todos: [{ id: "a" }],
       reviewEdits: [{ filePath: "a.ts" }],
+      queuedMessages: [{ id: "q1", content: "follow up", createdAtMs: 42 }],
+      queueState: "paused",
     } as unknown as Parameters<typeof buildPersistedSession>[1];
 
     const session = buildPersistedSession(tab, state);
@@ -91,6 +93,8 @@ describe("persistence", () => {
     expect(session.apiMessages).toBe(JSON.stringify(state.apiMessages));
     expect(session.todos).toBe(JSON.stringify(state.todos));
     expect(session.reviewEdits).toBe(JSON.stringify(state.reviewEdits));
+    expect(session.queuedMessages).toBe(JSON.stringify(state.queuedMessages));
+    expect(session.queueState).toBe("paused");
     expect(session.worktreePath).toBe("");
     expect(session.worktreeBranch).toBe("");
     expect(session.worktreeDeclined).toBe(false);
@@ -103,6 +107,7 @@ describe("persistence", () => {
       apiMessages: [],
       todos: [],
       reviewEdits: [],
+      queuedMessages: [],
       tabTitle: "",
       plan: { markdown: "", version: 0, updatedAtMs: 0 },
       error: null,
@@ -117,6 +122,7 @@ describe("persistence", () => {
       apiMessages: [],
       todos: [],
       reviewEdits: [],
+      queuedMessages: [],
       tabTitle: "",
       plan: { markdown: "", version: 0, updatedAtMs: 0 },
       error: null,
@@ -126,6 +132,7 @@ describe("persistence", () => {
       apiMessages: [],
       todos: [],
       reviewEdits: [],
+      queuedMessages: [],
       tabTitle: "",
       plan: { markdown: "Plan", version: 1, updatedAtMs: 123 },
       error: null,
@@ -135,14 +142,26 @@ describe("persistence", () => {
       apiMessages: [],
       todos: [],
       reviewEdits: [],
+      queuedMessages: [],
       tabTitle: "",
       plan: { markdown: "", version: 0, updatedAtMs: 0 },
       error: "boom",
+    } as unknown as Parameters<typeof isSessionEmpty>[0];
+    const withQueued = {
+      chatMessages: [],
+      apiMessages: [],
+      todos: [],
+      reviewEdits: [],
+      queuedMessages: [{ id: "q1" }],
+      tabTitle: "",
+      plan: { markdown: "", version: 0, updatedAtMs: 0 },
+      error: null,
     } as unknown as Parameters<typeof isSessionEmpty>[0];
 
     expect(isSessionEmpty(withChat)).toBe(false);
     expect(isSessionEmpty(withPlan)).toBe(false);
     expect(isSessionEmpty(withError)).toBe(false);
+    expect(isSessionEmpty(withQueued)).toBe(false);
   });
 
   it("loadSessions returns [] when not running in Tauri", async () => {
@@ -178,6 +197,8 @@ describe("persistence", () => {
       apiMessages: [],
       todos: [],
       reviewEdits: [],
+      queuedMessages: [],
+      queueState: "idle",
     };
 
     await upsertSession({
@@ -214,6 +235,8 @@ describe("persistence", () => {
       apiMessages: [{ role: "user", content: "hi" }],
       todos: [{ id: "t1" }],
       reviewEdits: [{ filePath: "a.ts" }],
+      queuedMessages: [{ id: "q1", content: "check logs", createdAtMs: 10 }],
+      queueState: "paused",
       showDebug: true,
     };
 
@@ -234,6 +257,10 @@ describe("persistence", () => {
     expect(payload.session.worktreePath).toBe("/wt");
     expect(payload.session.worktreeBranch).toBe("codex/branch");
     expect(payload.session.worktreeDeclined).toBe(true);
+    expect(payload.session.queuedMessages).toBe(
+      JSON.stringify([{ id: "q1", content: "check logs", createdAtMs: 10 }]),
+    );
+    expect(payload.session.queueState).toBe("paused");
     expect(payload.session.showDebug).toBe(true);
   });
 
@@ -247,6 +274,8 @@ describe("persistence", () => {
       apiMessages: [],
       todos: [],
       reviewEdits: [],
+      queuedMessages: [],
+      queueState: "idle",
     };
 
     await upsertWorkspaceSessions([
@@ -298,6 +327,8 @@ describe("persistence", () => {
       apiMessages: "[]",
       todos: "[]",
       reviewEdits: "[]",
+      queuedMessages: "[]",
+      queueState: "idle",
       archived: true,
       createdAt: 1,
       updatedAt: 1,

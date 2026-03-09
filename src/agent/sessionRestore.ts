@@ -5,7 +5,11 @@ import {
   restoreSession,
   type PersistedSession,
 } from "./persistence";
-import type { AdvancedModelOptions } from "./types";
+import type {
+  AdvancedModelOptions,
+  AgentQueueState,
+  QueuedUserMessage,
+} from "./types";
 
 interface HydratePersistedSessionOptions {
   restoreError?: string | null;
@@ -45,11 +49,37 @@ function buildTabFromSession(session: PersistedSession): Tab {
   };
 }
 
+function parseQueuedMessages(queuedMessages: string): QueuedUserMessage[] {
+  try {
+    const parsed = queuedMessages
+      ? (JSON.parse(queuedMessages) as QueuedUserMessage[])
+      : [];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function parseQueueState(
+  queueState: string,
+  queuedMessages: QueuedUserMessage[],
+): AgentQueueState {
+  if (queuedMessages.length === 0) return "idle";
+  if (queueState === "paused") return "paused";
+  if (queueState === "draining" && queuedMessages.length > 0) {
+    // Restored sessions must never auto-resume queued follow-ups.
+    return "paused";
+  }
+  return "paused";
+}
+
 export function hydratePersistedSession(
   session: PersistedSession,
   options: HydratePersistedSessionOptions = {},
 ): void {
   const restoreError = options.restoreError ?? null;
+  const queuedMessages = parseQueuedMessages(session.queuedMessages);
+  const queueState = parseQueueState(session.queueState, queuedMessages);
 
   patchAgentState(session.id, {
     status: restoreError ? "error" : "idle",
@@ -71,6 +101,8 @@ export function hydratePersistedSession(
     apiMessages: JSON.parse(session.apiMessages),
     todos: JSON.parse(session.todos),
     reviewEdits: JSON.parse(session.reviewEdits ?? "[]"),
+    queuedMessages,
+    queueState,
     streamingContent: null,
     error: restoreError,
     showDebug: session.showDebug ?? false,

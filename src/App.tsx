@@ -94,11 +94,19 @@ function AutoSaveManager() {
       const tabAtom = agentAtomFamily(tab.id);
       let lastStatus: AgentStatus = jotaiStore.get(tabAtom).status;
       let lastShowDebug = jotaiStore.get(tabAtom).showDebug ?? false;
+      let lastQueueSnapshot = JSON.stringify({
+        queueState: jotaiStore.get(tabAtom).queueState,
+        queuedMessages: jotaiStore.get(tabAtom).queuedMessages,
+      });
 
       const unsub = jotaiStore.sub(tabAtom, () => {
         const state = jotaiStore.get(tabAtom);
         const newStatus = state.status;
         const newShowDebug = state.showDebug ?? false;
+        const newQueueSnapshot = JSON.stringify({
+          queueState: state.queueState,
+          queuedMessages: state.queuedMessages,
+        });
 
         const settled =
           newStatus !== lastStatus &&
@@ -106,11 +114,13 @@ function AutoSaveManager() {
             newStatus === "done" ||
             newStatus === "error");
         const debugToggled = newShowDebug !== lastShowDebug;
+        const queueChanged = newQueueSnapshot !== lastQueueSnapshot;
 
         lastStatus = newStatus;
         lastShowDebug = newShowDebug;
+        lastQueueSnapshot = newQueueSnapshot;
 
-        if (settled || debugToggled) {
+        if (settled || debugToggled || queueChanged) {
           const currentTab = tabs.find((t) => t.id === tab.id);
           if (currentTab && currentTab.mode === "workspace") {
             upsertSession(currentTab);

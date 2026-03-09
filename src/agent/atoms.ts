@@ -134,6 +134,8 @@ function makeDefaultAgentState(): AgentState {
     reviewEdits: [],
     autoApproveEdits: false,
     autoApproveCommands: "no",
+    queuedMessages: [],
+    queueState: "idle",
     showDebug: import.meta.env.DEV,
   };
 }
@@ -214,6 +216,16 @@ export const agentAutoApproveEditsAtomFamily = atomFamily((tabId: string) =>
 /** Auto-approve commands for a tab */
 export const agentAutoApproveCommandsAtomFamily = atomFamily((tabId: string) =>
   atom((get) => get(agentAtomFamily(tabId)).autoApproveCommands),
+);
+
+/** Queued user follow-ups for a tab */
+export const agentQueuedMessagesAtomFamily = atomFamily((tabId: string) =>
+  atom((get) => get(agentAtomFamily(tabId)).queuedMessages),
+);
+
+/** Queue drain / paused state for a tab */
+export const agentQueueStateAtomFamily = atomFamily((tabId: string) =>
+  atom((get) => get(agentAtomFamily(tabId)).queueState),
 );
 
 /** Debug UI mode for a tab */

@@ -45,6 +45,10 @@ function makeSession(
     apiMessages: JSON.stringify([{ role: "assistant", content: "world" }]),
     todos: JSON.stringify([{ id: "todo-1", text: "ship", status: "todo" }]),
     reviewEdits: JSON.stringify([{ filePath: "src/App.tsx" }]),
+    queuedMessages: JSON.stringify([
+      { id: "queue-1", content: "follow up after restart", createdAtMs: 123 },
+    ]),
+    queueState: "draining",
     archived: true,
     createdAt: 1,
     updatedAt: 2,
@@ -108,6 +112,10 @@ describe("sessionRestore", () => {
     expect(state.apiMessages).toEqual([{ role: "assistant", content: "world" }]);
     expect(state.todos).toEqual([{ id: "todo-1", text: "ship", status: "todo" }]);
     expect(state.reviewEdits).toEqual([{ filePath: "src/App.tsx" }]);
+    expect(state.queuedMessages).toEqual([
+      { id: "queue-1", content: "follow up after restart", createdAtMs: 123 },
+    ]);
+    expect(state.queueState).toBe("paused");
     expect(state.showDebug).toBe(true);
   });
 

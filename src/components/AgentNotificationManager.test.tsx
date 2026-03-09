@@ -38,6 +38,8 @@ function makeSession(id: string, label: string): PersistedSession {
     apiMessages: "[]",
     todos: "[]",
     reviewEdits: "[]",
+    queuedMessages: "[]",
+    queueState: "idle",
     archived: false,
     createdAt: 0,
     updatedAt: 0,

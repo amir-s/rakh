@@ -27,11 +27,18 @@ import {
   agentReviewEditsAtomFamily,
   agentAutoApproveEditsAtomFamily,
   agentAutoApproveCommandsAtomFamily,
+  agentQueuedMessagesAtomFamily,
+  agentQueueStateAtomFamily,
   agentShowDebugAtomFamily,
   patchAgentState,
 } from "./atoms";
 import {
   runAgent,
+  queueMessage as _queueMessage,
+  steerMessage as _steerMessage,
+  resumeQueue as _resumeQueue,
+  removeQueuedMessage as _removeQueuedMessage,
+  clearQueuedMessages as _clearQueuedMessages,
   retryAgent as _retryAgent,
   stopAgent as _stopAgent,
   stopRunningExecToolCall as _stopRunningExecToolCall,
@@ -146,6 +153,14 @@ export function useAgentAutoApproveCommands(tabId: string) {
   return useAtomValue(agentAutoApproveCommandsAtomFamily(tabId));
 }
 
+export function useAgentQueuedMessages(tabId: string) {
+  return useAtomValue(agentQueuedMessagesAtomFamily(tabId));
+}
+
+export function useAgentQueueState(tabId: string) {
+  return useAtomValue(agentQueueStateAtomFamily(tabId));
+}
+
 export function useAgentShowDebug(tabId: string) {
   return useAtomValue(agentShowDebugAtomFamily(tabId));
 }
@@ -175,6 +190,36 @@ export function useStopAgent() {
 export function useRetryAgent() {
   return useCallback((tabId: string) => {
     _retryAgent(tabId).catch(console.error);
+  }, []);
+}
+
+export function useQueueMessage() {
+  return useCallback((tabId: string, message: string) => {
+    _queueMessage(tabId, message);
+  }, []);
+}
+
+export function useSteerMessage() {
+  return useCallback((tabId: string, message: string, queuedMessageId?: string) => {
+    _steerMessage(tabId, message, queuedMessageId).catch(console.error);
+  }, []);
+}
+
+export function useResumeQueue() {
+  return useCallback((tabId: string) => {
+    _resumeQueue(tabId);
+  }, []);
+}
+
+export function useRemoveQueuedMessage() {
+  return useCallback((tabId: string, messageId: string) => {
+    _removeQueuedMessage(tabId, messageId);
+  }, []);
+}
+
+export function useClearQueuedMessages() {
+  return useCallback((tabId: string) => {
+    _clearQueuedMessages(tabId);
   }, []);
 }
 
@@ -214,6 +259,8 @@ export function useResetAgent() {
       reviewEdits: [],
       autoApproveEdits: false,
       autoApproveCommands: "no",
+      queuedMessages: [],
+      queueState: "idle",
       showDebug: false,
     }));
   }, []);
@@ -268,8 +315,15 @@ export function useAgent(tabId: string) {
   const tabTitle = useAgentTabTitle(tabId);
   const autoApproveEdits = useAgentAutoApproveEdits(tabId);
   const autoApproveCommands = useAgentAutoApproveCommands(tabId);
+  const queuedMessages = useAgentQueuedMessages(tabId);
+  const queueState = useAgentQueueState(tabId);
   const showDebug = useAgentShowDebug(tabId);
   const sendMessage = useSendMessage();
+  const queueMessage = useQueueMessage();
+  const steerMessage = useSteerMessage();
+  const resumeQueue = useResumeQueue();
+  const removeQueuedMessage = useRemoveQueuedMessage();
+  const clearQueuedMessages = useClearQueuedMessages();
   const stopAgent = useStopAgent();
   const setConfig = useSetAgentConfig();
   const resetAgent = useResetAgent();
@@ -292,11 +346,31 @@ export function useAgent(tabId: string) {
     contextWindowKb,
     autoApproveEdits,
     autoApproveCommands,
+    queuedMessages,
+    queueState,
     showDebug,
     sendMessage: useCallback(
       (msg: string, attachments?: AttachedImage[]) =>
         sendMessage(tabId, msg, attachments),
       [tabId, sendMessage],
+    ),
+    queueMessage: useCallback(
+      (msg: string) => queueMessage(tabId, msg),
+      [tabId, queueMessage],
+    ),
+    steerMessage: useCallback(
+      (msg: string, queuedMessageId?: string) =>
+        steerMessage(tabId, msg, queuedMessageId),
+      [tabId, steerMessage],
+    ),
+    resumeQueue: useCallback(() => resumeQueue(tabId), [tabId, resumeQueue]),
+    removeQueuedMessage: useCallback(
+      (messageId: string) => removeQueuedMessage(tabId, messageId),
+      [tabId, removeQueuedMessage],
+    ),
+    clearQueuedMessages: useCallback(
+      () => clearQueuedMessages(tabId),
+      [tabId, clearQueuedMessages],
     ),
     stop: useCallback(() => stopAgent(tabId), [tabId, stopAgent]),
     setConfig: useCallback(

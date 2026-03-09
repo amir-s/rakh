@@ -14,6 +14,11 @@ import WorkspacePage from "./WorkspacePage";
 
 const workspaceMocks = vi.hoisted(() => ({
   sendMessageMock: vi.fn<(message: string) => void>(),
+  queueMessageMock: vi.fn<(message: string) => void>(),
+  steerMessageMock: vi.fn<(message: string, queuedMessageId?: string) => void>(),
+  resumeQueueMock: vi.fn(),
+  removeQueuedMessageMock: vi.fn<(messageId: string) => void>(),
+  clearQueuedMessagesMock: vi.fn(),
   stopMock: vi.fn(),
   setConfigMock: vi.fn(),
   setAutoApproveEditsMock: vi.fn(),
@@ -40,12 +45,19 @@ const workspaceMocks = vi.hoisted(() => ({
           section: "providers";
           label: string;
         },
+    clearQueuedMessages: null as null | (() => void),
     errorDetails: null as unknown,
+    queueMessage: null as null | ((message: string) => void),
+    queueState: "idle" as "idle" | "draining" | "paused",
+    queuedMessages: [] as Array<{ id: string; content: string; createdAtMs: number }>,
+    removeQueuedMessage: null as null | ((messageId: string) => void),
+    resumeQueue: null as null | (() => void),
     sendMessage: null as null | ((message: string) => void),
     setAutoApproveCommands: null as null | ((value: "no" | "agent" | "yes") => void),
     setAutoApproveEdits: null as null | ((value: boolean) => void),
     setConfig: null as null | ((config: unknown) => void),
     showDebug: false,
+    steerMessage: null as null | ((message: string, queuedMessageId?: string) => void),
     status: "idle" as "idle" | "thinking" | "working" | "done" | "error",
     stop: null as null | (() => void),
     tabTitle: "",
@@ -214,13 +226,24 @@ vi.mock("@/components/ReasoningThought", () => ({
 }));
 
 vi.mock("@/components/ui", () => ({
+  Badge: ({ children }: { children: ReactNode }) => <span>{children}</span>,
   Button: ({
     children,
     onClick,
+    disabled,
+    title,
+    "aria-label": ariaLabel,
   }: {
     children: ReactNode;
     onClick?: () => void;
-  }) => <button onClick={onClick}>{children}</button>,
+    disabled?: boolean;
+    title?: string;
+    "aria-label"?: string;
+  }) => (
+    <button onClick={onClick} disabled={disabled} title={title} aria-label={ariaLabel}>
+      {children}
+    </button>
+  ),
 }));
 
 vi.mock("@/components/voice-input/VoiceInputUi", () => ({
@@ -380,6 +403,11 @@ describe("WorkspacePage chat input", () => {
     });
     installSelectionGeometryPolyfills();
     workspaceMocks.sendMessageMock.mockReset();
+    workspaceMocks.queueMessageMock.mockReset();
+    workspaceMocks.steerMessageMock.mockReset();
+    workspaceMocks.resumeQueueMock.mockReset();
+    workspaceMocks.removeQueuedMessageMock.mockReset();
+    workspaceMocks.clearQueuedMessagesMock.mockReset();
     workspaceMocks.stopMock.mockReset();
     workspaceMocks.setConfigMock.mockReset();
     workspaceMocks.setAutoApproveEditsMock.mockReset();
@@ -409,14 +437,21 @@ describe("WorkspacePage chat input", () => {
       },
       contextWindowKb: null,
       contextWindowPct: null,
+      clearQueuedMessages: workspaceMocks.clearQueuedMessagesMock,
       error: null,
       errorAction: null,
       errorDetails: null,
+      queueMessage: workspaceMocks.queueMessageMock,
+      queueState: "idle",
+      queuedMessages: [],
+      removeQueuedMessage: workspaceMocks.removeQueuedMessageMock,
+      resumeQueue: workspaceMocks.resumeQueueMock,
       sendMessage: workspaceMocks.sendMessageMock,
       setAutoApproveCommands: workspaceMocks.setAutoApproveCommandsMock,
       setAutoApproveEdits: workspaceMocks.setAutoApproveEditsMock,
       setConfig: workspaceMocks.setConfigMock,
       showDebug: false,
+      steerMessage: workspaceMocks.steerMessageMock,
       status: "idle",
       stop: workspaceMocks.stopMock,
       tabTitle: "",
@@ -638,6 +673,141 @@ describe("WorkspacePage chat input", () => {
       showDebug: false,
     });
     expect(nextState.showDebug).toBe(true);
+  });
+
+  it("does not show the queue strip while the agent is busy with no submitted follow-up", async () => {
+    workspaceMocks.agentState = {
+      ...workspaceMocks.agentState,
+      status: "working",
+    };
+
+    await act(async () => {
+      render(<WorkspacePage />);
+    });
+
+    expect(screen.queryByRole("button", { name: "Queue" })).toBeNull();
+    expect(screen.queryByText("Working")).toBeNull();
+  });
+
+  it("does not show a queued row while the user is only typing during a busy run", async () => {
+    workspaceMocks.agentState = {
+      ...workspaceMocks.agentState,
+      status: "working",
+    };
+
+    render(<WorkspacePage />);
+
+    const textbox = screen.getByRole("textbox");
+    setTextboxRect(textbox);
+
+    emitTranscript("Need the repro steps before phase 2.");
+
+    await waitFor(() => {
+      expect(textbox.textContent).toBe("Need the repro steps before phase 2.");
+    });
+
+    expect(screen.queryByText("Queued 1")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Send now" })).toBeNull();
+    expect(workspaceMocks.queueMessageMock).not.toHaveBeenCalled();
+  });
+
+  it("uses Enter to queue a real follow-up while busy", async () => {
+    workspaceMocks.agentState = {
+      ...workspaceMocks.agentState,
+      status: "thinking",
+    };
+
+    render(<WorkspacePage />);
+
+    const textbox = screen.getByRole("textbox");
+    setTextboxRect(textbox);
+
+    emitTranscript("Pause after the UI slice for review.");
+
+    await waitFor(() => {
+      expect(textbox.textContent).toBe("Pause after the UI slice for review.");
+    });
+
+    fireEvent.keyDown(textbox, { key: "Enter" });
+
+    expect(workspaceMocks.queueMessageMock).toHaveBeenCalledWith(
+      "Pause after the UI slice for review.",
+    );
+    expect(workspaceMocks.sendMessageMock).not.toHaveBeenCalled();
+  });
+
+  it("lets the user remove a queued follow-up", async () => {
+    workspaceMocks.agentState = {
+      ...workspaceMocks.agentState,
+      queuedMessages: [
+        {
+          id: "queued-1",
+          content: "First queued follow-up item.",
+          createdAtMs: 100,
+        },
+      ],
+      queueState: "draining",
+    };
+
+    render(<WorkspacePage />);
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Remove queued note 1" }));
+    });
+
+    expect(workspaceMocks.removeQueuedMessageMock).toHaveBeenCalledWith("queued-1");
+  });
+
+  it("sends a queued follow-up immediately when Send now is pressed", async () => {
+    workspaceMocks.agentState = {
+      ...workspaceMocks.agentState,
+      queuedMessages: [
+        {
+          id: "queued-1",
+          content: "Interrupt this run and use the corrected title.",
+          createdAtMs: 100,
+        },
+      ],
+      queueState: "draining",
+    };
+
+    render(<WorkspacePage />);
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Send now" }));
+    });
+
+    expect(workspaceMocks.steerMessageMock).toHaveBeenCalledWith(
+      "Interrupt this run and use the corrected title.",
+      "queued-1",
+    );
+    expect(workspaceMocks.sendMessageMock).not.toHaveBeenCalled();
+  });
+
+  it("renders paused queue controls in the fixed input area", async () => {
+    workspaceMocks.agentState = {
+      ...workspaceMocks.agentState,
+      queueState: "paused",
+      queuedMessages: [
+        {
+          id: "queued-1",
+          content: "Wait for approval before changing the runner behavior.",
+          createdAtMs: 100,
+        },
+      ],
+    };
+
+    await act(async () => {
+      render(<WorkspacePage />);
+    });
+
+    expect(screen.getByText("Paused")).not.toBeNull();
+    expect(
+      screen.getByText("Wait for approval before changing the runner behavior."),
+    ).not.toBeNull();
+    expect(screen.getByRole("button", { name: "Resume" })).not.toBeNull();
+    expect(screen.getByRole("button", { name: "Clear" })).not.toBeNull();
+    expect(screen.getByText("Paused")?.closest(".chat-input-wrap")).not.toBeNull();
   });
 
   it("opens AI Providers from the error banner action", async () => {

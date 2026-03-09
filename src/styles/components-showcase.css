@@ -196,6 +196,28 @@
   gap: 8px;
 }
 
+.ds-composer-preview {
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  border-top: none;
+  background: transparent;
+}
+
+.ds-composer-draft {
+  min-height: 24px;
+  color: var(--color-text);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.ds-composer-draft--muted {
+  color: var(--color-muted);
+}
+
 .ds-patch-panel {
   padding: 10px;
 }

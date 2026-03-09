@@ -21,6 +21,7 @@ import Markdown from "@/components/Markdown";
 import NewSession from "@/components/NewSession";
 import ChatControls from "@/components/ChatControls";
 import AutoScrollArea from "@/components/AutoScrollArea";
+import BusyComposerTray from "@/components/BusyComposerTray";
 import ErrorDetailsModal, {
   type ErrorModalState,
 } from "@/components/ErrorDetailsModal";
@@ -293,6 +294,37 @@ export default function WorkspacePage() {
     onTranscript: appendTranscriptToInput,
   });
 
+  const queueBusyComposerMessage = useCallback(() => {
+    const text = input.trim();
+    if (!text) return;
+
+    agent.queueMessage(text);
+    setInput("");
+
+    requestAnimationFrame(() => {
+      textareaRef.current?.focus();
+    });
+  }, [agent, input, setInput]);
+
+  const handleQueuedItemSendNow = useCallback(
+    (itemId: string) => {
+      const item = agent.queuedMessages.find((entry) => entry.id === itemId);
+      if (!item) return;
+      agent.steerMessage(item.content, item.id);
+    },
+    [agent],
+  );
+
+  const handleRemoveQueuedItem = useCallback(
+    (itemId: string) => {
+      agent.removeQueuedMessage(itemId);
+      requestAnimationFrame(() => {
+        textareaRef.current?.focus();
+      });
+    },
+    [agent],
+  );
+
   const handleDividerMouseDown = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
     isDragging.current = true;
@@ -417,7 +449,12 @@ export default function WorkspacePage() {
       return;
     }
 
-    if (isAgentBusy || voiceInput.busy) return;
+    if (isAgentBusy) {
+      queueBusyComposerMessage();
+      return;
+    }
+
+    if (voiceInput.busy) return;
 
     const currentAttachments = attachedImages.slice();
     voiceInput.clearError();
@@ -440,6 +477,7 @@ export default function WorkspacePage() {
     setInput,
     models,
     injectAssistantMessage,
+    queueBusyComposerMessage,
     slashCommands,
   ]);
 
@@ -504,6 +542,7 @@ export default function WorkspacePage() {
   const hasSendableText = input.trim().length > 0;
   const canSend = hasSendableText || attachedImages.length > 0;
   const voiceBusy = voiceInput.busy;
+  const showBusyComposerTray = agent.queuedMessages.length > 0;
   const sendTitle = voiceInput.isPreparingModel
     ? "Downloading Whisper model..."
     : voiceInput.isTranscribing
@@ -705,6 +744,16 @@ export default function WorkspacePage() {
             className="chat-input-wrap"
             onClick={() => textareaRef.current?.focus()}
           >
+            {showBusyComposerTray ? (
+              <BusyComposerTray
+                queuedItems={agent.queuedMessages}
+                queueState={agent.queueState}
+                onSendQueuedNow={handleQueuedItemSendNow}
+                onResumeQueue={agent.resumeQueue}
+                onClearQueuedItems={agent.clearQueuedMessages}
+                onRemoveQueuedItem={handleRemoveQueuedItem}
+              />
+            ) : null}
             <ChatControls
               autoApproveEdits={agent.autoApproveEdits}
               autoApproveCommands={agent.autoApproveCommands}
@@ -719,7 +768,9 @@ export default function WorkspacePage() {
               contextMaxKb={contextWindowKb?.maxKb ?? null}
             />
             <VoiceInputStateProvider value={voiceInput}>
-              <div className="chat-input-shell">
+              <div
+                className={`chat-input-shell${isAgentBusy ? " chat-input-shell--busy" : ""}`}
+              >
                 {isChatDropActive && (
                   <div className="chat-drop-overlay" aria-hidden="true">
                     <span className="material-symbols-outlined">upload_file</span>
@@ -767,17 +818,7 @@ export default function WorkspacePage() {
                 />
                 <div className="chat-input-actions">
                   <VoiceInputToggleButton />
-                  {isAgentBusy ? (
-                    <button
-                      title="Stop agent"
-                      aria-label="Stop agent"
-                      onClick={agent.stop}
-                    >
-                      <span className="material-symbols-outlined text-lg">
-                        stop_circle
-                      </span>
-                    </button>
-                  ) : (
+                  {isAgentBusy ? null : (
                     <button
                       title={sendTitle}
                       aria-label="Send"
