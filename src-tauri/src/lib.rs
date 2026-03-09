@@ -36,6 +36,7 @@ pub fn run() {
             fs_ops::list_dir,
             fs_ops::stat_file,
             fs_ops::read_file,
+            fs_ops::read_file_base64,
             fs_ops::write_file,
             fs_ops::delete_file,
             fs_ops::glob_files,

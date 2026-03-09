@@ -44,6 +44,7 @@ export interface SystemApiMessage {
 export interface UserApiMessage {
   role: "user";
   content: string;
+  attachments?: AttachedImage[];
 }
 
 export interface AssistantApiMessage {
@@ -195,10 +196,18 @@ export type SerializedConversationCard =
   | SerializedSummaryConversationCard
   | SerializedArtifactConversationCard;
 
+export interface AttachedImage {
+  id: string;
+  name: string;
+  previewUrl: string;
+  mimeType: string;
+}
+
 export interface ChatMessage {
   id: string;
   role: "user" | "assistant";
   content: string;
+  attachments?: AttachedImage[];
   /**
    * Display name of the agent that produced this message.
    * Undefined / omitted means the main Rakh agent.

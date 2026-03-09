@@ -6,7 +6,7 @@ import { getAllSubagents } from "@/agent/subagents";
 import CycleOptionSwitch from "@/components/CycleOptionSwitch";
 import { Button } from "@/components/ui";
 import { useTabs } from "@/contexts/TabsContext";
-import type { ApiMessage, ChatMessage } from "@/agent/types";
+import type { ApiMessage, AttachedImage, ChatMessage } from "@/agent/types";
 import { cn } from "@/utils/cn";
 import pkg from "../../../package.json";
 
@@ -125,14 +125,28 @@ function shrinkDebugMessageText(value: string): string {
   ].join("");
 }
 
+function redactAttachedImages(attachments: AttachedImage[]): AttachedImage[] {
+  return attachments.map((img) => ({
+    ...img,
+    previewUrl: `[redacted ${img.mimeType}, ${img.previewUrl.length} chars]`,
+  }));
+}
+
 function shrinkApiMessages(messages: ApiMessage[]): ApiMessage[] {
   return messages.map((message) => {
     switch (message.role) {
       case "system":
+        return {
+          ...message,
+          content: shrinkDebugMessageText(message.content),
+        };
       case "user":
         return {
           ...message,
           content: shrinkDebugMessageText(message.content),
+          ...(message.attachments
+            ? { attachments: redactAttachedImages(message.attachments) }
+            : {}),
         };
       case "assistant":
         return {
@@ -156,6 +170,9 @@ function shrinkChatMessages(messages: ChatMessage[]): ChatMessage[] {
       typeof message.reasoning === "string"
         ? shrinkDebugMessageText(message.reasoning)
         : message.reasoning,
+    ...(message.attachments
+      ? { attachments: redactAttachedImages(message.attachments) }
+      : {}),
   }));
 }
 

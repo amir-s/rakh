@@ -8,6 +8,7 @@ import {
   type ChangeEvent,
   type KeyboardEvent,
 } from "react";
+import type { AttachedImage } from "@/agent/types";
 import { useAtomValue } from "jotai";
 import ArtifactPane, { useArtifactUpdates } from "@/components/ArtifactPane";
 import ConversationCards from "@/components/ConversationCards";
@@ -85,6 +86,95 @@ export default function WorkspacePage() {
     },
     [activeTabId],
   );
+  const [attachedImagesByTab, setAttachedImagesByTab] = useState<
+    Record<string, AttachedImage[]>
+  >({});
+  const attachedImages = useMemo(
+    () => attachedImagesByTab[activeTabId] ?? [],
+    [attachedImagesByTab, activeTabId],
+  );
+
+  const addAttachedImages = useCallback(
+    async (files: File[]) => {
+      const readAsDataUrl = (file: File): Promise<string> =>
+        new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result as string);
+          reader.onerror = reject;
+          reader.readAsDataURL(file);
+        });
+      const newImages = await Promise.all(
+        files.map(async (file) => ({
+          id: Math.random().toString(36).slice(2) + Date.now().toString(36),
+          name: file.name,
+          previewUrl: await readAsDataUrl(file),
+          mimeType: file.type || "image/",
+        })),
+      );
+      setAttachedImagesByTab((prev) => ({
+        ...prev,
+        [activeTabId]: [...(prev[activeTabId] ?? []), ...newImages],
+      }));
+    },
+    [activeTabId],
+  );
+
+  const removeAttachedImage = useCallback(
+    (id: string) => {
+      setAttachedImagesByTab((prev) => {
+        const current = prev[activeTabId] ?? [];
+        const removed = current.find((img) => img.id === id);
+        if (removed?.previewUrl.startsWith("blob:"))
+          URL.revokeObjectURL(removed.previewUrl);
+        return {
+          ...prev,
+          [activeTabId]: current.filter((img) => img.id !== id),
+        };
+      });
+    },
+    [activeTabId],
+  );
+
+  const clearAttachedImages = useCallback(() => {
+    setAttachedImagesByTab((prev) => {
+      const current = prev[activeTabId] ?? [];
+      for (const img of current) {
+        if (img.previewUrl.startsWith("blob:"))
+          URL.revokeObjectURL(img.previewUrl);
+      }
+      return { ...prev, [activeTabId]: [] };
+    });
+  }, [activeTabId]);
+
+  const handleImagePathDrop = useCallback(
+    async (paths: string[]) => {
+      const { invoke: tauriInvoke } = await import("@tauri-apps/api/core");
+      const newImages = await Promise.all(
+        paths.map(async (filePath) => {
+          const result = await tauriInvoke<{ data: string; mimeType: string }>(
+            "read_file_base64",
+            { path: filePath },
+          );
+          const dataUrl = `data:${result.mimeType};base64,${result.data}`;
+          const name = filePath.split("/").pop() ?? filePath;
+          return {
+            id: Math.random().toString(36).slice(2) + Date.now().toString(36),
+            name,
+            previewUrl: dataUrl,
+            mimeType: result.mimeType,
+          } satisfies AttachedImage;
+        }),
+      );
+      setAttachedImagesByTab((prev) => ({
+        ...prev,
+        [activeTabId]: [...(prev[activeTabId] ?? []), ...newImages],
+      }));
+    },
+    [activeTabId],
+  );
+
+  const [isChatDropActive, setIsChatDropActive] = useState(false);
+
   const [leftWidth, setLeftWidth] = useState(70);
   const [terminalOpen, setTerminalOpen] = useState(false);
   const [artifactOpen, setArtifactOpen] = useState(true);
@@ -275,7 +365,7 @@ export default function WorkspacePage() {
 
   const handleSubmit = useCallback(async () => {
     const text = input.trim();
-    if (!text) return;
+    if (!text && attachedImages.length === 0) return;
 
     if (helpCommand && matchesSlashCommandInput(text, helpCommand)) {
       injectAssistantMessage(formatSlashCommandHelpMarkdown(slashCommands));
@@ -329,11 +419,19 @@ export default function WorkspacePage() {
 
     if (isAgentBusy || voiceInput.busy) return;
 
+    const currentAttachments = attachedImages.slice();
     voiceInput.clearError();
     setInput("");
-    agent.sendMessage(text);
+    clearAttachedImages();
+    if (currentAttachments.length > 0) {
+      agent.sendMessage(text, currentAttachments);
+    } else {
+      agent.sendMessage(text);
+    }
   }, [
     input,
+    attachedImages,
+    clearAttachedImages,
     activeTabId,
     helpCommand,
     isAgentBusy,
@@ -404,7 +502,7 @@ export default function WorkspacePage() {
   }
 
   const hasSendableText = input.trim().length > 0;
-  const canSend = hasSendableText;
+  const canSend = hasSendableText || attachedImages.length > 0;
   const voiceBusy = voiceInput.busy;
   const sendTitle = voiceInput.isPreparingModel
     ? "Downloading Whisper model..."
@@ -430,7 +528,10 @@ export default function WorkspacePage() {
             {chatBubbleGroups.map((group) => {
               if (group.kind === "user") {
                 return (
-                  <UserMessage key={group.key}>
+                  <UserMessage
+                    key={group.key}
+                    images={group.message.attachments}
+                  >
                     <Markdown>{group.message.content}</Markdown>
                   </UserMessage>
                 );
@@ -619,13 +720,45 @@ export default function WorkspacePage() {
             />
             <VoiceInputStateProvider value={voiceInput}>
               <div className="chat-input-shell">
+                {isChatDropActive && (
+                  <div className="chat-drop-overlay" aria-hidden="true">
+                    <span className="material-symbols-outlined">upload_file</span>
+                    <span>Drop to attach</span>
+                  </div>
+                )}
                 <VoiceInputStatusSlot />
                 <VoiceInputRecordingRow />
+                {attachedImages.length > 0 && (
+                  <div className="chat-attachment-strip">
+                    {attachedImages.map((img) => (
+                      <div key={img.id} className="chat-attachment-chip">
+                        <img
+                          src={img.previewUrl}
+                          alt={img.name}
+                          className="chat-attachment-thumb"
+                        />
+                        <span className="chat-attachment-name">{img.name}</span>
+                        <button
+                          className="chat-attachment-remove"
+                          onClick={() => removeAttachedImage(img.id)}
+                          title={`Remove ${img.name}`}
+                          aria-label={`Remove ${img.name}`}
+                          type="button"
+                        >
+                          <span className="material-symbols-outlined" style={{ fontSize: 14 }}>close</span>
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
                 <MentionTextarea
                   ref={textareaRef}
                   value={input}
                   onChange={handleInput}
                   onKeyDown={handleKeyDown}
+                  onImageDrop={addAttachedImages}
+                  onImagePathDrop={handleImagePathDrop}
+                  onDragActiveChange={setIsChatDropActive}
                   cwd={agent.config.cwd}
                   slashCommands={slashCommands}
                   placeholder="Type a message…"

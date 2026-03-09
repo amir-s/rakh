@@ -39,6 +39,7 @@ import {
 import type {
   AgentConfig,
   ApiMessage,
+  AttachedImage,
   AutoApproveCommandsMode,
 } from "./types";
 
@@ -156,10 +157,13 @@ export function useAgentShowDebug(tabId: string) {
  * Safe to call concurrently for different tabIds (they run in parallel).
  */
 export function useSendMessage() {
-  return useCallback((tabId: string, message: string) => {
-    // fire-and-forget; the runner updates atoms reactively
-    runAgent(tabId, message).catch(console.error);
-  }, []);
+  return useCallback(
+    (tabId: string, message: string, attachments?: AttachedImage[]) => {
+      // fire-and-forget; the runner updates atoms reactively
+      runAgent(tabId, message, attachments).catch(console.error);
+    },
+    [],
+  );
 }
 
 /** stopAgent — abort the currently running turn for a tab */
@@ -290,7 +294,8 @@ export function useAgent(tabId: string) {
     autoApproveCommands,
     showDebug,
     sendMessage: useCallback(
-      (msg: string) => sendMessage(tabId, msg),
+      (msg: string, attachments?: AttachedImage[]) =>
+        sendMessage(tabId, msg, attachments),
       [tabId, sendMessage],
     ),
     stop: useCallback(() => stopAgent(tabId), [tabId, stopAgent]),

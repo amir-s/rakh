@@ -251,6 +251,84 @@
   -webkit-backdrop-filter: blur(2px);
 }
 
+/* ── Image preview modal ─────────────────────────────────────────────────── */
+.image-preview-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 99900;
+  background: rgba(0, 0, 0, 0.86);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px;
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  animation: fadeIn 0.12s ease;
+}
+.image-preview-shell {
+  display: flex;
+  flex-direction: column;
+  max-width: min(90vw, 1100px);
+  max-height: 90vh;
+  border-radius: 10px;
+  border: 1px solid var(--color-border-mid);
+  background: var(--color-surface);
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.6);
+  overflow: hidden;
+  animation: slideUp 0.15s ease;
+}
+.image-preview-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--color-border-subtle);
+  gap: 12px;
+  flex-shrink: 0;
+}
+.image-preview-name {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--color-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: var(--font-mono);
+}
+.image-preview-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  border: none;
+  background: transparent;
+  color: var(--color-muted);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: color var(--t-fast), background var(--t-fast);
+}
+.image-preview-close:hover {
+  color: var(--color-text);
+  background: var(--color-subtle);
+}
+.image-preview-body {
+  overflow: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  min-height: 0;
+}
+.image-preview-img {
+  max-width: 100%;
+  max-height: calc(90vh - 80px);
+  object-fit: contain;
+  border-radius: 4px;
+  display: block;
+}
+
 .error-modal {
   position: relative;
   width: 100%;

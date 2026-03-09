@@ -1,3 +1,4 @@
+use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
 use crate::utils::tool_log;
 use serde_json::{json, Value};
 use std::fs;
@@ -760,6 +761,34 @@ pub fn search_files_grep(
     }
 
     result
+}
+
+#[tauri::command]
+pub fn read_file_base64(path: String) -> Result<Value, String> {
+    let p = PathBuf::from(&path);
+    let bytes = fs::read(&p).map_err(|e| format!("Cannot read {}: {}", path, e))?;
+    let encoded = BASE64.encode(&bytes);
+    // Derive a best-effort MIME type from the extension.
+    let ext = p
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_lowercase();
+    let mime = match ext.as_str() {
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "gif" => "image/gif",
+        "webp" => "image/webp",
+        "svg" => "image/svg+xml",
+        "bmp" => "image/bmp",
+        "ico" => "image/x-icon",
+        _ => "application/octet-stream",
+    };
+    Ok(json!({
+        "data": encoded,
+        "mimeType": mime,
+        "sizeBytes": bytes.len(),
+    }))
 }
 
 #[cfg(test)]
