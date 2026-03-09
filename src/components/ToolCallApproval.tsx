@@ -225,7 +225,7 @@ interface ToolCallApprovalProps {
 }
 
 /** Special card shown for git_worktree_init (awaiting_worktree status). */
-function WorktreeApprovalCard({ toolCall }: { toolCall: ToolCallDisplay }) {
+function WorktreeApprovalCard({ toolCall, tabId }: { toolCall: ToolCallDisplay; tabId: string }) {
   const { id, args } = toolCall;
   const suggested =
     typeof args.suggestedBranch === "string" ? args.suggestedBranch : "";
@@ -257,16 +257,16 @@ function WorktreeApprovalCard({ toolCall }: { toolCall: ToolCallDisplay }) {
           type="text"
           value={branch}
           onChange={(e) => setBranch(e.target.value)}
-          className="w-full bg-inset py-[5px] px-2 text-xs font-mono"
+          className="w-full bg-inset py-1.25 px-2 text-xs font-mono"
           wrapClassName="border border-border-mid rounded"
           placeholder="feat/my-branch"
           autoFocus
           onKeyDown={(e) => {
             if (e.key === "Enter")
-              resolveWorktreeApproval(id, true, branch.trim() || suggested);
+              resolveWorktreeApproval(tabId, id, true, branch.trim() || suggested);
           }}
         />
-        <div className="text-xxs text-muted font-mono mt-[5px] opacity-60">
+        <div className="text-xxs text-muted font-mono mt-1.25 opacity-60">
           A worktree will be created under worktrees/{repoSlug}/
           {branch.trim() || suggested || "branch"}
         </div>
@@ -277,7 +277,7 @@ function WorktreeApprovalCard({ toolCall }: { toolCall: ToolCallDisplay }) {
         <Button
           variant="ghost"
           size="xxs"
-          onClick={() => resolveWorktreeApproval(id, false, "")}
+          onClick={() => resolveWorktreeApproval(tabId, id, false, "")}
         >
           WORK IN MAIN REPO
         </Button>
@@ -285,7 +285,7 @@ function WorktreeApprovalCard({ toolCall }: { toolCall: ToolCallDisplay }) {
           variant="primary"
           size="xxs"
           onClick={() =>
-            resolveWorktreeApproval(id, true, branch.trim() || suggested)
+            resolveWorktreeApproval(tabId, id, true, branch.trim() || suggested)
           }
         >
           CREATE BRANCH
@@ -318,7 +318,7 @@ export default function ToolCallApproval({
 
   // Render the dedicated worktree card for git_worktree_init
   if (toolCall.status === "awaiting_worktree" || tool === "git_worktree_init") {
-    return <WorktreeApprovalCard toolCall={toolCall} />;
+    return <WorktreeApprovalCard toolCall={toolCall} tabId={tabId} />;
   }
 
   const icon = TOOL_ICON[tool] ?? "build";
@@ -345,14 +345,14 @@ export default function ToolCallApproval({
       ) : tool === "exec_run" ? (
         <ExecRunContent args={args} />
       ) : argEntries.length > 0 ? (
-        <div className="px-3 py-2.5 border-b border-border-subtle flex flex-col gap-[5px]">
+        <div className="px-3 py-2.5 border-b border-border-subtle flex flex-col gap-1.25">
           {argEntries.map(([key, value]) => (
             <div
               key={key}
-              className="flex gap-2 text-xs font-mono leading-[1.5]"
+              className="flex gap-2 text-xs font-mono leading-normal"
             >
-              <span className="text-muted shrink-0 min-w-[80px]">{key}</span>
-              <span className="whitespace-pre-wrap break-all max-h-[80px] overflow-hidden">
+              <span className="text-muted shrink-0 min-w-20">{key}</span>
+              <span className="whitespace-pre-wrap break-all max-h-20 overflow-hidden">
                 {renderArgValue(value)}
               </span>
             </div>
@@ -412,7 +412,7 @@ export default function ToolCallApproval({
             <Button
               variant="ghost"
               size="xxs"
-              onClick={() => resolveApproval(id, false)}
+              onClick={() => resolveApproval(tabId, id, false)}
               disabled={isApproving}
             >
               DENY
@@ -425,12 +425,13 @@ export default function ToolCallApproval({
                 size="xxs"
                 onClick={() => {
                   setApprovalReason(
+                    tabId,
                     id,
                     tool === "exec_run"
                       ? "The command was NOT run. The user wants to refine the approach and will provide follow-up instructions."
                       : "The file edit was NOT applied. The user wants to refine the approach and will provide follow-up instructions.",
                   );
-                  resolveApproval(id, false);
+                  resolveApproval(tabId, id, false);
                   stopAgent(tabId);
                 }}
                 disabled={isApproving}
@@ -444,7 +445,7 @@ export default function ToolCallApproval({
               loading={showAllowSpinner}
               onClick={() => {
                 setIsApproving(true);
-                resolveApproval(id, true);
+                resolveApproval(tabId, id, true);
               }}
               disabled={isApproving}
             >

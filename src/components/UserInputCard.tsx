@@ -11,9 +11,10 @@ import { Button, TextField } from "@/components/ui";
 
 interface UserInputCardProps {
   toolCall: ToolCallDisplay;
+  tabId: string;
 }
 
-export default function UserInputCard({ toolCall }: UserInputCardProps) {
+export default function UserInputCard({ toolCall, tabId }: UserInputCardProps) {
   const { id, args } = toolCall;
   const question =
     typeof args.question === "string"
@@ -30,10 +31,10 @@ export default function UserInputCard({ toolCall }: UserInputCardProps) {
   const submit = (answer: string) => {
     const trimmed = answer.trim();
     if (!trimmed) return;
-    resolveUserInput(id, trimmed);
+    resolveUserInput(tabId, id, trimmed);
   };
 
-  const skip = () => cancelUserInput(id);
+  const skip = () => cancelUserInput(tabId, id);
 
   return (
     <div className="msg-card animate-fade-up mt-1.5">
@@ -82,7 +83,7 @@ export default function UserInputCard({ toolCall }: UserInputCardProps) {
             if (e.key === "Enter") submit(customInput);
           }}
           placeholder="Type your answer…"
-          className="bg-inset py-[5px] px-2 text-xs"
+          className="bg-inset py-1.25 px-2 text-xs"
           wrapClassName="flex-1 border border-border-mid rounded"
           autoFocus={options.length === 0}
         />
