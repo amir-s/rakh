@@ -642,27 +642,28 @@ export const MentionTextarea = forwardRef<
     setEditorValue(editor, value, nextSelection);
   }, [setEditorValue, value]);
 
-  useEffect(() => {
-    if (!cwd) {
-      return;
-    }
+  const fetchFiles = useCallback(() => {
+    if (!cwd) return;
 
-    let active = true;
     invoke<{ matches: string[]; truncated: boolean }>("search_files", {
       cwd,
       maxResults: 2000,
     })
       .then((result) => {
-        if (active) {
-          setFiles(result.matches);
-        }
+        setFiles(result.matches);
       })
       .catch(console.error);
-
-    return () => {
-      active = false;
-    };
   }, [cwd]);
+
+  useEffect(() => {
+    fetchFiles();
+  }, [fetchFiles]);
+
+  const handleFocusCapture = useCallback(() => {
+    setIsFocused(true);
+    ensureVisibleEmptySelection();
+    fetchFiles();
+  }, [ensureVisibleEmptySelection, fetchFiles]);
 
   useEffect(() => {
     if (!autocomplete || autocompleteOptions.length === 0) return;
@@ -876,11 +877,6 @@ export const MentionTextarea = forwardRef<
       safeSelectedIndex,
     ],
   );
-
-  const handleFocusCapture = useCallback(() => {
-    setIsFocused(true);
-    ensureVisibleEmptySelection();
-  }, [ensureVisibleEmptySelection]);
 
   const handleBlurCapture = useCallback(() => {
     setIsFocused(false);
