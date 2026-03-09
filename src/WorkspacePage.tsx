@@ -500,7 +500,7 @@ export default function WorkspacePage() {
                               {visibleToolCalls.map((tc) =>
                                 tc.tool === "user_input" &&
                                 tc.status === "awaiting_approval" ? (
-                                  <UserInputCard key={tc.id} toolCall={tc} />
+                                  <UserInputCard key={tc.id} toolCall={tc} tabId={activeTabId} />
                                 ) : tc.status === "awaiting_approval" ||
                                   tc.status === "awaiting_worktree" ||
                                   (tc.tool === "exec_run" &&

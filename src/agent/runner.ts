@@ -501,7 +501,7 @@ export function stopAgent(tabId: string): void {
       };
     }),
   }));
-  cancelAllApprovals();
+  cancelAllApprovals(tabId);
 }
 
 /**
@@ -1543,7 +1543,7 @@ async function runSubagentLoop(
         // Pause the subagent loop and wait for the user to answer.
         if (tc.function.name === "user_input") {
           updateToolCallById({ status: "awaiting_approval" });
-          const answer = await requestUserInput(tcId);
+          const answer = await requestUserInput(tabId, tcId);
           if (answer === null) {
             updateToolCallById({ status: "denied" });
             return {
@@ -1666,9 +1666,9 @@ async function runSubagentLoop(
           )
         ) {
           updateToolCallById({ status: "awaiting_approval" });
-          const approved = await requestApproval(tcId);
+          const approved = await requestApproval(tabId, tcId);
           if (!approved) {
-            const reason = consumeApprovalReason(tcId);
+            const reason = consumeApprovalReason(tabId, tcId);
             updateToolCallById({ status: "denied" });
             return {
               tool_call_id: tcId,
@@ -2467,9 +2467,9 @@ async function agentLoop(
           // Optional per-subagent invocation approval.
           if (subagentDef.requiresApproval) {
             updateToolCallById({ status: "awaiting_approval" });
-            const approved = await requestApproval(tcId);
+            const approved = await requestApproval(tabId, tcId);
             if (!approved) {
-              const reason = consumeApprovalReason(tcId);
+              const reason = consumeApprovalReason(tabId, tcId);
               updateToolCallById({ status: "denied" });
               return {
                 tool_call_id: tcId,
@@ -2508,7 +2508,7 @@ async function agentLoop(
         // Pause the agent loop and wait for the user to answer.
         if (tc.function.name === "user_input") {
           updateToolCallById({ status: "awaiting_approval" });
-          const answer = await requestUserInput(tcId);
+          const answer = await requestUserInput(tabId, tcId);
           if (answer === null) {
             updateToolCallById({ status: "denied" });
             return {
@@ -2621,10 +2621,10 @@ async function agentLoop(
         ) {
           updateToolCallById({ status: "awaiting_approval" });
 
-          const approved = await requestApproval(tcId);
+          const approved = await requestApproval(tabId, tcId);
 
           if (!approved) {
-            const reason = consumeApprovalReason(tcId);
+            const reason = consumeApprovalReason(tabId, tcId);
             updateToolCallById({ status: "denied" });
             return {
               tool_call_id: tcId,

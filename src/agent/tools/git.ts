@@ -166,7 +166,7 @@ export async function gitWorktreeInit(
     ),
   }));
 
-  const { approved, branchName } = await requestWorktreeApproval(toolCallId);
+  const { approved, branchName } = await requestWorktreeApproval(tabId, toolCallId);
 
   // 7. User declined
   if (!approved) {

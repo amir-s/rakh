@@ -136,10 +136,11 @@ const approvalReasons = new Map<string, string>();
  * Used by the /test command to wire up fake approvals without a live runner.
  */
 export function registerApproval(
+  tabId: string,
   id: string,
   resolver: (approved: boolean) => void,
 ): void {
-  approvalResolvers.set(id, resolver);
+  approvalResolvers.set(`${tabId}:${id}`, resolver);
 }
 
 /**
@@ -147,9 +148,9 @@ export function registerApproval(
  * Stores the Promise resolver so resolveApproval() can unblock it later.
  * Used by the runner — one call per tool call id.
  */
-export function requestApproval(id: string): Promise<boolean> {
+export function requestApproval(tabId: string, id: string): Promise<boolean> {
   return new Promise<boolean>((resolve) => {
-    approvalResolvers.set(id, resolve);
+    approvalResolvers.set(`${tabId}:${id}`, resolve);
   });
 }
 
@@ -157,10 +158,11 @@ export function requestApproval(id: string): Promise<boolean> {
  * Called from the UI (Allow / Deny buttons) to unblock a waiting requestApproval().
  * Safe to call multiple times — subsequent calls for the same id are no-ops.
  */
-export function resolveApproval(id: string, approved: boolean): void {
-  const resolve = approvalResolvers.get(id);
+export function resolveApproval(tabId: string, id: string, approved: boolean): void {
+  const key = `${tabId}:${id}`;
+  const resolve = approvalResolvers.get(key);
   if (resolve) {
-    approvalResolvers.delete(id);
+    approvalResolvers.delete(key);
     resolve(approved);
   }
 }
@@ -169,17 +171,18 @@ export function resolveApproval(id: string, approved: boolean): void {
  * Attach a reason message to a tool approval id (used when denying).
  * The runner can consume it and forward it to the agent.
  */
-export function setApprovalReason(id: string, reason: string): void {
+export function setApprovalReason(tabId: string, id: string, reason: string): void {
   if (!reason.trim()) return;
-  approvalReasons.set(id, reason.trim());
+  approvalReasons.set(`${tabId}:${id}`, reason.trim());
 }
 
 /**
  * Consume (read + clear) a pending approval reason for a tool call id.
  */
-export function consumeApprovalReason(id: string): string | undefined {
-  const reason = approvalReasons.get(id);
-  if (reason) approvalReasons.delete(id);
+export function consumeApprovalReason(tabId: string, id: string): string | undefined {
+  const key = `${tabId}:${id}`;
+  const reason = approvalReasons.get(key);
+  if (reason) approvalReasons.delete(key);
   return reason;
 }
 
@@ -187,22 +190,36 @@ export function consumeApprovalReason(id: string): string | undefined {
  * Deny all currently-pending approvals.
  * Called when an agent is stopped so the runner can exit cleanly.
  */
-export function cancelAllApprovals(): void {
-  for (const resolve of approvalResolvers.values()) {
-    resolve(false);
+export function cancelAllApprovals(tabId?: string): void {
+  const prefix = tabId ? `${tabId}:` : "";
+
+  for (const [key, resolve] of approvalResolvers.entries()) {
+    if (key.startsWith(prefix)) {
+      resolve(false);
+      approvalResolvers.delete(key);
+    }
   }
-  approvalResolvers.clear();
-  approvalReasons.clear();
+  for (const key of approvalReasons.keys()) {
+    if (key.startsWith(prefix)) {
+      approvalReasons.delete(key);
+    }
+  }
+
   // Also cancel any pending worktree approvals
-  for (const resolve of worktreeApprovalResolvers.values()) {
-    resolve({ approved: false, branchName: "" });
+  for (const [key, resolve] of worktreeApprovalResolvers.entries()) {
+    if (key.startsWith(prefix)) {
+      resolve({ approved: false, branchName: "" });
+      worktreeApprovalResolvers.delete(key);
+    }
   }
-  worktreeApprovalResolvers.clear();
+
   // Also cancel any pending user_input requests
-  for (const resolve of userInputResolvers.values()) {
-    resolve(null);
+  for (const [key, resolve] of userInputResolvers.entries()) {
+    if (key.startsWith(prefix)) {
+      resolve(null);
+      userInputResolvers.delete(key);
+    }
   }
-  userInputResolvers.clear();
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
@@ -214,26 +231,28 @@ export function cancelAllApprovals(): void {
 const userInputResolvers = new Map<string, (answer: string | null) => void>();
 
 /** Suspend the subagent loop until the user provides an answer. */
-export function requestUserInput(id: string): Promise<string | null> {
+export function requestUserInput(tabId: string, id: string): Promise<string | null> {
   return new Promise<string | null>((resolve) => {
-    userInputResolvers.set(id, resolve);
+    userInputResolvers.set(`${tabId}:${id}`, resolve);
   });
 }
 
 /** Called from the UserInputCard UI with the user's answer. */
-export function resolveUserInput(id: string, answer: string): void {
-  const resolve = userInputResolvers.get(id);
+export function resolveUserInput(tabId: string, id: string, answer: string): void {
+  const key = `${tabId}:${id}`;
+  const resolve = userInputResolvers.get(key);
   if (resolve) {
-    userInputResolvers.delete(id);
+    userInputResolvers.delete(key);
     resolve(answer);
   }
 }
 
 /** Called when the user skips the question or the agent is stopped. */
-export function cancelUserInput(id: string): void {
-  const resolve = userInputResolvers.get(id);
+export function cancelUserInput(tabId: string, id: string): void {
+  const key = `${tabId}:${id}`;
+  const resolve = userInputResolvers.get(key);
   if (resolve) {
-    userInputResolvers.delete(id);
+    userInputResolvers.delete(key);
     resolve(null);
   }
 }
@@ -258,10 +277,11 @@ const worktreeApprovalResolvers = new Map<
  * Used by the git_worktree_init tool handler.
  */
 export function requestWorktreeApproval(
+  tabId: string,
   id: string,
 ): Promise<WorktreeApprovalResult> {
   return new Promise<WorktreeApprovalResult>((resolve) => {
-    worktreeApprovalResolvers.set(id, resolve);
+    worktreeApprovalResolvers.set(`${tabId}:${id}`, resolve);
   });
 }
 
@@ -270,13 +290,15 @@ export function requestWorktreeApproval(
  * Safe to call multiple times — subsequent calls for the same id are no-ops.
  */
 export function resolveWorktreeApproval(
+  tabId: string,
   id: string,
   approved: boolean,
   branchName: string,
 ): void {
-  const resolve = worktreeApprovalResolvers.get(id);
+  const key = `${tabId}:${id}`;
+  const resolve = worktreeApprovalResolvers.get(key);
   if (resolve) {
-    worktreeApprovalResolvers.delete(id);
+    worktreeApprovalResolvers.delete(key);
     resolve({ approved, branchName });
   }
 }

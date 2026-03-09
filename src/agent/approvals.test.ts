@@ -100,17 +100,17 @@ describe("approvals - resolver lifecycle", () => {
   });
 
   it("resolves a pending approval exactly once", async () => {
-    const pending = requestApproval("call-1");
-    resolveApproval("call-1", true);
+    const pending = requestApproval("tabA", "call-1");
+    resolveApproval("tabA", "call-1", true);
     await expect(pending).resolves.toBe(true);
 
     // no-op after resolver is consumed
-    resolveApproval("call-1", false);
+    resolveApproval("tabA", "call-1", false);
   });
 
   it("denies all pending approvals when canceled", async () => {
-    const pendingA = requestApproval("call-a");
-    const pendingB = requestApproval("call-b");
+    const pendingA = requestApproval("tabA", "call-a");
+    const pendingB = requestApproval("tabB", "call-b");
     cancelAllApprovals();
 
     await expect(pendingA).resolves.toBe(false);
@@ -118,29 +118,44 @@ describe("approvals - resolver lifecycle", () => {
   });
 
   it("stores and consumes trimmed approval reasons", () => {
-    setApprovalReason("call-r", "  needs confirmation  ");
-    expect(consumeApprovalReason("call-r")).toBe("needs confirmation");
-    expect(consumeApprovalReason("call-r")).toBeUndefined();
+    setApprovalReason("tabA", "call-r", "  needs confirmation  ");
+    expect(consumeApprovalReason("tabA", "call-r")).toBe("needs confirmation");
+    expect(consumeApprovalReason("tabA", "call-r")).toBeUndefined();
   });
 
   it("ignores blank approval reasons", () => {
-    setApprovalReason("call-empty", "   ");
-    expect(consumeApprovalReason("call-empty")).toBeUndefined();
+    setApprovalReason("tabA", "call-empty", "   ");
+    expect(consumeApprovalReason("tabA", "call-empty")).toBeUndefined();
   });
 
   it("supports worktree approval and cancellation fallback", async () => {
-    const approved = requestWorktreeApproval("wt-1");
-    resolveWorktreeApproval("wt-1", true, "codex/feature-1");
+    const approved = requestWorktreeApproval("tabA", "wt-1");
+    resolveWorktreeApproval("tabA", "wt-1", true, "codex/feature-1");
     await expect(approved).resolves.toEqual({
       approved: true,
       branchName: "codex/feature-1",
     });
 
-    const canceled = requestWorktreeApproval("wt-2");
+    const canceled = requestWorktreeApproval("tabA", "wt-2");
     cancelAllApprovals();
     await expect(canceled).resolves.toEqual({
       approved: false,
       branchName: "",
     });
   });
+
+  it("only cancels approvals for the specified tab", async () => {
+    const pendingA = requestApproval("tabA", "call-a");
+    const pendingB = requestApproval("tabB", "call-b");
+
+    cancelAllApprovals("tabA");
+
+    await expect(pendingA).resolves.toBe(false);
+
+    // resolve B manually, should be true if it wasn't canceled
+    resolveApproval("tabB", "call-b", true);
+    
+    await expect(pendingB).resolves.toBe(true);
+  });
 });
+

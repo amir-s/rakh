@@ -2520,7 +2520,10 @@ describe("runner", () => {
 
       await runAgent(tabId, "review the last commit for security");
 
-      expect(requestApprovalMock).toHaveBeenCalledWith("tc-security-exec");
+      expect(requestApprovalMock).toHaveBeenCalledWith(
+        "tab-subagent-security-exec-approval",
+        "tc-security-exec",
+      );
       expect(dispatchToolMock).toHaveBeenCalledWith(
         tabId,
         expect.any(String),
