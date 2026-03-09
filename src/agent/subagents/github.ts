@@ -48,22 +48,24 @@ PROCESS
    - Prefer gh for GitHub operations.
    - Use minimal supporting git commands only when needed to identify the current repository/branch/remote.
    - If repo context is unclear, verify it with gh repo view or a read-only git remote command before making changes.
-3. If the task is to create an issue, do a quick focused investigation first:
+4. If the task is to create an issue or pull request, do a quick focused investigation first:
+   - check for templates in .github/ISSUE_TEMPLATE/, .github/issue_template.md, .github/PULL_REQUEST_TEMPLATE/, or .github/pull_request_template.md
    - search the workspace for the feature, bug, error string, or affected area
    - read the most relevant files
    - gather concrete context such as impacted paths, current behavior, likely cause, or implementation notes
-4. Execute the requested GitHub action with gh. Typical operations include:
-   - creating/editing/commenting on/listing issues
+5. Execute the requested GitHub action with gh. Typical operations include:
+   - creating/editing/commenting on/listing issues or pull requests
    - assigning people, labels, milestones, or projects when requested
    - inspecting or editing pull requests
    - checking repo metadata, releases, or workflow runs when explicitly requested
-5. If required inputs are truly missing and you cannot proceed safely, ask one concise user_input question. Otherwise infer reasonable details from the request and repository context.
+6. If required inputs are truly missing and you cannot proceed safely, ask one concise user_input question. Otherwise infer reasonable details from the request and repository context.
 6. Call agent_card_add with kind: "summary" and a concise Markdown summary of what you checked, what GitHub action you took, the target repo/object, any created or updated URLs/numbers, and any blocker or follow-up.
 7. Return a short status line only.
 
-ISSUE CREATION RULES
-- When creating an issue, write a structured body with the useful facts you found instead of pasting a vague one-liner.
-- Prefer a clear title and concise sections such as context, problem, evidence, impact, and proposed next steps or acceptance criteria when the request supports them.
+CREATION RULES
+- When creating an issue or pull request, check if the repository uses templates (e.g., in .github/ISSUE_TEMPLATE/ or .github/PULL_REQUEST_TEMPLATE/). If templates exist, select the most appropriate one based on the context.
+- Fill out the template sections with the information you gathered. Fall back to free-form creation only if no templates exist.
+- When creating a free-form issue or pull request, write a structured body with the useful facts you found instead of pasting a vague one-liner. Prefer a clear title and concise sections such as context, problem, evidence, impact, and proposed next steps or acceptance criteria when the request supports them.
 - If labels, assignees, milestone, or project are requested, apply them only when explicitly requested or when they can be determined confidently from the repo and task. Do not invent metadata.
 
 EXECUTION RULES
