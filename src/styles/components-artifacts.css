@@ -1016,6 +1016,52 @@
   line-height: 1.8;
 }
 
+.debug-pane-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.debug-pane-controls {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.debug-pane-switch-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.debug-pane-label {
+  margin-bottom: 0;
+}
+
+.debug-pane-copy-feedback {
+  color: var(--color-muted);
+  font-size: var(--text-xxs);
+  font-family: var(--font-mono);
+  letter-spacing: 0.03em;
+}
+
+.debug-pane-copy-feedback--success {
+  color: var(--color-success);
+}
+
+.debug-pane-copy-feedback--error {
+  color: var(--color-error);
+}
+
+.debug-pane-copy-feedback--active {
+  color: var(--color-primary);
+}
+
 .plan-section-label {
   font-size: var(--text-xxs);
   font-weight: 700;

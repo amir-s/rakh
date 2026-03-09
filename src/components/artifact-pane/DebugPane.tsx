@@ -1,12 +1,22 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { useAtomValue } from "jotai";
 import { agentAtomFamily } from "@/agent/atoms";
 import { getModelCatalogEntry } from "@/agent/modelCatalog";
 import { getAllSubagents } from "@/agent/subagents";
+import CycleOptionSwitch from "@/components/CycleOptionSwitch";
+import { Button } from "@/components/ui";
 import { useTabs } from "@/contexts/TabsContext";
-import type { ApiMessage } from "@/agent/types";
+import type { ApiMessage, ChatMessage } from "@/agent/types";
 import { cn } from "@/utils/cn";
 import pkg from "../../../package.json";
+
+const IMAGE_DATA_URL_RE =
+  /data:(image\/[a-zA-Z0-9.+-]+);base64,([A-Za-z0-9+/=\r\n]+)/g;
+
+const INLINE_IMAGE_DATA_MAX_CHARS = 256;
+const LONG_MESSAGE_MAX_CHARS = 6000;
+const LONG_MESSAGE_HEAD_CHARS = 2500;
+const LONG_MESSAGE_TAIL_CHARS = 1200;
 
 function estimateContextWindowPct(
   apiMessages: ApiMessage[],
@@ -88,6 +98,78 @@ function safeJsonStringify(value: unknown): string {
   }
 }
 
+function shrinkDebugMessageText(value: string): string {
+  const withShrunkImages = value.replace(
+    IMAGE_DATA_URL_RE,
+    (match, mimeType: string, base64Data: string) => {
+      const normalizedData = base64Data.replace(/\s+/g, "");
+      if (normalizedData.length <= INLINE_IMAGE_DATA_MAX_CHARS) {
+        return match;
+      }
+      return `data:${mimeType};base64,[truncated ${normalizedData.length} chars for debug copy]`;
+    },
+  );
+
+  if (withShrunkImages.length <= LONG_MESSAGE_MAX_CHARS) {
+    return withShrunkImages;
+  }
+
+  const omittedChars =
+    withShrunkImages.length - LONG_MESSAGE_HEAD_CHARS - LONG_MESSAGE_TAIL_CHARS;
+  if (omittedChars <= 0) return withShrunkImages;
+
+  return [
+    withShrunkImages.slice(0, LONG_MESSAGE_HEAD_CHARS),
+    `\n\n[... truncated ${omittedChars} chars for debug copy; original length ${withShrunkImages.length} chars ...]\n\n`,
+    withShrunkImages.slice(-LONG_MESSAGE_TAIL_CHARS),
+  ].join("");
+}
+
+function shrinkApiMessages(messages: ApiMessage[]): ApiMessage[] {
+  return messages.map((message) => {
+    switch (message.role) {
+      case "system":
+      case "user":
+        return {
+          ...message,
+          content: shrinkDebugMessageText(message.content),
+        };
+      case "assistant":
+        return {
+          ...message,
+          content:
+            typeof message.content === "string"
+              ? shrinkDebugMessageText(message.content)
+              : message.content,
+        };
+      case "tool":
+        return message;
+    }
+  });
+}
+
+function shrinkChatMessages(messages: ChatMessage[]): ChatMessage[] {
+  return messages.map((message) => ({
+    ...message,
+    content: shrinkDebugMessageText(message.content),
+    reasoning:
+      typeof message.reasoning === "string"
+        ? shrinkDebugMessageText(message.reasoning)
+        : message.reasoning,
+  }));
+}
+
+function InfoPopover({ children }: { children: ReactNode }) {
+  return (
+    <span className="chat-ctrl-info">
+      <span className="material-symbols-outlined chat-ctrl-info-icon text-sm">
+        info
+      </span>
+      <span className="chat-ctrl-popover">{children}</span>
+    </span>
+  );
+}
+
 async function copyToClipboard(text: string): Promise<boolean> {
   try {
     if (navigator.clipboard?.writeText) {
@@ -119,6 +201,7 @@ async function copyToClipboard(text: string): Promise<boolean> {
 export default function DebugPane({ tabId }: { tabId: string }) {
   const { tabs, activeTabId } = useTabs();
   const state = useAtomValue(agentAtomFamily(tabId));
+  const [shrinkLongMessages, setShrinkLongMessages] = useState(true);
   const [copyStatus, setCopyStatus] = useState<
     "idle" | "copying" | "copied" | "failed"
   >("idle");
@@ -138,7 +221,8 @@ export default function DebugPane({ tabId }: { tabId: string }) {
   );
 
   const contextUsagePct = useMemo(
-    () => estimateContextWindowPct(state.apiMessages, state.config.contextLength),
+    () =>
+      estimateContextWindowPct(state.apiMessages, state.config.contextLength),
     [state.apiMessages, state.config.contextLength],
   );
 
@@ -164,10 +248,24 @@ export default function DebugPane({ tabId }: { tabId: string }) {
       }
     })();
 
+    const copiedChatMessages = shrinkLongMessages
+      ? shrinkChatMessages(state.chatMessages)
+      : state.chatMessages;
+    const copiedApiMessages = shrinkLongMessages
+      ? shrinkApiMessages(state.apiMessages)
+      : state.apiMessages;
+    const copiedStreamingContent =
+      shrinkLongMessages && typeof state.streamingContent === "string"
+        ? shrinkDebugMessageText(state.streamingContent)
+        : state.streamingContent;
+
     const debugBundle = {
       kind: "rakh_debug_bundle",
-      version: 1,
+      version: 2,
       generatedAt: new Date().toISOString(),
+      copyOptions: {
+        shrinkLongMessages,
+      },
       app: {
         name: pkg.name,
         version: pkg.version,
@@ -195,7 +293,7 @@ export default function DebugPane({ tabId }: { tabId: string }) {
         config: state.config,
         autoApproveEdits: state.autoApproveEdits,
         autoApproveCommands: state.autoApproveCommands,
-        streamingContent: state.streamingContent,
+        streamingContent: copiedStreamingContent,
         error: state.error,
         errorDetails: state.errorDetails,
         modelCatalogEntry: modelEntry,
@@ -203,8 +301,8 @@ export default function DebugPane({ tabId }: { tabId: string }) {
         plan: state.plan,
         todos: state.todos,
         reviewEdits: state.reviewEdits,
-        chatMessages: state.chatMessages,
-        apiMessages: state.apiMessages,
+        chatMessages: copiedChatMessages,
+        apiMessages: copiedApiMessages,
       },
     };
 
@@ -215,18 +313,35 @@ export default function DebugPane({ tabId }: { tabId: string }) {
 
   return (
     <div className="artifact-tab-content">
-      <div className="flex items-center justify-between gap-3 mb-4">
-        <div className="plan-section-label m-0">DEBUG</div>
-        <div className="flex items-center gap-2">
-          {copyStatus !== "idle" && (
+      <div className="debug-pane-header">
+        <div className="plan-section-label debug-pane-label">DEBUG</div>
+
+        <div className="debug-pane-controls">
+          <div className="debug-pane-switch-row">
+            <CycleOptionSwitch
+              label="Shrink long messages"
+              value={shrinkLongMessages}
+              options={[
+                { value: false, label: "No" },
+                { value: true, label: "Yes" },
+              ]}
+              onChange={setShrinkLongMessages}
+            />
+            <InfoPopover>
+              Shortens long chat text and inline image data in copied debug
+              bundles.
+            </InfoPopover>
+          </div>
+
+          {copyStatus !== "idle" ? (
             <span
               className={cn(
-                "text-xxs",
+                "debug-pane-copy-feedback",
                 copyStatus === "copied"
-                  ? "text-success"
+                  ? "debug-pane-copy-feedback--success"
                   : copyStatus === "failed"
-                    ? "text-error"
-                    : "text-muted",
+                    ? "debug-pane-copy-feedback--error"
+                    : "debug-pane-copy-feedback--active",
               )}
             >
               {copyStatus === "copying"
@@ -235,15 +350,29 @@ export default function DebugPane({ tabId }: { tabId: string }) {
                   ? "Copied"
                   : "Copy failed"}
             </span>
-          )}
-          <button
-            className="msg-btn msg-btn--deny"
-            onClick={handleCopy}
+          ) : null}
+
+          <Button
+            variant="ghost"
+            size="xs"
+            onClick={() => void handleCopy()}
             disabled={copyStatus === "copying"}
-            title="Copy full debug bundle (agent context + runtime info)"
+            title={
+              shrinkLongMessages
+                ? "Copy debug bundle with long message text shrunk"
+                : "Copy full debug bundle (agent context + runtime info)"
+            }
+            leftIcon={
+              <span
+                aria-hidden="true"
+                className="material-symbols-outlined text-[14px] leading-none"
+              >
+                content_copy
+              </span>
+            }
           >
             COPY CONTEXT
-          </button>
+          </Button>
         </div>
       </div>
 
@@ -292,7 +421,9 @@ export default function DebugPane({ tabId }: { tabId: string }) {
             <div>
               <span className="text-muted">context</span>: config=
               {state.config.contextLength ?? "(unknown)"}
-              {contextUsagePct != null ? ` · ~${contextUsagePct.toFixed(1)}%` : ""}
+              {contextUsagePct != null
+                ? ` · ~${contextUsagePct.toFixed(1)}%`
+                : ""}
             </div>
             {state.error && (
               <div>
@@ -337,12 +468,14 @@ export default function DebugPane({ tabId }: { tabId: string }) {
                     {agent.icon}
                   </span>
                   {agent.name}
-                  <span className="ml-2 text-muted font-normal">{agent.id}</span>
+                  <span className="ml-2 text-muted font-normal">
+                    {agent.id}
+                  </span>
                 </div>
                 <div className="space-y-0.5 pl-2">
                   <div>
-                    <span className="text-muted">tools</span>: {agent.tools.length} (
-                    {agent.tools.join(", ")})
+                    <span className="text-muted">tools</span>:{" "}
+                    {agent.tools.length} ({agent.tools.join(", ")})
                   </div>
                   <div>
                     <span className="text-muted">approval</span>:{" "}
@@ -382,9 +515,11 @@ export default function DebugPane({ tabId }: { tabId: string }) {
         </div>
 
         <p className="text-muted text-xxs">
-          The copied bundle includes: agent state (including apiMessages/tool
-          results), model catalog entry, tab metadata, and runtime info. API
-          keys are not included.
+          The copied bundle includes agent state, apiMessages, tool results,
+          model catalog data, tab metadata, and runtime info. When enabled, long
+          chat/api message text and embedded base64 image data are abbreviated,
+          but tool call payloads and results are always copied in full. API keys
+          are not included.
         </p>
       </div>
     </div>
