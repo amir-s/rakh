@@ -16,6 +16,12 @@ jobs:
       release_created: ${{ steps.release.outputs.release_created }}
       tag_name: ${{ steps.release.outputs.tag_name }}
     steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: dtolnay/rust-toolchain@stable
+
       - uses: googleapis/release-please-action@v4
         id: release
         with:
@@ -30,10 +36,11 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           BRANCH_NAME=$(echo "$PR_DATA" | jq -r '.[0].headBranchName')
+          REMOTE_REF="refs/remotes/origin/$BRANCH_NAME"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git fetch origin "$BRANCH_NAME"
-          git checkout "$BRANCH_NAME"
+          git fetch origin "refs/heads/$BRANCH_NAME:$REMOTE_REF"
+          git checkout -B "$BRANCH_NAME" "$REMOTE_REF"
           cd src-tauri
           cargo update -p app
           git add Cargo.lock
