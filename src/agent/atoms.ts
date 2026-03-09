@@ -18,9 +18,6 @@ export const jotaiStore = createStore();
 
 import { atomWithStorage } from "jotai/utils";
 
-/** Controls the visibility of the settings sidebar globally */
-export const settingsSidebarOpenAtom = atom<boolean>(false);
-
 /** UI colour scheme mode (light/dark) — persisted in localStorage */
 export const themeModeAtom = atomWithStorage<"dark" | "light">(
   "rakh.theme-mode",
@@ -132,6 +129,7 @@ function makeDefaultAgentState(): AgentState {
     todos: [],
     error: null,
     errorDetails: null,
+    errorAction: null,
     tabTitle: "",
     reviewEdits: [],
     autoApproveEdits: false,
@@ -191,6 +189,11 @@ export const agentErrorAtomFamily = atomFamily((tabId: string) =>
 /** Raw error details object for a tab (null when no error) */
 export const agentErrorDetailsAtomFamily = atomFamily((tabId: string) =>
   atom((get) => get(agentAtomFamily(tabId)).errorDetails),
+);
+
+/** Actionable follow-up metadata for a tab error (null when no action is available) */
+export const agentErrorActionAtomFamily = atomFamily((tabId: string) =>
+  atom((get) => get(agentAtomFamily(tabId)).errorAction),
 );
 
 /** Tab title for a tab (agent-set task description) */

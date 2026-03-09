@@ -21,6 +21,7 @@ import {
   agentTodosAtomFamily,
   agentConfigAtomFamily,
   agentErrorAtomFamily,
+  agentErrorActionAtomFamily,
   agentErrorDetailsAtomFamily,
   agentTabTitleAtomFamily,
   agentReviewEditsAtomFamily,
@@ -35,7 +36,11 @@ import {
   stopAgent as _stopAgent,
   stopRunningExecToolCall as _stopRunningExecToolCall,
 } from "./runner";
-import type { AgentConfig, ApiMessage, AutoApproveCommandsMode } from "./types";
+import type {
+  AgentConfig,
+  ApiMessage,
+  AutoApproveCommandsMode,
+} from "./types";
 
 interface ContextUsageEstimate {
   estimatedTokens: number;
@@ -116,6 +121,10 @@ export function useAgentError(tabId: string) {
   return useAtomValue(agentErrorAtomFamily(tabId));
 }
 
+export function useAgentErrorAction(tabId: string) {
+  return useAtomValue(agentErrorActionAtomFamily(tabId));
+}
+
 export function useAgentErrorDetails(tabId: string) {
   return useAtomValue(agentErrorDetailsAtomFamily(tabId));
 }
@@ -193,6 +202,8 @@ export function useResetAgent() {
       apiMessages: [],
       streamingContent: null,
       error: null,
+      errorAction: null,
+      errorDetails: null,
       plan: { markdown: "", updatedAtMs: 0, version: 0 },
       todos: [],
       tabTitle: "",
@@ -248,6 +259,7 @@ export function useAgent(tabId: string) {
   const todos = useAgentTodos(tabId);
   const config = useAgentConfig(tabId);
   const error = useAgentError(tabId);
+  const errorAction = useAgentErrorAction(tabId);
   const errorDetails = useAgentErrorDetails(tabId);
   const tabTitle = useAgentTabTitle(tabId);
   const autoApproveEdits = useAgentAutoApproveEdits(tabId);
@@ -269,6 +281,7 @@ export function useAgent(tabId: string) {
     todos,
     config,
     error,
+    errorAction,
     errorDetails,
     tabTitle,
     contextWindowPct,

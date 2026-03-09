@@ -14,7 +14,7 @@ import {
 import { loadProviders, providersAtom } from "@/agent/db";
 import { hydratePersistedSession } from "@/agent/sessionRestore";
 import WorkspacePage from "@/WorkspacePage";
-import SettingsSidebar from "@/components/SettingsSidebar";
+import SettingsPage from "@/components/settings/SettingsPage";
 import {
   loadSessions,
   upsertSession,
@@ -197,15 +197,15 @@ function AgentNotificationManager() {
   return null;
 }
 
-/* ─────────────────────────────────────────────────────────────────────────────
-   GlobalModals — renders app-wide modals that need access to the Jotai store
-───────────────────────────────────────────────────────────────────────────── */
-function GlobalModals() {
-  return (
-    <>
-      <SettingsSidebar />
-    </>
-  );
+function ActiveTabContent() {
+  const { tabs, activeTabId } = useTabs();
+  const activeTab = tabs.find((tab) => tab.id === activeTabId);
+
+  if (activeTab?.mode === "settings") {
+    return <SettingsPage />;
+  }
+
+  return <WorkspacePage />;
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
@@ -279,8 +279,7 @@ export default function App() {
           <AgentNotificationManager />
           <TopChrome />
           <div className="page-content">
-            <WorkspacePage />
-            <GlobalModals />
+            <ActiveTabContent />
           </div>
         </TabsProvider>
       </Provider>

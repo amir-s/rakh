@@ -8,11 +8,11 @@ import {
 } from "react";
 import { useModels, useSelectedModel } from "@/agent/useModels";
 import { useAtom } from "jotai";
-import { settingsSidebarOpenAtom } from "@/agent/atoms";
 import { providersAtom } from "@/agent/db";
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import { cn } from "@/utils/cn";
+import { useTabs } from "@/contexts/TabsContext";
 import NewSessionModelSelector from "@/components/NewSessionModelSelector";
 import ProviderSetupHint from "@/components/ProviderSetupHint";
 import { Button } from "@/components/ui";
@@ -121,7 +121,7 @@ export default function NewSession({ onSubmit }: NewSessionProps) {
   const { models, loading: modelsLoading, error: modelsError } = useModels();
   const [selectedModel, setSelectedModel] = useSelectedModel(models);
   const [providers, setProviders] = useAtom(providersAtom);
-  const [, setSettingsSidebarOpen] = useAtom(settingsSidebarOpenAtom);
+  const { openSettingsTab } = useTabs();
   const hasAnyProviderKey = providers.length > 0;
 
   const providerModels = models;
@@ -161,7 +161,7 @@ export default function NewSession({ onSubmit }: NewSessionProps) {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       if (!selectedModelObj) {
-        setSettingsSidebarOpen(true);
+        openSettingsTab("providers");
         return;
       }
       const text = input.trim();
@@ -418,14 +418,14 @@ export default function NewSession({ onSubmit }: NewSessionProps) {
               className="mt-2"
               providers={providers}
               onProvidersChange={setProviders}
-              onOpenSettings={() => setSettingsSidebarOpen(true)}
+              onOpenSettings={() => openSettingsTab("providers")}
             />
           ) : (
             <div className="flex justify-between items-baseline mt-2">
               {!hasProviderModels ? (
                 <button
                   className="ns-hint flex items-center gap-1 text-sm text-error opacity-90 bg-transparent border-none p-0 cursor-pointer"
-                  onClick={() => setSettingsSidebarOpen(true)}
+                  onClick={() => openSettingsTab("providers")}
                 >
                   <span className="material-symbols-outlined text-md">
                     warning

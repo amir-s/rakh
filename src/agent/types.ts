@@ -270,6 +270,11 @@ export interface AgentConfig {
 
 export type AgentStatus = "idle" | "thinking" | "working" | "done" | "error";
 export type AutoApproveCommandsMode = "no" | "agent" | "yes";
+export type AgentErrorAction = {
+  type: "open-settings-section";
+  section: "providers";
+  label: string;
+};
 
 export interface AgentState {
   status: AgentStatus;
@@ -289,6 +294,8 @@ export interface AgentState {
    * status code, stack trace, network info, etc.
    */
   errorDetails: unknown;
+  /** Optional actionable follow-up for config-related or recoverable errors. */
+  errorAction: AgentErrorAction | null;
   /** Short title describing the agent's current task (set by the agent) */
   tabTitle: string;
   /**

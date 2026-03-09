@@ -58,7 +58,7 @@ import type { ToolCallDisplay } from "@/agent/types";
 ───────────────────────────────────────────────────────────────────────────── */
 
 export default function WorkspacePage() {
-  const { tabs, activeTabId, updateTab } = useTabs();
+  const { tabs, activeTabId, openSettingsTab, updateTab } = useTabs();
   const activeTab = tabs.find((t) => t.id === activeTabId);
   const isNewSession = activeTab?.mode !== "workspace";
   const artifactInventoryEnabled = activeTab?.mode === "workspace";
@@ -232,7 +232,12 @@ export default function WorkspacePage() {
     setInput(e.target.value);
     if (agent.status === "error" || agent.error || agent.errorDetails) {
       patchAgentState(activeTabId, (prev) => {
-        if (prev.status !== "error" && !prev.error && !prev.errorDetails) {
+        if (
+          prev.status !== "error" &&
+          !prev.error &&
+          !prev.errorDetails &&
+          !prev.errorAction
+        ) {
           return prev;
         }
         return {
@@ -240,6 +245,7 @@ export default function WorkspacePage() {
           status: prev.status === "error" ? "idle" : prev.status,
           error: null,
           errorDetails: null,
+          errorAction: null,
         };
       });
     }
@@ -548,6 +554,18 @@ export default function WorkspacePage() {
                 >
                   RETRY
                 </Button>
+                {agent.errorAction?.type === "open-settings-section" ? (
+                  <Button
+                    className="workspace-error-action-btn"
+                    variant="ghost"
+                    size="xxs"
+                    onClick={() =>
+                      openSettingsTab(agent.errorAction?.section ?? "providers")
+                    }
+                  >
+                    {agent.errorAction?.label ?? "Open settings"}
+                  </Button>
+                ) : null}
                 {!!agent.errorDetails && (
                   <Button
                     className="workspace-error-details-btn"

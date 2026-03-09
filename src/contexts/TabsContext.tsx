@@ -6,6 +6,10 @@ import {
   type ReactNode,
 } from "react";
 import type { PersistedSession } from "@/agent/persistence";
+import {
+  DEFAULT_SETTINGS_SECTION,
+  type SettingsSectionId,
+} from "@/components/settings/model";
 
 /* ─────────────────────────────────────────────────────────────────────────────
    Types
@@ -21,8 +25,11 @@ export interface Tab {
   status: TabStatus;
   hasChanges?: boolean;
   /** Whether this tab is showing the new-session landing or the workspace */
-  mode: "new" | "workspace";
+  mode: "new" | "workspace" | "settings";
+  settingsSection?: SettingsSectionId;
 }
+
+export const SETTINGS_TAB_ID = "settings";
 
 /* ─────────────────────────────────────────────────────────────────────────────
    Reducer
@@ -31,6 +38,7 @@ export interface Tab {
 interface State {
   tabs: Tab[];
   activeTabId: string;
+  lastSettingsSection: SettingsSectionId;
 }
 
 function createTabId(): string {
@@ -54,6 +62,7 @@ type Action =
   | { type: "SET_ACTIVE"; id: string }
   | { type: "ADD_TAB"; tab: Tab }
   | { type: "ADD_TAB_WITH_ID"; tab: Tab }
+  | { type: "OPEN_SETTINGS_TAB"; section?: SettingsSectionId }
   | { type: "CLOSE_TAB"; id: string }
   | { type: "UPDATE_TAB"; id: string; changes: Partial<Tab> }
   | { type: "REORDER_TABS"; fromIndex: number; toIndex: number };
@@ -64,14 +73,58 @@ function reducer(state: State, action: Action): State {
       return { ...state, activeTabId: action.id };
 
     case "ADD_TAB":
-      return { tabs: [...state.tabs, action.tab], activeTabId: action.tab.id };
+      return {
+        ...state,
+        tabs: [...state.tabs, action.tab],
+        activeTabId: action.tab.id,
+      };
 
     case "ADD_TAB_WITH_ID":
       // Don't add if a tab with this ID already exists (idempotent restore)
       if (state.tabs.some((t) => t.id === action.tab.id)) {
         return { ...state, activeTabId: action.tab.id };
       }
-      return { tabs: [...state.tabs, action.tab], activeTabId: action.tab.id };
+      return {
+        ...state,
+        tabs: [...state.tabs, action.tab],
+        activeTabId: action.tab.id,
+      };
+
+    case "OPEN_SETTINGS_TAB": {
+      const nextSection = action.section ?? state.lastSettingsSection;
+      const existingSettingsIndex = state.tabs.findIndex(
+        (tab) => tab.id === SETTINGS_TAB_ID,
+      );
+
+      if (existingSettingsIndex >= 0) {
+        const tabs = state.tabs.map((tab) =>
+          tab.id === SETTINGS_TAB_ID && action.section
+            ? { ...tab, settingsSection: action.section }
+            : tab,
+        );
+        return {
+          ...state,
+          tabs,
+          activeTabId: SETTINGS_TAB_ID,
+          lastSettingsSection: nextSection,
+        };
+      }
+
+      const settingsTab: Tab = {
+        id: SETTINGS_TAB_ID,
+        label: "Settings",
+        icon: "settings",
+        status: "idle",
+        mode: "settings",
+        settingsSection: nextSection,
+      };
+
+      return {
+        tabs: [...state.tabs, settingsTab],
+        activeTabId: settingsTab.id,
+        lastSettingsSection: nextSection,
+      };
+    }
 
     case "CLOSE_TAB": {
       const idx = state.tabs.findIndex((t) => t.id === action.id);
@@ -81,12 +134,16 @@ function reducer(state: State, action: Action): State {
         state.activeTabId === action.id
           ? next[Math.max(0, idx - 1)].id
           : state.activeTabId;
-      return { tabs: next, activeTabId: newActive };
+      return { ...state, tabs: next, activeTabId: newActive };
     }
 
     case "UPDATE_TAB":
       return {
         ...state,
+        lastSettingsSection:
+          action.id === SETTINGS_TAB_ID && action.changes.settingsSection
+            ? action.changes.settingsSection
+            : state.lastSettingsSection,
         tabs: state.tabs.map((t) =>
           t.id === action.id ? { ...t, ...action.changes } : t,
         ),
@@ -114,6 +171,7 @@ function createEmptyInitialState(): State {
   return {
     tabs: [tab],
     activeTabId: tab.id,
+    lastSettingsSection: DEFAULT_SETTINGS_SECTION,
   };
 }
 
@@ -126,7 +184,11 @@ function buildInitialState(sessions: PersistedSession[]): State {
     status: "idle" as const,
     mode: s.mode as Tab["mode"],
   }));
-  return { tabs, activeTabId: tabs[0].id };
+  return {
+    tabs,
+    activeTabId: tabs[0].id,
+    lastSettingsSection: DEFAULT_SETTINGS_SECTION,
+  };
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
@@ -141,6 +203,7 @@ interface TabsContextValue {
   addTab: (partial?: Partial<Omit<Tab, "id">>) => string;
   /** Add a tab with a specific id (used when restoring archived sessions) */
   addTabWithId: (tab: Tab) => void;
+  openSettingsTab: (section?: SettingsSectionId) => void;
   closeTab: (id: string) => void;
   updateTab: (id: string, changes: Partial<Tab>) => void;
   /** Move a tab from fromIndex to insert-before-toIndex (both in original array) */
@@ -181,6 +244,10 @@ export function TabsProvider({
     dispatch({ type: "ADD_TAB_WITH_ID", tab });
   }, []);
 
+  const openSettingsTab = useCallback((section?: SettingsSectionId) => {
+    dispatch({ type: "OPEN_SETTINGS_TAB", section });
+  }, []);
+
   const closeTab = useCallback(
     (id: string) => {
       if (state.tabs.length === 1) {
@@ -211,16 +278,17 @@ export function TabsProvider({
 
   return (
     <TabsContext.Provider
-      value={{
-        ...state,
-        setActiveTab,
-        addTab,
-        addTabWithId,
-        closeTab,
-        updateTab,
-        reorderTabs,
-      }}
-    >
+        value={{
+          ...state,
+          setActiveTab,
+          addTab,
+          addTabWithId,
+          openSettingsTab,
+          closeTab,
+          updateTab,
+          reorderTabs,
+        }}
+      >
       {children}
     </TabsContext.Provider>
   );

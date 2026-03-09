@@ -6,10 +6,9 @@ import {
   type MouseEvent as ReactMouseEvent,
 } from "react";
 import { useTabs, type Tab } from "@/contexts/TabsContext";
-import { useAtom, useAtomValue } from "jotai";
+import { useAtomValue } from "jotai";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  settingsSidebarOpenAtom,
   appUpdaterStateAtom,
   agentChatMessagesAtomFamily,
   agentConfigAtomFamily,
@@ -85,12 +84,12 @@ function resolveTooltipStatus(
   return null;
 }
 
-function TabPopoverContent({
+function WorkspaceTabPopoverContent({
   tabId,
   mode,
 }: {
   tabId: string;
-  mode: Tab["mode"];
+  mode: Extract<Tab["mode"], "new" | "workspace">;
 }) {
   const config = useAtomValue(agentConfigAtomFamily(tabId));
   const tabTitle = useAtomValue(agentTabTitleAtomFamily(tabId));
@@ -124,6 +123,31 @@ function TabPopoverContent({
       ) : null}
     </>
   );
+}
+
+function SettingsTabPopoverContent() {
+  return (
+    <>
+      <div className="tab-popover__header">
+        <div className="tab-popover__workspace">Application</div>
+      </div>
+      <div className="tab-popover__title">Settings</div>
+    </>
+  );
+}
+
+function TabPopoverContent({
+  tabId,
+  mode,
+}: {
+  tabId: string;
+  mode: Tab["mode"];
+}) {
+  if (mode === "settings") {
+    return <SettingsTabPopoverContent />;
+  }
+
+  return <WorkspaceTabPopoverContent tabId={tabId} mode={mode} />;
 }
 
 /* ── Windows SVG icons ──────────────────────────────────────────────────── */
@@ -182,11 +206,11 @@ export default function TopChrome() {
     setActiveTab,
     addTab,
     addTabWithId,
+    openSettingsTab,
     closeTab,
     reorderTabs,
   } = useTabs();
-  const [, setSettingsSidebarOpen] = useAtom(settingsSidebarOpenAtom);
-  const [appUpdater] = useAtom(appUpdaterStateAtom);
+  const appUpdater = useAtomValue(appUpdaterStateAtom);
   const showUpdateBadge = shouldShowAppUpdateBadge(appUpdater);
 
   // ── Close-confirmation modal ──────────────────────────────────────────
@@ -312,6 +336,17 @@ export default function TopChrome() {
         ((isMac && e.metaKey && !e.ctrlKey) ||
           (!isMac && e.ctrlKey && !e.metaKey)) &&
         !e.altKey &&
+        !e.shiftKey &&
+        key === ","
+      ) {
+        e.preventDefault();
+        openSettingsTab();
+        return;
+      }
+      if (
+        ((isMac && e.metaKey && !e.ctrlKey) ||
+          (!isMac && e.ctrlKey && !e.metaKey)) &&
+        !e.altKey &&
         e.shiftKey &&
         key === "t"
       ) {
@@ -343,6 +378,7 @@ export default function TopChrome() {
     setActiveTab,
     addTab,
     addTabWithId,
+    openSettingsTab,
     handleCloseTab,
     platform,
   ]);
@@ -565,7 +601,7 @@ export default function TopChrome() {
           <ArchivedTabsMenu />
           <button
             className="win-btn w-9 relative"
-            onClick={() => setSettingsSidebarOpen(true)}
+            onClick={() => openSettingsTab()}
             title="Settings"
           >
             <span className="material-symbols-outlined text-lg">settings</span>
