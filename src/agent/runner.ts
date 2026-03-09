@@ -502,14 +502,14 @@ export function stopAgent(tabId: string): void {
   // Find incomplete tool calls and synthesize error results for them
   const incompleteToolCalls = findIncompleteToolCalls(tabId);
   const synthesizedToolMessages: ToolApiMessage[] = incompleteToolCalls.map(
-    ({ toolCallId }) => ({
+    ({ toolCallId, toolName }) => ({
       role: "tool" as const,
       tool_call_id: toolCallId,
       content: JSON.stringify({
         ok: false,
         error: {
           code: "INTERNAL",
-          message: "Agent was stopped before this tool call completed.",
+          message: `Agent was stopped before tool call "${toolName}" completed.`,
         },
       }),
     }),
