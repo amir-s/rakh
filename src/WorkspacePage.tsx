@@ -373,6 +373,17 @@ export default function WorkspacePage() {
     return () => window.removeEventListener("keydown", handleGlobalKeyDown);
   }, [toggleTerminal, toggleArtifacts]);
 
+  const executePlanDisabled =
+    isAgentBusy || voiceInput.busy || voiceInput.isRecording;
+  const handleExecutePlan = useCallback(
+    (message: string) => {
+      if (executePlanDisabled) return;
+      voiceInput.clearError();
+      agent.sendMessage(message);
+    },
+    [agent, executePlanDisabled, voiceInput],
+  );
+
   /* ── New session screen ────────────────────────────────────────────── */
   if (isNewSession) {
     return (
@@ -536,6 +547,8 @@ export default function WorkspacePage() {
                       artifactInventoryLoading={artifactInventoryLoading}
                       getArtifactContentEntry={getArtifactContentEntry}
                       ensureArtifactContent={ensureArtifactContent}
+                      onExecutePlan={handleExecutePlan}
+                      executePlanDisabled={executePlanDisabled}
                     />
                   ) : null}
                 </div>

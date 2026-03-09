@@ -8,6 +8,7 @@ import type {
   SessionArtifactInventory,
 } from "@/components/artifact-pane/types";
 import ArtifactDetailModal from "@/components/artifact-pane/ArtifactDetailModal";
+import { resolveArtifactRenderKind } from "@/components/artifact-pane/model";
 import { ArtifactRenderer } from "@/components/artifact-pane/renderers";
 import { Badge, Button, Panel } from "@/components/ui";
 
@@ -46,12 +47,18 @@ function resolveArtifactVersionLabel(
   return "latest";
 }
 
+export function buildExecutePlanArtifactMessage(artifactId: string): string {
+  return `Execute the plan with artifact ID: ${artifactId}`;
+}
+
 function ArtifactConversationCard({
   card,
   inventory,
   inventoryLoading,
   getArtifactContentEntry,
   ensureArtifactContent,
+  onExecutePlan,
+  executePlanDisabled = false,
 }: {
   card: Extract<ConversationCard, { kind: "artifact" }>;
   inventory: SessionArtifactInventory;
@@ -61,6 +68,8 @@ function ArtifactConversationCard({
     version: number,
   ) => ArtifactContentEntry | undefined;
   ensureArtifactContent: (artifactId: string, version: number) => Promise<void>;
+  onExecutePlan: (message: string) => void;
+  executePlanDisabled?: boolean;
 }) {
   const group = findArtifactGroup(inventory, card.artifactId);
   const resolvedVersion = resolveArtifactVersion(card, inventory);
@@ -92,6 +101,11 @@ function ArtifactConversationCard({
   const title = resolveArtifactSummary(card, previewEntry, group);
   const canOpenDetail = group != null && detailVersion !== null;
   const canCopy = typeof hydratedArtifact?.content === "string";
+  const isPlanArtifact =
+    (hydratedArtifact != null &&
+      resolveArtifactRenderKind(hydratedArtifact) === "plan") ||
+    group?.renderKind === "plan" ||
+    group?.kind === "plan";
   const [copyFeedbackToken, setCopyFeedbackToken] = useState(0);
   const copied = copyFeedbackToken > 0;
 
@@ -180,6 +194,28 @@ function ArtifactConversationCard({
           ) : (
             <p className="artifact-loading-copy">Loading preview…</p>
           )}
+          {isPlanArtifact ? (
+            <div className="mt-3 flex flex-wrap justify-end">
+              <Button
+                type="button"
+                variant="secondary"
+                size="xxs"
+                onClick={() =>
+                  onExecutePlan(
+                    buildExecutePlanArtifactMessage(card.artifactId),
+                  )
+                }
+                disabled={executePlanDisabled}
+                title={
+                  executePlanDisabled
+                    ? "Wait for the current run to finish before executing this plan"
+                    : "Send this plan to the agent for execution"
+                }
+              >
+                Execute the plan
+              </Button>
+            </div>
+          ) : null}
         </div>
       </Panel>
 
@@ -210,6 +246,8 @@ export default function ConversationCards({
   artifactInventoryLoading,
   getArtifactContentEntry,
   ensureArtifactContent,
+  onExecutePlan,
+  executePlanDisabled = false,
 }: {
   cards: ConversationCard[];
   accentColor?: string;
@@ -220,6 +258,8 @@ export default function ConversationCards({
     version: number,
   ) => ArtifactContentEntry | undefined;
   ensureArtifactContent: (artifactId: string, version: number) => Promise<void>;
+  onExecutePlan: (message: string) => void;
+  executePlanDisabled?: boolean;
 }) {
   if (cards.length === 0) return null;
 
@@ -256,6 +296,8 @@ export default function ConversationCards({
             inventoryLoading={artifactInventoryLoading}
             getArtifactContentEntry={getArtifactContentEntry}
             ensureArtifactContent={ensureArtifactContent}
+            onExecutePlan={onExecutePlan}
+            executePlanDisabled={executePlanDisabled}
           />
         ),
       )}
