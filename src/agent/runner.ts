@@ -1839,6 +1839,7 @@ export async function retryAgent(tabId: string): Promise<void> {
     chatMessages: strippedChatMessages,
     error: null,
     errorDetails: null,
+    errorAction: null,
   });
 
   await runAgent(tabId, lastUserMessage);
@@ -1880,6 +1881,8 @@ export async function runAgent(
       ...prev,
       status: "working",
       error: null,
+      errorAction: null,
+      errorDetails: null,
       chatMessages: [...prev.chatMessages, triggerUserMsg],
       streamingContent: null,
     }));
@@ -1899,6 +1902,7 @@ export async function runAgent(
         patchAgentState(tabId, {
           status: "error",
           error: triggerResult.error.message,
+          errorAction: null,
           errorDetails: triggerResult.error,
           streamingContent: null,
         });
@@ -1909,6 +1913,7 @@ export async function runAgent(
         patchAgentState(tabId, {
           status: "error",
           error: msg,
+          errorAction: null,
           errorDetails: serializeError(err),
           streamingContent: null,
         });
@@ -1944,6 +1949,7 @@ export async function runAgent(
     patchAgentState(tabId, {
       status: "error",
       error: "Unknown model. Please choose a model from the New Session list.",
+      errorAction: null,
     });
     return;
   }
@@ -1952,6 +1958,7 @@ export async function runAgent(
     patchAgentState(tabId, {
       status: "error",
       error: `Selected model is missing sdk_id. Please update src/agent/models.catalog.json for ${modelEntry.id}.`,
+      errorAction: null,
     });
     return;
   }
@@ -1963,6 +1970,7 @@ export async function runAgent(
     patchAgentState(tabId, {
       status: "error",
       error: `Model "${modelEntry.id}" references an unknown provider.`,
+      errorAction: null,
     });
     return;
   }
@@ -1972,6 +1980,11 @@ export async function runAgent(
       status: "error",
       error:
         "No OpenAI API key. Please open the settings to enter your OpenAI API key.",
+      errorAction: {
+        type: "open-settings-section",
+        section: "providers",
+        label: "Open AI Providers",
+      },
     });
     return;
   }
@@ -1981,6 +1994,11 @@ export async function runAgent(
       status: "error",
       error:
         "No Claude API key. Please open the settings to enter your Claude (Anthropic) API key.",
+      errorAction: {
+        type: "open-settings-section",
+        section: "providers",
+        label: "Open AI Providers",
+      },
     });
     return;
   }
@@ -2057,6 +2075,8 @@ export async function runAgent(
     ...prev,
     status: "thinking",
     error: null,
+    errorAction: null,
+    errorDetails: null,
     chatMessages: [...prev.chatMessages, userChatMsg],
     apiMessages: newApiMessages,
     streamingContent: null,
@@ -2077,6 +2097,7 @@ export async function runAgent(
     patchAgentState(tabId, {
       status: "error",
       error: msg,
+      errorAction: null,
       errorDetails: serializeError(err),
       streamingContent: null,
     });

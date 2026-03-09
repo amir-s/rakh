@@ -11,7 +11,6 @@ import {
   defaultAppUpdaterState,
   jotaiStore,
   patchAgentState,
-  settingsSidebarOpenAtom,
 } from "@/agent/atoms";
 import type { AgentStatus, ChatMessage } from "@/agent/types";
 
@@ -30,6 +29,7 @@ const tabsContextMock = vi.hoisted(() => ({
     setActiveTab: vi.fn(),
     addTab: vi.fn(),
     addTabWithId: vi.fn(),
+    openSettingsTab: vi.fn(),
     closeTab: vi.fn(),
     reorderTabs: vi.fn(),
   },
@@ -159,7 +159,6 @@ describe("TopChrome", () => {
     localStorage.clear();
     setNavigatorPlatform("MacIntel");
     jotaiStore.set(appUpdaterStateAtom, { ...defaultAppUpdaterState });
-    jotaiStore.set(settingsSidebarOpenAtom, false);
     tabsContextMock.value.tabs = [
       {
         id: "tab-1",
@@ -173,6 +172,7 @@ describe("TopChrome", () => {
     tabsContextMock.value.setActiveTab.mockReset();
     tabsContextMock.value.addTab.mockReset();
     tabsContextMock.value.addTabWithId.mockReset();
+    tabsContextMock.value.openSettingsTab.mockReset();
     tabsContextMock.value.closeTab.mockReset();
     tabsContextMock.value.reorderTabs.mockReset();
     sessionRestoreMock.restoreMostRecentArchivedTab.mockReset();
@@ -199,6 +199,32 @@ describe("TopChrome", () => {
     renderTopChrome();
 
     expect(screen.getByTestId("settings-update-badge")).not.toBeNull();
+  });
+
+  it("opens the settings tab from the gear button", () => {
+    renderTopChrome();
+
+    fireEvent.click(screen.getByTitle("Settings"));
+
+    expect(tabsContextMock.value.openSettingsTab).toHaveBeenCalledTimes(1);
+    expect(tabsContextMock.value.openSettingsTab).toHaveBeenCalledWith();
+  });
+
+  it("uses Cmd+, on macOS to open the settings tab", () => {
+    renderTopChrome();
+
+    fireEvent.keyDown(window, { key: ",", metaKey: true });
+
+    expect(tabsContextMock.value.openSettingsTab).toHaveBeenCalledTimes(1);
+  });
+
+  it("uses Ctrl+, on Windows to open the settings tab", () => {
+    setNavigatorPlatform("Win32");
+    renderTopChrome();
+
+    fireEvent.keyDown(window, { key: ",", ctrlKey: true });
+
+    expect(tabsContextMock.value.openSettingsTab).toHaveBeenCalledTimes(1);
   });
 
   it("middle-click closes the clicked tab without activating it", () => {
@@ -288,7 +314,6 @@ describe("TopChrome tooltip", () => {
     vi.useFakeTimers();
     cleanup();
     jotaiStore.set(appUpdaterStateAtom, { ...defaultAppUpdaterState });
-    jotaiStore.set(settingsSidebarOpenAtom, false);
     tabsContextMock.value.tabs = [
       {
         id: "tab-1",

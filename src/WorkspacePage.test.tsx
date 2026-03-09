@@ -18,8 +18,39 @@ const workspaceMocks = vi.hoisted(() => ({
   setConfigMock: vi.fn(),
   setAutoApproveEditsMock: vi.fn(),
   setAutoApproveCommandsMock: vi.fn(),
+  openSettingsTabMock: vi.fn<(section?: string) => void>(),
   patchAgentStateMock: vi.fn(),
   updateTabMock: vi.fn(),
+  agentState: {
+    autoApproveCommands: "no" as const,
+    autoApproveEdits: false,
+    chatMessages: [],
+    config: {
+      cwd: "/repo",
+      model: "model-1",
+      worktreeBranch: "main",
+    },
+    contextWindowKb: null,
+    contextWindowPct: null,
+    error: null as string | null,
+    errorAction: null as
+      | null
+      | {
+          type: "open-settings-section";
+          section: "providers";
+          label: string;
+        },
+    errorDetails: null as unknown,
+    sendMessage: null as null | ((message: string) => void),
+    setAutoApproveCommands: null as null | ((value: "no" | "agent" | "yes") => void),
+    setAutoApproveEdits: null as null | ((value: boolean) => void),
+    setConfig: null as null | ((config: unknown) => void),
+    showDebug: false,
+    status: "idle" as "idle" | "thinking" | "working" | "done" | "error",
+    stop: null as null | (() => void),
+    tabTitle: "",
+    retry: vi.fn(),
+  },
   transcriptCallback: null as null | ((transcript: string) => void),
   invokeMock: vi.fn(),
   eventHandlers: new Map<string, (event: { payload: unknown }) => void>(),
@@ -63,33 +94,13 @@ vi.mock("@/contexts/TabsContext", () => ({
       },
     ],
     activeTabId: "tab-1",
+    openSettingsTab: workspaceMocks.openSettingsTabMock,
     updateTab: workspaceMocks.updateTabMock,
   }),
 }));
 
 vi.mock("@/agent/useAgents", () => ({
-  useAgent: () => ({
-    autoApproveCommands: "no" as const,
-    autoApproveEdits: false,
-    chatMessages: [],
-    config: {
-      cwd: "/repo",
-      model: "model-1",
-      worktreeBranch: "main",
-    },
-    contextWindowKb: null,
-    contextWindowPct: null,
-    error: null,
-    errorDetails: null,
-    sendMessage: workspaceMocks.sendMessageMock,
-    setAutoApproveCommands: workspaceMocks.setAutoApproveCommandsMock,
-    setAutoApproveEdits: workspaceMocks.setAutoApproveEditsMock,
-    setConfig: workspaceMocks.setConfigMock,
-    showDebug: false,
-    status: "idle" as const,
-    stop: workspaceMocks.stopMock,
-    tabTitle: "",
-  }),
+  useAgent: () => workspaceMocks.agentState,
 }));
 
 vi.mock("@/agent/useModels", () => ({
@@ -354,6 +365,7 @@ type PatchedChatState = {
   showDebug: boolean;
   status: string;
   error: unknown;
+  errorAction?: unknown;
   errorDetails: unknown;
 };
 
@@ -372,6 +384,7 @@ describe("WorkspacePage chat input", () => {
     workspaceMocks.setConfigMock.mockReset();
     workspaceMocks.setAutoApproveEditsMock.mockReset();
     workspaceMocks.setAutoApproveCommandsMock.mockReset();
+    workspaceMocks.openSettingsTabMock.mockReset();
     workspaceMocks.patchAgentStateMock.mockReset();
     workspaceMocks.updateTabMock.mockReset();
     workspaceMocks.transcriptCallback = null;
@@ -385,6 +398,30 @@ describe("WorkspacePage chat input", () => {
       ],
       truncated: false,
     });
+    workspaceMocks.agentState = {
+      autoApproveCommands: "no",
+      autoApproveEdits: false,
+      chatMessages: [],
+      config: {
+        cwd: "/repo",
+        model: "model-1",
+        worktreeBranch: "main",
+      },
+      contextWindowKb: null,
+      contextWindowPct: null,
+      error: null,
+      errorAction: null,
+      errorDetails: null,
+      sendMessage: workspaceMocks.sendMessageMock,
+      setAutoApproveCommands: workspaceMocks.setAutoApproveCommandsMock,
+      setAutoApproveEdits: workspaceMocks.setAutoApproveEditsMock,
+      setConfig: workspaceMocks.setConfigMock,
+      showDebug: false,
+      status: "idle",
+      stop: workspaceMocks.stopMock,
+      tabTitle: "",
+      retry: vi.fn(),
+    };
   });
 
   afterEach(() => {
@@ -601,5 +638,26 @@ describe("WorkspacePage chat input", () => {
       showDebug: false,
     });
     expect(nextState.showDebug).toBe(true);
+  });
+
+  it("opens AI Providers from the error banner action", async () => {
+    workspaceMocks.agentState = {
+      ...workspaceMocks.agentState,
+      error: "No OpenAI API key.",
+      errorAction: {
+        type: "open-settings-section",
+        section: "providers",
+        label: "Open AI Providers",
+      },
+      status: "error",
+    };
+
+    await act(async () => {
+      render(<WorkspacePage />);
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Open AI Providers" }));
+
+    expect(workspaceMocks.openSettingsTabMock).toHaveBeenCalledWith("providers");
   });
 });
