@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import {
   getSubagentArtifactValidatorById,
 } from "../subagents";
@@ -54,6 +55,19 @@ export interface ArtifactManifest {
 export interface ArtifactRuntimeContext {
   runId: string;
   agentId: string;
+}
+
+export type ArtifactChangeType = "created" | "versioned";
+
+export interface ArtifactChangeEvent {
+  sessionId: string;
+  artifactId: string;
+  version: number;
+  kind: string;
+  runId: string;
+  agentId: string;
+  change: ArtifactChangeType;
+  createdAt: number;
 }
 
 export interface ArtifactCreateInput {
@@ -163,6 +177,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function cloneMetadataRecord(value: unknown): Record<string, unknown> {
   return isRecord(value) ? { ...value } : {};
+}
+
+function isTauriRuntime(): boolean {
+  return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 }
 
 export function getArtifactFrameworkMetadata(
@@ -397,5 +415,21 @@ export async function artifactList(
   } catch (err) {
     const parsed = parseInvokeError(err);
     return { ok: false, error: parsed };
+  }
+}
+
+export async function listenForArtifactChanges(
+  sessionId: string,
+  onChange: (event: ArtifactChangeEvent) => void,
+): Promise<UnlistenFn | null> {
+  if (!sessionId.trim() || !isTauriRuntime()) return null;
+
+  try {
+    return await listen<ArtifactChangeEvent>("artifact_changed", (event) => {
+      if (event.payload.sessionId !== sessionId) return;
+      onChange(event.payload);
+    });
+  } catch {
+    return null;
   }
 }

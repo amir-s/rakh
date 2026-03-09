@@ -1,23 +1,51 @@
+// @vitest-environment jsdom
+
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { invokeMock } = vi.hoisted(() => ({
+const { invokeMock, listenMock, eventHandlers } = vi.hoisted(() => ({
   invokeMock: vi.fn(),
+  listenMock: vi.fn(),
+  eventHandlers: new Map<string, (event: { payload: unknown }) => void>(),
 }));
 
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: (...args: unknown[]) => invokeMock(...args),
 }));
 
+vi.mock("@tauri-apps/api/event", () => ({
+  listen: (...args: unknown[]) => listenMock(...args),
+}));
+
 import {
+  type ArtifactChangeEvent,
   artifactCreate,
   artifactGet,
   artifactList,
   artifactVersion,
+  listenForArtifactChanges,
 } from "./artifacts";
 
 describe("artifact tools", () => {
   beforeEach(() => {
     invokeMock.mockReset();
+    listenMock.mockReset();
+    eventHandlers.clear();
+    Object.defineProperty(window, "__TAURI_INTERNALS__", {
+      value: {},
+      configurable: true,
+    });
+
+    listenMock.mockImplementation(
+      async (
+        event: string,
+        handler: (event: { payload: ArtifactChangeEvent }) => void,
+      ) => {
+        eventHandlers.set(event, handler as (event: { payload: unknown }) => void);
+        return () => {
+          eventHandlers.delete(event);
+        };
+      },
+    );
   });
 
   it("validates create input before invoking", async () => {
@@ -328,5 +356,54 @@ describe("artifact tools", () => {
         message: "NOT_FOUND: artifact a1 not found",
       },
     });
+  });
+
+  it("listens for artifact changes and filters by session", async () => {
+    const onChange = vi.fn();
+    const unlisten = await listenForArtifactChanges("tab-1", onChange);
+    const handler = eventHandlers.get("artifact_changed");
+
+    expect(listenMock).toHaveBeenCalledWith(
+      "artifact_changed",
+      expect.any(Function),
+    );
+    expect(handler).toBeTypeOf("function");
+
+    handler?.({
+      payload: {
+        sessionId: "tab-1",
+        artifactId: "plan_deadbeef",
+        version: 1,
+        kind: "plan",
+        runId: "run_1",
+        agentId: "agent_main",
+        change: "created",
+        createdAt: 123,
+      } satisfies ArtifactChangeEvent,
+    });
+    handler?.({
+      payload: {
+        sessionId: "tab-2",
+        artifactId: "plan_deadbeef",
+        version: 2,
+        kind: "plan",
+        runId: "run_2",
+        agentId: "agent_main",
+        change: "versioned",
+        createdAt: 124,
+      } satisfies ArtifactChangeEvent,
+    });
+
+    expect(onChange).toHaveBeenCalledTimes(1);
+    expect(onChange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: "tab-1",
+        artifactId: "plan_deadbeef",
+        change: "created",
+      }),
+    );
+
+    await unlisten?.();
+    expect(eventHandlers.has("artifact_changed")).toBe(false);
   });
 });
