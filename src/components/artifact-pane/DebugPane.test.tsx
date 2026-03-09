@@ -146,6 +146,8 @@ function buildFixture() {
     reviewEdits: [],
     autoApproveEdits: false,
     autoApproveCommands: "no",
+    queuedMessages: [],
+    queueState: "idle",
     showDebug: true,
   };
 

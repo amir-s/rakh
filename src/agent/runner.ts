@@ -45,6 +45,7 @@ import {
 } from "./approvals";
 import type {
   AttachedImage,
+  AgentQueueState,
   ConversationCard,
   SerializedConversationCard,
   AdvancedModelOptions,
@@ -52,6 +53,7 @@ import type {
   ApiToolCall,
   AssistantApiMessage,
   ChatMessage,
+  QueuedUserMessage,
   ToolResult,
   ToolCallDisplay,
   ToolApiMessage,
@@ -88,7 +90,15 @@ import { buildConversationCard, type CardAddInput } from "./tools/agentControl";
    Abort controller registry — one per running agent
 ───────────────────────────────────────────────────────────────────────────── */
 
-const controllers = new Map<string, AbortController>();
+type AgentAbortReason = "user_stop" | "steer" | "superseded";
+
+interface ActiveRun {
+  runId: string;
+  controller: AbortController;
+  abortReason: AgentAbortReason | null;
+}
+
+const activeRuns = new Map<string, ActiveRun>();
 const runCounters = new Map<string, number>();
 
 function nextRunId(tabId: string): string {
@@ -96,6 +106,24 @@ function nextRunId(tabId: string): string {
   runCounters.set(tabId, next);
   const iso = new Date().toISOString().replace(/[:.]/g, "-");
   return `run_${iso}_${String(next).padStart(4, "0")}`;
+}
+
+function hasActiveRun(tabId: string): boolean {
+  return activeRuns.has(tabId);
+}
+
+function isActiveRunOwner(tabId: string, activeRun: ActiveRun): boolean {
+  return activeRuns.get(tabId) === activeRun;
+}
+
+function clearActiveRun(tabId: string, activeRun: ActiveRun): void {
+  if (isActiveRunOwner(tabId, activeRun)) {
+    activeRuns.delete(tabId);
+  }
+}
+
+function isCurrentRunId(tabId: string, runId: string): boolean {
+  return activeRuns.get(tabId)?.runId === runId;
 }
 
 interface SystemPromptRuntimeContext {
@@ -509,14 +537,56 @@ function buildSystemPromptRuntimeContext(
   };
 }
 
-export function stopAgent(tabId: string): void {
+function normalizeQueueState(
+  queuedMessages: QueuedUserMessage[],
+  queueState: AgentQueueState,
+): AgentQueueState {
+  if (queuedMessages.length === 0) return "idle";
+  return queueState === "paused" ? "paused" : "draining";
+}
+
+function pauseQueueState(
+  queuedMessages: QueuedUserMessage[],
+  queueState: AgentQueueState,
+): AgentQueueState {
+  if (queuedMessages.length === 0) return "idle";
+  return queueState === "draining" || queueState === "paused"
+    ? "paused"
+    : "paused";
+}
+
+function setAgentErrorState(
+  tabId: string,
+  error: string,
+  errorDetails?: unknown,
+  errorAction: { type: "open-settings-section"; section: "providers"; label: string } | null = null,
+): void {
+  patchAgentState(tabId, (prev) => ({
+    ...prev,
+    status: "error",
+    error,
+    errorAction,
+    errorDetails: errorDetails ?? null,
+    streamingContent: null,
+    queueState: pauseQueueState(prev.queuedMessages, prev.queueState),
+  }));
+}
+
+function interruptActiveRun(
+  tabId: string,
+  reason: AgentAbortReason,
+  options: { pauseQueue: boolean },
+): void {
   const stoppedAtMs = Date.now();
   const runningExecIds = findRunningExecToolCallIds(tabId);
-  for (const runId of runningExecIds) {
-    void execAbort(runId);
+  for (const toolCallId of runningExecIds) {
+    void execAbort(toolCallId);
   }
-  controllers.get(tabId)?.abort();
-  controllers.delete(tabId);
+  const activeRun = activeRuns.get(tabId);
+  if (activeRun) {
+    activeRun.abortReason = reason;
+    activeRun.controller.abort();
+  }
 
   // Find incomplete tool calls and synthesize error results for them
   const incompleteToolCalls = findIncompleteToolCalls(tabId);
@@ -545,6 +615,9 @@ export function stopAgent(tabId: string): void {
     ...prev,
     status: "idle",
     streamingContent: null,
+    queueState: options.pauseQueue
+      ? pauseQueueState(prev.queuedMessages, prev.queueState)
+      : normalizeQueueState(prev.queuedMessages, prev.queueState),
     // Append synthesized tool results to apiMessages
     apiMessages:
       synthesizedToolMessages.length > 0
@@ -592,6 +665,93 @@ export function stopAgent(tabId: string): void {
     }),
   }));
   cancelAllApprovals(tabId);
+}
+
+async function maybeStartQueuedRun(tabId: string): Promise<void> {
+  const state = getAgentState(tabId);
+  if (state.queueState !== "draining") return;
+  if (hasActiveRun(tabId)) return;
+
+  const nextQueuedMessage = state.queuedMessages[0];
+  if (!nextQueuedMessage) {
+    patchAgentState(tabId, (prev) =>
+      prev.queueState === "draining" ? { ...prev, queueState: "idle" } : prev,
+    );
+    return;
+  }
+
+  await runAgentTurn(tabId, nextQueuedMessage.content, undefined, {
+    queuedMessageId: nextQueuedMessage.id,
+  });
+}
+
+export function queueMessage(tabId: string, userMessage: string): void {
+  const content = userMessage.trim();
+  if (!content) return;
+
+  patchAgentState(tabId, (prev) => ({
+    ...prev,
+    queuedMessages: [
+      ...prev.queuedMessages,
+      {
+        id: msgId(),
+        content,
+        createdAtMs: Date.now(),
+      },
+    ],
+    queueState: prev.queueState === "paused" ? "paused" : "draining",
+  }));
+
+  void maybeStartQueuedRun(tabId).catch(console.error);
+}
+
+export async function steerMessage(
+  tabId: string,
+  userMessage: string,
+  queuedMessageId?: string,
+): Promise<void> {
+  const content = userMessage.trim();
+  if (!content) return;
+
+  if (hasActiveRun(tabId)) {
+    interruptActiveRun(tabId, "steer", { pauseQueue: false });
+  }
+
+  await runAgentTurn(tabId, content, undefined, { queuedMessageId });
+}
+
+export function resumeQueue(tabId: string): void {
+  patchAgentState(tabId, (prev) => ({
+    ...prev,
+    queueState: prev.queuedMessages.length > 0 ? "draining" : "idle",
+  }));
+  void maybeStartQueuedRun(tabId).catch(console.error);
+}
+
+export function removeQueuedMessage(tabId: string, messageId: string): void {
+  patchAgentState(tabId, (prev) => {
+    const queuedMessages = prev.queuedMessages.filter(
+      (message) => message.id !== messageId,
+    );
+    return {
+      ...prev,
+      queuedMessages,
+      queueState:
+        queuedMessages.length === 0 ? "idle" : prev.queueState,
+    };
+  });
+}
+
+export function clearQueuedMessages(tabId: string): void {
+  patchAgentState(tabId, (prev) => ({
+    ...prev,
+    queuedMessages: [],
+    queueState: "idle",
+  }));
+}
+
+export function stopAgent(tabId: string): void {
+  interruptActiveRun(tabId, "user_stop", { pauseQueue: true });
 }
 
 /**
@@ -1614,6 +1774,7 @@ async function runSubagentLoop(
         const tcId = tc.id;
 
         function updateToolCallById(patch: Partial<ToolCallDisplay>): void {
+          if (signal.aborted || !isCurrentRunId(tabId, runId)) return;
           patchAgentState(tabId, (prev) => ({
             ...prev,
             chatMessages: prev.chatMessages.map((m) =>
@@ -1824,6 +1985,11 @@ async function runSubagentLoop(
         return { tool_call_id: tcId, result: toolResult };
       }),
     );
+    if (signal.aborted || !isCurrentRunId(tabId, runId)) {
+      const abortError = new Error("Subagent run aborted");
+      abortError.name = "AbortError";
+      throw abortError;
+    }
 
     // Append tool results to local API history.
     const toolApiMessages: ApiMessage[] = toolResults.map(
@@ -1939,6 +2105,30 @@ export async function retryAgent(tabId: string): Promise<void> {
   await runAgent(tabId, lastUserMessage, undefined, { skipUserChatAppend: true });
 }
 
+interface RunAgentTurnOptions {
+  queuedMessageId?: string;
+  skipUserChatAppend?: boolean;
+}
+
+function dequeueQueuedMessage(
+  tabId: string,
+  queuedMessageId: string | undefined,
+): void {
+  if (!queuedMessageId) return;
+
+  patchAgentState(tabId, (prev) => {
+    const queuedMessages = prev.queuedMessages.filter(
+      (message) => message.id !== queuedMessageId,
+    );
+    return queuedMessages.length === prev.queuedMessages.length
+      ? prev
+      : {
+          ...prev,
+          queuedMessages,
+        };
+  });
+}
+
 /**
  * Start (or continue) an agent conversation for a tab.
  * Multiple calls for different tabIds run concurrently.
@@ -1950,12 +2140,29 @@ export async function runAgent(
   attachments?: AttachedImage[],
   options?: { skipUserChatAppend?: boolean },
 ): Promise<void> {
-  // Cancel any in-flight run for this tab
-  stopAgent(tabId);
+  if (hasActiveRun(tabId)) {
+    interruptActiveRun(tabId, "superseded", { pauseQueue: false });
+  }
 
+  await runAgentTurn(tabId, userMessage, attachments, options);
+}
+
+async function runAgentTurn(
+  tabId: string,
+  userMessage: string,
+  attachments?: AttachedImage[],
+  options: RunAgentTurnOptions = {},
+): Promise<void> {
   const controller = new AbortController();
-  controllers.set(tabId, controller);
   const runId = nextRunId(tabId);
+  const activeRun: ActiveRun = {
+    runId,
+    controller,
+    abortReason: null,
+  };
+  activeRuns.set(tabId, activeRun);
+
+  let completedCleanly = false;
 
   // ── Trigger command detection ──────────────────────────────────────────────
   // If the message starts with a registered subagent trigger (e.g. "/plan …"),
@@ -1974,6 +2181,7 @@ export async function runAgent(
       timestamp: Date.now(),
       ...(attachments && attachments.length > 0 ? { attachments } : {}),
     };
+    dequeueQueuedMessage(tabId, options.queuedMessageId);
     patchAgentState(tabId, (prev) => ({
       ...prev,
       status: "working",
@@ -1998,37 +2206,34 @@ export async function runAgent(
         debugEnabled: triggerDebug,
       });
       if (!triggerResult.ok) {
-        patchAgentState(tabId, {
-          status: "error",
-          error: triggerResult.error.message,
-          errorAction: null,
-          errorDetails: triggerResult.error,
-          streamingContent: null,
-        });
+        setAgentErrorState(
+          tabId,
+          triggerResult.error.message,
+          triggerResult.error,
+        );
+      } else {
+        completedCleanly = true;
       }
     } catch (err) {
-      if ((err as Error).name !== "AbortError") {
-        const msg = err instanceof Error ? err.message : String(err);
-        patchAgentState(tabId, {
-          status: "error",
-          error: msg,
-          errorAction: null,
-          errorDetails: serializeError(err),
-          streamingContent: null,
-        });
-        updateLastChatMessage(tabId, (m) =>
-          m.role === "assistant" ? { ...m, streaming: false } : m,
-        );
-        controllers.delete(tabId);
-        return;
-      }
-    } finally {
-      patchAgentState(tabId, (prev) =>
-        prev.status !== "error"
-          ? { ...prev, status: "idle", streamingContent: null }
-          : prev,
+      if ((err as Error).name === "AbortError") return;
+      const msg = err instanceof Error ? err.message : String(err);
+      setAgentErrorState(tabId, msg, serializeError(err));
+      updateLastChatMessage(tabId, (m) =>
+        m.role === "assistant" ? { ...m, streaming: false } : m,
       );
-      controllers.delete(tabId);
+      return;
+    } finally {
+      clearActiveRun(tabId, activeRun);
+      if (activeRun.abortReason !== null) return;
+      if (completedCleanly) {
+        patchAgentState(tabId, (prev) => ({
+          ...prev,
+          status: "idle",
+          streamingContent: null,
+          queueState: normalizeQueueState(prev.queuedMessages, prev.queueState),
+        }));
+        void maybeStartQueuedRun(tabId).catch(console.error);
+      }
     }
     return;
   }
@@ -2045,20 +2250,20 @@ export async function runAgent(
   );
 
   if (!modelEntry || !provider) {
-    patchAgentState(tabId, {
-      status: "error",
-      error: "Unknown model. Please choose a model from the New Session list.",
-      errorAction: null,
-    });
+    setAgentErrorState(
+      tabId,
+      "Unknown model. Please choose a model from the New Session list.",
+    );
+    clearActiveRun(tabId, activeRun);
     return;
   }
 
   if (!modelEntry.sdk_id.trim()) {
-    patchAgentState(tabId, {
-      status: "error",
-      error: `Selected model is missing sdk_id. Please update src/agent/models.catalog.json for ${modelEntry.id}.`,
-      errorAction: null,
-    });
+    setAgentErrorState(
+      tabId,
+      `Selected model is missing sdk_id. Please update src/agent/models.catalog.json for ${modelEntry.id}.`,
+    );
+    clearActiveRun(tabId, activeRun);
     return;
   }
 
@@ -2066,39 +2271,41 @@ export async function runAgent(
     (p) => p.id === modelEntry.providerId,
   );
   if (!providerInstance) {
-    patchAgentState(tabId, {
-      status: "error",
-      error: `Model "${modelEntry.id}" references an unknown provider.`,
-      errorAction: null,
-    });
+    setAgentErrorState(
+      tabId,
+      `Model "${modelEntry.id}" references an unknown provider.`,
+    );
+    clearActiveRun(tabId, activeRun);
     return;
   }
 
   if (provider === "openai" && !providerInstance.apiKey) {
-    patchAgentState(tabId, {
-      status: "error",
-      error:
-        "No OpenAI API key. Please open the settings to enter your OpenAI API key.",
-      errorAction: {
+    setAgentErrorState(
+      tabId,
+      "No OpenAI API key. Please open the settings to enter your OpenAI API key.",
+      null,
+      {
         type: "open-settings-section",
         section: "providers",
         label: "Open AI Providers",
       },
-    });
+    );
+    clearActiveRun(tabId, activeRun);
     return;
   }
 
   if (provider === "anthropic" && !providerInstance.apiKey) {
-    patchAgentState(tabId, {
-      status: "error",
-      error:
-        "No Claude API key. Please open the settings to enter your Claude (Anthropic) API key.",
-      errorAction: {
+    setAgentErrorState(
+      tabId,
+      "No Claude API key. Please open the settings to enter your Claude (Anthropic) API key.",
+      null,
+      {
         type: "open-settings-section",
         section: "providers",
         label: "Open AI Providers",
       },
-    });
+    );
+    clearActiveRun(tabId, activeRun);
     return;
   }
 
@@ -2110,6 +2317,7 @@ export async function runAgent(
     timestamp: Date.now(),
     ...(attachments && attachments.length > 0 ? { attachments } : {}),
   };
+  dequeueQueuedMessage(tabId, options.queuedMessageId);
 
   // Detect git repo on first turn so the system prompt can include the GIT ISOLATION section.
   let isGitRepo = false;
@@ -2194,21 +2402,31 @@ export async function runAgent(
       debugEnabled,
       runId,
     );
+    completedCleanly = !controller.signal.aborted;
   } catch (err) {
-    if ((err as Error).name === "AbortError") return; // user cancelled
+    if ((err as Error).name === "AbortError") return;
     const msg = err instanceof Error ? err.message : String(err);
-    patchAgentState(tabId, {
-      status: "error",
-      error: msg,
-      errorAction: null,
-      errorDetails: serializeError(err),
-      streamingContent: null,
-    });
+    setAgentErrorState(tabId, msg, serializeError(err));
     updateLastChatMessage(tabId, (m) =>
       m.role === "assistant" ? { ...m, streaming: false } : m,
     );
   } finally {
-    controllers.delete(tabId);
+    clearActiveRun(tabId, activeRun);
+    if (activeRun.abortReason !== null) return;
+    if (!completedCleanly) return;
+    if (getAgentState(tabId).status === "error") return;
+
+    patchAgentState(tabId, (prev) =>
+      prev.status === "error"
+        ? prev
+        : {
+            ...prev,
+            status: "idle",
+            streamingContent: null,
+            queueState: normalizeQueueState(prev.queuedMessages, prev.queueState),
+          },
+    );
+    void maybeStartQueuedRun(tabId).catch(console.error);
   }
 }
 
@@ -2519,6 +2737,7 @@ async function agentLoop(
 
         /** Update this specific tool call (by id) regardless of which message hosts it. */
         function updateToolCallById(patch: Partial<ToolCallDisplay>): void {
+          if (signal.aborted || !isCurrentRunId(tabId, runId)) return;
           patchAgentState(tabId, (prev) => ({
             ...prev,
             chatMessages: prev.chatMessages.map((m) =>
@@ -2780,6 +2999,7 @@ async function agentLoop(
         return { tool_call_id: tcId, result };
       }),
     );
+    if (signal.aborted || !isCurrentRunId(tabId, runId)) return;
 
     // Append tool result messages to API history
     const toolApiMessages: ApiMessage[] = toolResults.map(
@@ -2803,10 +3023,7 @@ async function agentLoop(
   }
 
   // Safety: hit iteration cap
-  patchAgentState(tabId, {
-    status: "done",
-    error: "Reached maximum iteration limit (50 turns)",
-  });
+  setAgentErrorState(tabId, "Reached maximum iteration limit (50 turns)");
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────

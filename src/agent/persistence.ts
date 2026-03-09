@@ -20,7 +20,7 @@
  */
 
 import type { Tab } from "@/contexts/TabsContext";
-import type { AgentState } from "./types";
+import type { AgentQueueState, AgentState } from "./types";
 import { getAgentState } from "./atoms";
 import { DEFAULT_MODEL } from "./atoms";
 
@@ -48,6 +48,10 @@ export interface PersistedSession {
   todos: string;
   /** JSON string — ReviewEdit[] */
   reviewEdits: string;
+  /** JSON string — QueuedUserMessage[] */
+  queuedMessages: string;
+  /** Queue drain state for persisted follow-ups */
+  queueState: AgentQueueState;
   archived: boolean;
   createdAt: number;
   updatedAt: number;
@@ -115,6 +119,8 @@ export function buildPersistedSession(
     apiMessages: JSON.stringify(state.apiMessages),
     todos: JSON.stringify(state.todos),
     reviewEdits: JSON.stringify(state.reviewEdits),
+    queuedMessages: JSON.stringify(state.queuedMessages),
+    queueState: state.queueState,
     archived: false,
     worktreePath: state.config.worktreePath ?? "",
     worktreeBranch: state.config.worktreeBranch ?? "",
@@ -137,6 +143,7 @@ export function buildPersistedSession(
 export function isSessionEmpty(state: AgentState): boolean {
   if (state.chatMessages.length > 0 || state.apiMessages.length > 0) return false;
   if (state.todos.length > 0 || state.reviewEdits.length > 0) return false;
+  if (state.queuedMessages.length > 0) return false;
   if (state.tabTitle.trim().length > 0) return false;
   if (state.plan.markdown.trim().length > 0) return false;
   if (state.plan.version > 0 || state.plan.updatedAtMs > 0) return false;

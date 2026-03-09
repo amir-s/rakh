@@ -5,6 +5,8 @@ import CompactToolCall from "@/components/CompactToolCall";
 import PatchPreview from "@/components/PatchPreview";
 import ReasoningThought from "@/components/ReasoningThought";
 import ToolCallApproval from "@/components/ToolCallApproval";
+import ChatControls from "@/components/ChatControls";
+import BusyComposerTray from "@/components/BusyComposerTray";
 import UserMessage from "@/components/UserMessage";
 import type { DiffFile } from "@/components/DiffViewer";
 import {
@@ -187,6 +189,17 @@ const STATUS_VARIANTS: Array<{
   { status: "done", badgeVariant: "success" },
   { status: "error", badgeVariant: "danger" },
 ];
+
+const PREVIEW_QUEUE_ITEMS = [
+  {
+    id: "preview-queue-1",
+    content: "Add the missing repro steps before you keep running.",
+  },
+  {
+    id: "preview-queue-2",
+    content: "After that, summarize only the UI changes for approval.",
+  },
+] as const;
 
 export default function ThemePreview() {
   const [themeName, setThemeName] = useState<ThemeName>("rakh");
@@ -378,6 +391,89 @@ export default function ThemePreview() {
               <Panel variant="inset" className="ds-tool-panel">
                 <h3 className="ds-item-label">Error</h3>
                 <CompactToolCall tc={TOOL_ERROR} onInspect={() => {}} showDebug cwd="src" />
+              </Panel>
+            </div>
+          </section>
+
+          <section className="ds-section ds-section--full">
+            <h2 className="ds-section-title">Composer States</h2>
+            <div className="ds-tool-grid">
+              <Panel variant="inset" className="ds-tool-panel">
+                <h3 className="ds-item-label">Queued note</h3>
+                <div className="chat-input-wrap ds-composer-preview">
+                  <BusyComposerTray
+                    queuedItems={[PREVIEW_QUEUE_ITEMS[0]]}
+                    queueState="draining"
+                    onSendQueuedNow={() => {}}
+                    onRemoveQueuedItem={() => {}}
+                  />
+                  <ChatControls
+                    autoApproveEdits={false}
+                    autoApproveCommands="agent"
+                    onChangeAutoApproveEdits={() => {}}
+                    onChangeAutoApproveCommands={() => {}}
+                    contextWindowPct={28}
+                    contextCurrentKb={9.5}
+                    contextMaxKb={32}
+                  />
+                  <div className="chat-input-shell">
+                    <div className="ds-composer-draft ds-composer-draft--muted">
+                      Type a message…
+                    </div>
+                    <div className="chat-input-actions">
+                      <IconButton title="Voice input">
+                        <span className="material-symbols-outlined text-lg">
+                          mic
+                        </span>
+                      </IconButton>
+                    </div>
+                  </div>
+                  <div className="chat-input-meta">
+                    <span>Model: openai/gpt-5.2</span>
+                    <span>•</span>
+                    <span className="font-mono text-xs">/workspace/eve</span>
+                  </div>
+                </div>
+              </Panel>
+
+              <Panel variant="inset" className="ds-tool-panel">
+                <h3 className="ds-item-label">Paused queue</h3>
+                <div className="chat-input-wrap ds-composer-preview">
+                  <BusyComposerTray
+                    queuedItems={[...PREVIEW_QUEUE_ITEMS]}
+                    queueState="paused"
+                    onSendQueuedNow={() => {}}
+                    onResumeQueue={() => {}}
+                    onClearQueuedItems={() => {}}
+                    onRemoveQueuedItem={() => {}}
+                  />
+                  <ChatControls
+                    autoApproveEdits={true}
+                    autoApproveCommands="no"
+                    onChangeAutoApproveEdits={() => {}}
+                    onChangeAutoApproveCommands={() => {}}
+                    contextWindowPct={71}
+                    contextCurrentKb={22.8}
+                    contextMaxKb={32}
+                  />
+                  <div className="chat-input-shell">
+                    <div className="ds-composer-draft ds-composer-draft--muted">
+                      Draft another follow-up while the agent is still working...
+                    </div>
+                    <div className="chat-input-actions">
+                      <IconButton title="Voice input">
+                        <span className="material-symbols-outlined text-lg">
+                          mic
+                        </span>
+                      </IconButton>
+                    </div>
+                  </div>
+                  <div className="chat-input-meta">
+                    <span>Model: openai/gpt-5.2</span>
+                    <span>•</span>
+                    <span className="font-mono text-xs">/workspace/eve</span>
+                  </div>
+                </div>
               </Panel>
             </div>
           </section>

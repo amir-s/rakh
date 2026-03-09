@@ -27,6 +27,8 @@ type MockAgentState = {
   streamingContent: string | null;
   plan: { markdown: string; updatedAtMs: number; version: number };
   todos: unknown[];
+  queuedMessages: Array<Record<string, unknown>>;
+  queueState: "idle" | "draining" | "paused";
   error: string | null;
   errorDetails: unknown;
   tabTitle: string;
@@ -138,9 +140,11 @@ vi.mock("./tools/exec", () => ({
 
 import {
   buildProviderOptions,
+  resumeQueue,
   runAgent,
   retryAgent,
   serializeError,
+  steerMessage,
   stopAgent,
   stopRunningExecToolCall,
 } from "./runner";
@@ -157,6 +161,8 @@ function makeState(overrides: Partial<MockAgentState> = {}): MockAgentState {
     streamingContent: null,
     plan: { markdown: "", updatedAtMs: 0, version: 0 },
     todos: [],
+    queuedMessages: [],
+    queueState: "idle",
     error: null,
     errorDetails: null,
     tabTitle: "",
@@ -1063,6 +1069,138 @@ describe("runner", () => {
           "User aborted the execution of this command. No stdout/stderr will be returned.",
       },
     });
+  });
+
+  it("stopAgent pauses queued work instead of draining it", () => {
+    const tabId = "tab-stop-pauses-queue";
+    setState(tabId, {
+      status: "working",
+      queueState: "draining",
+      queuedMessages: [
+        { id: "queued-1", content: "follow up later", createdAtMs: 10 },
+      ],
+    });
+
+    stopAgent(tabId);
+
+    expect(states[tabId].status).toBe("idle");
+    expect(states[tabId].queueState).toBe("paused");
+    expect(states[tabId].queuedMessages).toEqual([
+      { id: "queued-1", content: "follow up later", createdAtMs: 10 },
+    ]);
+  });
+
+  it("drains queued messages sequentially after a clean idle", async () => {
+    const tabId = "tab-queue-drain";
+    setState(tabId, {
+      queueState: "paused",
+      queuedMessages: [
+        { id: "queued-1", content: "first queued note", createdAtMs: 10 },
+        { id: "queued-2", content: "second queued note", createdAtMs: 20 },
+      ],
+    });
+
+    turns.push(
+      { deltas: ["First done"], toolCalls: [] },
+      { deltas: ["Second done"], toolCalls: [] },
+    );
+
+    resumeQueue(tabId);
+    await flushAsyncWork(12);
+
+    expect(states[tabId].queueState).toBe("idle");
+    expect(states[tabId].queuedMessages).toEqual([]);
+    expect(states[tabId].chatMessages[0]).toMatchObject({
+      role: "user",
+      content: "first queued note",
+    });
+    expect(states[tabId].chatMessages[2]).toMatchObject({
+      role: "user",
+      content: "second queued note",
+    });
+  });
+
+  it("preserves queued items when steering a new message", async () => {
+    const tabId = "tab-steer-preserves-queue";
+    setState(tabId, {
+      queuedMessages: [
+        { id: "queued-1", content: "stay queued", createdAtMs: 10 },
+      ],
+      queueState: "draining",
+    });
+
+    let releaseFirstRun: (() => void) | undefined;
+    let releaseSecondRun: (() => void) | undefined;
+    let secondRunAborted = false;
+
+    streamTextMock
+      .mockReset()
+      .mockImplementationOnce((args: { abortSignal: AbortSignal }) => {
+        const waitForAbort = new Promise<void>((resolve) => {
+          args.abortSignal.addEventListener("abort", () => resolve(), {
+            once: true,
+          });
+        });
+        const hold = new Promise<void>((resolve) => {
+          releaseFirstRun = resolve;
+        });
+        const fullStream = (async function* () {
+          await Promise.race([waitForAbort, hold]);
+        })();
+        const textStream = (async function* () {
+          await Promise.race([waitForAbort, hold]);
+        })();
+        return {
+          textStream,
+          fullStream,
+          toolCalls: Promise.resolve([]),
+        };
+      })
+      .mockImplementationOnce((args: { abortSignal: AbortSignal }) => {
+        const waitForAbort = new Promise<void>((resolve) => {
+          args.abortSignal.addEventListener(
+            "abort",
+            () => {
+              secondRunAborted = true;
+              resolve();
+            },
+            { once: true },
+          );
+        });
+        const hold = new Promise<void>((resolve) => {
+          releaseSecondRun = resolve;
+        });
+        const fullStream = (async function* () {
+          await Promise.race([waitForAbort, hold]);
+        })();
+        const textStream = (async function* () {
+          await Promise.race([waitForAbort, hold]);
+        })();
+        return {
+          textStream,
+          fullStream,
+          toolCalls: Promise.resolve([]),
+        };
+      });
+
+    const firstRun = runAgent(tabId, "original run");
+    await flushAsyncWork(4);
+
+    const steeringRun = steerMessage(tabId, "urgent correction");
+    await flushAsyncWork(6);
+
+    stopAgent(tabId);
+    await flushAsyncWork(6);
+
+    expect(secondRunAborted).toBe(true);
+    expect(states[tabId].queuedMessages).toEqual([
+      { id: "queued-1", content: "stay queued", createdAtMs: 10 },
+    ]);
+    expect(states[tabId].queueState).toBe("paused");
+
+    releaseFirstRun?.();
+    releaseSecondRun?.();
+    await Promise.all([firstRun, steeringRun]);
   });
 
   it("stopRunningExecToolCall stops a running exec without aborting the whole agent", async () => {

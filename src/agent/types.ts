@@ -230,6 +230,12 @@ export interface ChatMessage {
   cards?: ConversationCard[];
 }
 
+export interface QueuedUserMessage {
+  id: string;
+  content: string;
+  createdAtMs: number;
+}
+
 /* ─────────────────────────────────────────────────────────────────────────────
    Advanced model / provider options (set at session creation time)
 ─────────────────────────────────────────────────────────────────────────── */
@@ -279,6 +285,7 @@ export interface AgentConfig {
 
 export type AgentStatus = "idle" | "thinking" | "working" | "done" | "error";
 export type AutoApproveCommandsMode = "no" | "agent" | "yes";
+export type AgentQueueState = "idle" | "draining" | "paused";
 export type AgentErrorAction = {
   type: "open-settings-section";
   section: "providers";
@@ -316,6 +323,10 @@ export interface AgentState {
   autoApproveEdits: boolean;
   /** Auto-approve commands for this tab */
   autoApproveCommands: AutoApproveCommandsMode;
+  /** Follow-up user notes queued while the agent is busy. */
+  queuedMessages: QueuedUserMessage[];
+  /** Whether queued follow-ups will auto-drain, stay paused, or are empty. */
+  queueState: AgentQueueState;
   /** Controls debug-only UI surfaces for this tab */
   showDebug?: boolean;
 }

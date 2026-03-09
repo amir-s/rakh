@@ -91,6 +91,9 @@
     border-color var(--t-base),
     background var(--t-base);
 }
+.chat-input-shell--busy {
+  padding-right: 46px;
+}
 .chat-input-shell:focus-within {
   border-color: color-mix(in srgb, var(--color-primary) 35%, transparent);
   background: color-mix(in srgb, var(--color-subtle) 50%, transparent);
@@ -143,6 +146,103 @@
 .chat-input-actions button:hover {
   color: var(--color-primary);
   background: color-mix(in srgb, var(--color-subtle) 60%, transparent);
+}
+
+.busy-composer-strip {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 0 2px 10px;
+}
+
+.busy-composer-row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 32px;
+  padding: 8px 10px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--color-inset) 92%, transparent);
+}
+
+.busy-composer-row__label-wrap {
+  display: flex;
+  align-items: center;
+  min-width: 64px;
+  flex-shrink: 0;
+}
+
+.busy-composer-row__label {
+  display: inline-block;
+  white-space: nowrap;
+  font-size: var(--text-xxs);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--color-muted);
+  text-transform: uppercase;
+}
+
+.busy-composer-row__preview-wrap {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  direction: rtl;
+  text-align: left;
+  mask-image: linear-gradient(to right, transparent 0%, #000 18%, #000 100%);
+}
+
+.busy-composer-row__preview {
+  display: inline-block;
+  white-space: nowrap;
+  direction: ltr;
+  unicode-bidi: plaintext;
+  font-size: var(--text-xxs);
+  color: color-mix(in srgb, var(--color-text) 84%, transparent);
+  -webkit-mask-image: linear-gradient(
+    to right,
+    transparent 0%,
+    #000 18%,
+    #000 100%
+  );
+}
+
+.busy-composer-row__actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.busy-composer-row__dismiss {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--color-muted);
+  transition:
+    color var(--t-fast),
+    background var(--t-fast);
+}
+
+.busy-composer-row__dismiss:hover {
+  color: var(--color-text);
+  background: color-mix(in srgb, var(--color-subtle) 70%, transparent);
+}
+
+.busy-composer-strip__status {
+  padding: 0 10px;
+  font-size: var(--text-xxs);
+  color: var(--color-muted);
 }
 
 .chat-voice-btn--recording {
