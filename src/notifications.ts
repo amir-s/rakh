@@ -4,8 +4,80 @@ export interface NotificationPayload {
   onClick?: () => void;
 }
 
+interface FocusTabOptions {
+  focusWindow?: boolean;
+}
+
+interface TauriNotificationActionEvent {
+  id?: number;
+  notification?: {
+    id?: number;
+  };
+}
+
+const MAX_TAURI_CLICK_CALLBACKS = 200;
+const TAURI_NOTIFICATION_ICON = "icons/icon.png";
+const tauriClickCallbacks = new Map<number, () => void>();
+let nextTauriNotificationId = 1;
+let tauriActionListenerPromise: Promise<void> | null = null;
+
 function isTauri(): boolean {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+}
+
+function createTauriNotificationId(): number {
+  const id = nextTauriNotificationId;
+  nextTauriNotificationId += 1;
+  if (nextTauriNotificationId > 2_147_483_647) {
+    nextTauriNotificationId = 1;
+  }
+  return id;
+}
+
+function pruneTauriClickCallbacks(): void {
+  const overflow = tauriClickCallbacks.size - MAX_TAURI_CLICK_CALLBACKS;
+  if (overflow <= 0) return;
+
+  for (const id of tauriClickCallbacks.keys()) {
+    tauriClickCallbacks.delete(id);
+    if (tauriClickCallbacks.size <= MAX_TAURI_CLICK_CALLBACKS) {
+      return;
+    }
+  }
+}
+
+function getTauriNotificationId(event: unknown): number | null {
+  if (!event || typeof event !== "object") return null;
+  const actionEvent = event as TauriNotificationActionEvent;
+  return actionEvent.notification?.id ?? actionEvent.id ?? null;
+}
+
+async function ensureTauriActionListener(): Promise<void> {
+  if (!isTauri()) return;
+  if (tauriActionListenerPromise) {
+    await tauriActionListenerPromise;
+    return;
+  }
+
+  tauriActionListenerPromise = (async () => {
+    try {
+      const { onAction } = await import("@tauri-apps/plugin-notification");
+      await onAction((event: unknown) => {
+        const notificationId = getTauriNotificationId(event);
+        if (notificationId == null) return;
+
+        const onClick = tauriClickCallbacks.get(notificationId);
+        if (!onClick) return;
+
+        tauriClickCallbacks.delete(notificationId);
+        onClick();
+      });
+    } catch (err) {
+      console.error("Failed to register Tauri notification listener:", err);
+    }
+  })();
+
+  await tauriActionListenerPromise;
 }
 
 export async function ensureNotificationPermission(): Promise<boolean> {
@@ -83,36 +155,43 @@ export function playNotificationSound(): void {
 
 export async function showNotification(
   payload: NotificationPayload,
-): Promise<void> {
-  if (typeof window === "undefined") return;
+): Promise<boolean> {
+  if (typeof window === "undefined") return false;
   const hasPermission = await ensureNotificationPermission();
-  if (!hasPermission) return;
+  if (!hasPermission) return false;
 
   // Use Tauri notification plugin
   if (isTauri()) {
+    const notificationId = createTauriNotificationId();
+
+    if (payload.onClick) {
+      tauriClickCallbacks.set(notificationId, payload.onClick);
+      pruneTauriClickCallbacks();
+      await ensureTauriActionListener();
+    }
+
     try {
       const { sendNotification } = await import(
         "@tauri-apps/plugin-notification"
       );
-      await sendNotification({
+      sendNotification({
+        id: notificationId,
         title: payload.title,
         body: payload.options?.body ?? "",
-        icon: "icons/icon.png", // Use app icon
+        icon: TAURI_NOTIFICATION_ICON,
+        autoCancel: true,
       });
-      if (payload.onClick) {
-        // Note: Tauri v2 doesn't support click handlers in the same way
-        // You'd need to listen to the notification click event globally
-        payload.onClick();
-      }
     } catch (err) {
+      tauriClickCallbacks.delete(notificationId);
       console.error("Failed to send Tauri notification:", err);
+      return false;
     }
     playNotificationSound();
-    return;
+    return true;
   }
 
   // Browser fallback
-  if (!("Notification" in window)) return;
+  if (!("Notification" in window)) return false;
   const notification = new Notification(payload.title, payload.options);
   if (payload.onClick) {
     notification.onclick = () => {
@@ -122,6 +201,7 @@ export async function showNotification(
   }
 
   playNotificationSound();
+  return true;
 }
 
 export async function focusAppWindow(): Promise<void> {
@@ -143,7 +223,10 @@ export async function focusAppWindow(): Promise<void> {
 export async function focusTab(
   tabId: string,
   setActiveTab: (id: string) => void,
+  options?: FocusTabOptions,
 ): Promise<void> {
   setActiveTab(tabId);
-  await focusAppWindow();
+  if (options?.focusWindow ?? true) {
+    await focusAppWindow();
+  }
 }

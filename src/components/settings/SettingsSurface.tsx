@@ -371,7 +371,8 @@ function NotificationsSection({
         <div className="settings-row-info">
           <span className="settings-row-label">Agent attention</span>
           <span className="settings-row-desc">
-            Desktop notifications are shown only when focus is elsewhere.
+            Desktop notifications are shown when focus is elsewhere or the
+            relevant tab is inactive.
           </span>
         </div>
         <ToggleSwitch

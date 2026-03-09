@@ -1,14 +1,14 @@
 import "@/styles/globals.css";
 import { Provider, useAtom } from "jotai";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import TopChrome from "@/components/TopChrome";
+import AgentNotificationManager from "@/components/AgentNotificationManager";
 import { TabsProvider } from "@/contexts/TabsContext";
 import { useTabs } from "@/contexts/TabsContext";
 import {
   jotaiStore,
   themeModeAtom,
   themeNameAtom,
-  notifyOnAttentionAtom,
   agentAtomFamily,
 } from "@/agent/atoms";
 import { loadProviders, providersAtom } from "@/agent/db";
@@ -23,8 +23,7 @@ import {
   isSessionEmpty,
   type PersistedSession,
 } from "@/agent/persistence";
-import type { AgentStatus, ToolCallDisplay } from "@/agent/types";
-import { focusTab, showNotification } from "@/notifications";
+import type { AgentStatus } from "@/agent/types";
 import { preloadEnvProviderKeys } from "@/agent/useEnvProviderKeys";
 import { getThemeSubagentColorVariables } from "@/styles/themes/registry";
 import { checkForAppUpdates } from "@/updater";
@@ -125,74 +124,6 @@ function AutoSaveManager() {
     return () => unsubs.forEach((fn) => fn());
     // Re-subscribe whenever the tab list changes (new tabs added, mode changes)
   }, [tabs]);
-
-  return null;
-}
-
-/* ──────────────────────────────────────────────────────────────────────────────────
-   AgentNotificationManager — native notifications for agent attention
-───────────────────────────────────────────────────────────────────────────────── */
-
-function AgentNotificationManager() {
-  const { tabs, activeTabId, setActiveTab } = useTabs();
-  const [notifyOnAttention] = useAtom(notifyOnAttentionAtom);
-  const notifiedToolCallsRef = useRef<Set<string>>(new Set());
-
-  const sendNotification = useCallback(
-    async (tabId: string, tabLabel: string, toolCall: ToolCallDisplay) => {
-      await showNotification({
-        title: "Agent needs your input",
-        options: {
-          body: `${tabLabel || "Untitled"} • ${toolCall.tool}`,
-          tag: toolCall.id,
-          data: { tabId },
-        },
-        onClick: () => {
-          void focusTab(tabId, setActiveTab);
-        },
-      });
-    },
-    [setActiveTab],
-  );
-
-  useEffect(() => {
-    if (!notifyOnAttention) {
-      notifiedToolCallsRef.current.clear();
-      return;
-    }
-
-    const unsubs: Array<() => void> = [];
-
-    for (const tab of tabs) {
-      if (tab.mode !== "workspace") continue;
-      const tabAtom = agentAtomFamily(tab.id);
-
-      const unsub = jotaiStore.sub(tabAtom, () => {
-        const state = jotaiStore.get(tabAtom);
-        const attentionToolCalls = state.chatMessages
-          .flatMap((msg) => msg.toolCalls ?? [])
-          .filter(
-            (tc) =>
-              tc.status === "awaiting_approval" ||
-              tc.status === "awaiting_worktree",
-          );
-
-        for (const toolCall of attentionToolCalls) {
-          if (notifiedToolCallsRef.current.has(toolCall.id)) continue;
-          notifiedToolCallsRef.current.add(toolCall.id);
-
-          const shouldNotify = !document.hasFocus() || tab.id !== activeTabId;
-          if (!shouldNotify) continue;
-
-          void sendNotification(tab.id, tab.label, toolCall);
-        }
-      });
-
-      unsubs.push(unsub);
-    }
-
-    return () => unsubs.forEach((fn) => fn());
-  }, [tabs, notifyOnAttention, activeTabId, sendNotification]);
 
   return null;
 }
