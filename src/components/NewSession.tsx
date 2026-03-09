@@ -451,11 +451,13 @@ export default function NewSession({ onSubmit }: NewSessionProps) {
       </div>
 
       {/* ── Footer ───────────────────────────────────────────────────────── */}
+      {/* TODO(issue #55): ⌘+K doesn't work yet, hide footer message for now
       <footer className="ns-footer">
         <span>Select Project</span>
         <kbd className="ns-kbd">⌘ K</kbd>
         <span>or Type Command</span>
       </footer>
+      */}
     </div>
   );
 }
