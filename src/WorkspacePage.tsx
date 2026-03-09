@@ -26,6 +26,7 @@ import ErrorDetailsModal, {
   type ErrorModalState,
 } from "@/components/ErrorDetailsModal";
 import ToolCallDetailsModal from "@/components/ToolCallDetailsModal";
+import ModelPickerModal from "@/components/ModelPickerModal";
 import CompactToolCall from "@/components/CompactToolCall";
 import ReasoningThought from "@/components/ReasoningThought";
 import {
@@ -182,6 +183,7 @@ export default function WorkspacePage() {
   const [errorModal, setErrorModal] = useState<ErrorModalState | null>(null);
   const [toolDetailsModal, setToolDetailsModal] =
     useState<ToolCallDisplay | null>(null);
+  const [modelPickerOpen, setModelPickerOpen] = useState(false);
   const [reasoningExpandedById, setReasoningExpandedById] = useState<
     Record<string, boolean>
   >({});
@@ -415,9 +417,7 @@ export default function WorkspacePage() {
     }
 
     if (text === "/model") {
-      const lines = models.map((m) => `- \`${m.id}\` — ${m.name}`);
-      const content = `**Available models:**\n\n${lines.join("\n") || "_No models configured._"}`;
-      injectAssistantMessage(content);
+      setModelPickerOpen(true);
       setInput("");
       return;
     }
@@ -838,7 +838,14 @@ export default function WorkspacePage() {
               </div>
             </VoiceInputStateProvider>
             <div className="chat-input-meta">
-              <span>Model: {agent.config.model}</span>
+              <button
+                className="chat-input-meta-model-btn"
+                onClick={() => setModelPickerOpen(true)}
+                title="Switch model"
+                type="button"
+              >
+                Model: {agent.config.model || "(none)"}
+              </button>
               {agent.config.cwd && (
                 <>
                   <span>•</span>
@@ -951,6 +958,21 @@ export default function WorkspacePage() {
         <ToolCallDetailsModal
           toolCall={toolDetailsModal}
           onClose={() => setToolDetailsModal(null)}
+        />
+      )}
+
+      {/* Model picker modal */}
+      {modelPickerOpen && (
+        <ModelPickerModal
+          models={models}
+          currentModelId={agent.config.model ?? ""}
+          onSelect={(id) => {
+            if (!isAgentBusy) {
+              agent.setConfig({ model: id });
+            }
+            setModelPickerOpen(false);
+          }}
+          onClose={() => setModelPickerOpen(false)}
         />
       )}
     </div>
