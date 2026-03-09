@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.5.0](https://github.com/amir-s/rakh/compare/rakh-v0.4.0...rakh-v0.5.0) (2026-03-09)
+
+
+### Features
+
+* add execute action for plan artifact cards ([#81](https://github.com/amir-s/rakh/issues/81)) ([5dff6c3](https://github.com/amir-s/rakh/commit/5dff6c32c20c1599f540e2d5da7b41b64cfac41b))
+* **settings:** migrate settings to singleton tab ([#75](https://github.com/amir-s/rakh/issues/75)) ([79edbba](https://github.com/amir-s/rakh/commit/79edbbae8d51b85fecc4da5ec26ebc7c6c6f5585))
+* support issue and pr templates in github subagent ([#79](https://github.com/amir-s/rakh/issues/79)) ([98ae34e](https://github.com/amir-s/rakh/commit/98ae34ef8f8af7ba891a4850e72a44c8bee89bdb))
+* **ui:** enhance tab tooltip status popover ([#63](https://github.com/amir-s/rakh/issues/63)) ([637fc41](https://github.com/amir-s/rakh/commit/637fc416a847a16b7f4d80baf0eecbd6db98c842))
+
+
+### Bug Fixes
+
+* **approvals:** scope pending approvals by tab id ([#76](https://github.com/amir-s/rakh/issues/76)) ([e52e46c](https://github.com/amir-s/rakh/commit/e52e46c7f3b6923d1ff9f399ab02f9b706446624))
+* **ci:** checkout repo before updating Cargo.lock ([#83](https://github.com/amir-s/rakh/issues/83)) ([ff59118](https://github.com/amir-s/rakh/commit/ff59118c634066b2bea93dd0bb0fdc6531ca3511))
+* **ci:** fetch release branch via FETCH_HEAD ([#84](https://github.com/amir-s/rakh/issues/84)) ([4fbe34f](https://github.com/amir-s/rakh/commit/4fbe34f6deca1fdfd8d433bb9e2562e90bff50ff))
+* **debug:** simplify shrink toggle in debug pane ([#78](https://github.com/amir-s/rakh/issues/78)) ([5d3bb32](https://github.com/amir-s/rakh/commit/5d3bb32bd46cb2b9c429db35d43c6bbaa798da6d))
+* hide broken ⌘+K shortcut hint and expand subagent messages ([#65](https://github.com/amir-s/rakh/issues/65)) ([8c9e4b6](https://github.com/amir-s/rakh/commit/8c9e4b61d7f1b72c4bfff8a3a1c3adb53542009a))
+* **notifications:** send attention alerts for inactive tabs ([#80](https://github.com/amir-s/rakh/issues/80)) ([767f50d](https://github.com/amir-s/rakh/commit/767f50da6b499da8d2877d89aff654a40fc6552b))
+* **release:** update Cargo.lock when release PR is created ([#82](https://github.com/amir-s/rakh/issues/82)) ([3287e9d](https://github.com/amir-s/rakh/commit/3287e9dede5603b5e7bf4cc7ce8f06a6db2d6fe1))
+* support tab middle-click close and reopen shortcut ([#62](https://github.com/amir-s/rakh/issues/62)) ([e18dc11](https://github.com/amir-s/rakh/commit/e18dc116b00169be4277907b7642ef02a1403865))
+* synthesize error results for incomplete tool calls on stop ([#74](https://github.com/amir-s/rakh/issues/74)) ([2f6c607](https://github.com/amir-s/rakh/commit/2f6c60725e10256e454f9e59c5b3bbb718c13e46))
+
 ## [0.4.0](https://github.com/amir-s/rakh/compare/rakh-v0.3.2...rakh-v0.4.0) (2026-03-08)
 
 
