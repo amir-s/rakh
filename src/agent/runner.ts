@@ -53,6 +53,7 @@ import type {
   ChatMessage,
   ToolResult,
   ToolCallDisplay,
+  ToolApiMessage,
 } from "./types";
 import {
   ARTIFACT_CARD_PARENT_INSTRUCTION,
@@ -426,6 +427,45 @@ function hasRunningExecToolCall(tabId: string, toolCallId: string): boolean {
   return false;
 }
 
+/** Tool call that was emitted by the model but lacks a corresponding result. */
+interface IncompleteToolCall {
+  toolCallId: string;
+  toolName: string;
+}
+
+/**
+ * Find all tool calls in apiMessages that don't have a corresponding tool result.
+ * This can happen when the agent is stopped mid-turn before tool execution completes.
+ */
+function findIncompleteToolCalls(tabId: string): IncompleteToolCall[] {
+  const state = getAgentState(tabId);
+  const incomplete: IncompleteToolCall[] = [];
+
+  // Build set of tool_call_ids that have results in apiMessages
+  const completedToolCallIds = new Set<string>();
+  for (const msg of state.apiMessages) {
+    if (msg.role === "tool") {
+      completedToolCallIds.add(msg.tool_call_id);
+    }
+  }
+
+  // Find assistant messages with tool_calls that lack results
+  for (const msg of state.apiMessages) {
+    if (msg.role === "assistant" && msg.tool_calls) {
+      for (const tc of msg.tool_calls) {
+        if (!completedToolCallIds.has(tc.id)) {
+          incomplete.push({
+            toolCallId: tc.id,
+            toolName: tc.function.name,
+          });
+        }
+      }
+    }
+  }
+
+  return incomplete;
+}
+
 function detectHostOs(): "windows" | "linux" | "mac" {
   if (typeof navigator === "undefined") return "linux";
   const ua = navigator.userAgent ?? "";
@@ -458,10 +498,39 @@ export function stopAgent(tabId: string): void {
   }
   controllers.get(tabId)?.abort();
   controllers.delete(tabId);
+
+  // Find incomplete tool calls and synthesize error results for them
+  const incompleteToolCalls = findIncompleteToolCalls(tabId);
+  const synthesizedToolMessages: ToolApiMessage[] = incompleteToolCalls.map(
+    ({ toolCallId, toolName }) => ({
+      role: "tool" as const,
+      tool_call_id: toolCallId,
+      content: JSON.stringify({
+        ok: false,
+        error: {
+          code: "INTERNAL",
+          message: `Agent was stopped before tool call "${toolName}" completed.`,
+        },
+      }),
+    }),
+  );
+
+  // Helper to check if a tool call status is incomplete
+  const isIncompleteStatus = (status: ToolCallDisplay["status"]): boolean =>
+    status === "pending" ||
+    status === "awaiting_approval" ||
+    status === "awaiting_worktree" ||
+    status === "running";
+
   patchAgentState(tabId, (prev) => ({
     ...prev,
     status: "idle",
     streamingContent: null,
+    // Append synthesized tool results to apiMessages
+    apiMessages:
+      synthesizedToolMessages.length > 0
+        ? [...prev.apiMessages, ...synthesizedToolMessages]
+        : prev.apiMessages,
     chatMessages: prev.chatMessages.map((msg) => {
       const shouldFinalizeReasoningDuration =
         typeof msg.reasoningStartedAtMs === "number" &&
@@ -486,14 +555,16 @@ export function stopAgent(tabId: string): void {
       return {
         ...nextMsg,
         toolCalls: nextMsg.toolCalls.map((tc) =>
-          tc.tool === "exec_run" && tc.status === "running"
+          isIncompleteStatus(tc.status)
             ? {
                 ...tc,
                 status: "error" as const,
                 result: {
                   code: "INTERNAL",
                   message:
-                    "User aborted the execution of this command. No stdout/stderr will be returned.",
+                    tc.tool === "exec_run" && tc.status === "running"
+                      ? "User aborted the execution of this command. No stdout/stderr will be returned."
+                      : "Agent was stopped before this tool call completed.",
                 },
               }
             : tc,
