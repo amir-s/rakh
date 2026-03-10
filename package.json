@@ -1,6 +1,6 @@
 {
   "name": "rakh",
-  "version": "0.6.0",
+  "version": "0.5.0",
   "private": true,
   "scripts": {
     "d": "tauri dev --config src-tauri/tauri.dev.conf.json",
@@ -21,6 +21,8 @@
     "@ai-sdk/anthropic": "^3.0.46",
     "@ai-sdk/openai": "^3.0.31",
     "@ai-sdk/openai-compatible": "^2.0.30",
+    "@codemirror/lang-json": "^6.0.2",
+    "@codemirror/lint": "^6.9.5",
     "@lexical/plain-text": "^0.41.0",
     "@lexical/react": "^0.41.0",
     "@lexical/utils": "^0.41.0",
@@ -31,6 +33,7 @@
     "@tauri-apps/plugin-shell": "^2.3.5",
     "@tauri-apps/plugin-updater": "^2.10.0",
     "@types/diff": "^7.0.2",
+    "@uiw/react-codemirror": "^4.25.8",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/addon-webgl": "^0.19.0",
     "@xterm/xterm": "^6.0.0",
@@ -39,6 +42,7 @@
     "framer-motion": "^12.34.3",
     "jotai": "^2.18.0",
     "jotai-family": "^1.0.1",
+    "jsonc-parser": "^3.3.1",
     "lexical": "^0.41.0",
     "react": "19.2.3",
     "react-dom": "19.2.3",

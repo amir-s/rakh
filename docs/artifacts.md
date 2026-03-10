@@ -11,6 +11,7 @@ They are used for:
 - Review results
 - Security audits
 - Copy review suggestions
+- MCP-returned file/image payloads when MCP artifactization is enabled in Settings
 - Other handoff outputs that should survive beyond a single chat turn
 
 Artifacts are stored per session. The manifest lives in SQLite and the content
@@ -38,6 +39,11 @@ Important fields:
 - `contentFormat`: one of `text`, `markdown`, `unified-diff`, or `json`
 - `metadata`: free-form JSON metadata
 - `content`: optional payload body
+
+Current non-subagent artifact kinds created by the runtime include:
+
+- `mcp-attachment`: JSON-wrapped MCP file/image/resource payloads captured from
+  tool results when the global MCP artifactization toggle is enabled
 
 The supported content formats are centralized in
 [`src/agent/tools/artifactTypes.ts`](../src/agent/tools/artifactTypes.ts).
@@ -96,6 +102,23 @@ For validator-backed JSON artifacts, `artifactGet()` also returns:
 
 The content is returned unchanged. Validation is supplemental metadata, not a
 transformation step.
+
+### MCP attachment artifacts
+
+When `Settings -> MCP Servers -> Save returned files as artifacts` is enabled,
+the main runner will try to move MCP-returned binary/resource payloads into
+artifacts instead of feeding those raw payloads back into model context.
+
+Current behavior:
+
+- the artifact is stored with `kind: "mcp-attachment"` and `contentFormat: "json"`
+- the saved JSON preserves the original MCP payload shape
+- the runner replaces the model-facing tool result with an artifact reference
+  and a note telling the model to use `agent_artifact_get`
+- the artifact pane renders image attachments as real previews when the saved
+  JSON contains an image MIME type plus base64/text image data
+- if artifact creation fails or the toggle is off, the MCP result is left
+  untouched
 
 ## Artifact Change Events
 

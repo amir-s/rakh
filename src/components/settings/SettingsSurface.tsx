@@ -5,7 +5,22 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { createPortal } from "react-dom";
+import type { Diagnostic } from "@codemirror/lint";
+import {
+  findNodeAtLocation,
+  parseTree,
+  printParseErrorCode,
+  type Node as JsonNode,
+  type ParseError,
+} from "jsonc-parser";
+import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
+import {
+  a11yDark,
+  oneLight,
+} from "react-syntax-highlighter/dist/esm/styles/prism";
 import { v4 as uuidv4 } from "uuid";
+import { z } from "zod";
 import pkg from "../../../package.json";
 import {
   buildUniqueProviderName,
@@ -18,6 +33,13 @@ import {
   type ProviderInstance,
   type CommunicationProfileRecord,
 } from "@/agent/db";
+import {
+  saveMcpSettings,
+  saveMcpServers,
+  testMcpServer,
+  type McpServerConfig,
+  type McpServerProbeResult,
+} from "@/agent/mcp";
 import { cn } from "@/utils/cn";
 import {
   THEME_NAMES,
@@ -28,12 +50,14 @@ import {
   Badge,
   Button,
   IconButton,
+  ModalShell,
   Panel,
   SelectField,
   TextField,
   TextareaField,
   ToggleSwitch,
 } from "@/components/ui";
+import JsonCodeEditor from "@/components/ui/JsonCodeEditor";
 import {
   getAppUpdaterProgressValue,
   getAppUpdaterStatusLabel,
@@ -54,8 +78,320 @@ import type {
 
 type TestStatus = "idle" | "testing" | "ok" | "error";
 type ProviderRefreshStatus = "idle" | "loading" | "ok" | "error";
+type McpProbeStatus = "idle" | "testing" | "ok" | "error";
 
 const REFRESH_FEEDBACK_MS = 3000;
+
+const MCP_SCHEMA_STDIO_EXAMPLE = `{
+  // Shown in Settings.
+  "name": "Filesystem",
+  // true = discover tools on runs.
+  "enabled": true,
+  // Local command server.
+  "transport": "stdio",
+  // Executable to launch.
+  "command": "npx",
+  // Optional CLI args.
+  "args": ["-y", "@modelcontextprotocol/server-filesystem", "."],
+  // Optional extra env.
+  "env": {
+    "NODE_ENV": "production"
+  }
+}`;
+
+const MCP_SCHEMA_STREAMABLE_HTTP_EXAMPLE = `{
+  // Shown in Settings.
+  "name": "Remote MCP",
+  // true = discover tools on runs.
+  "enabled": true,
+  // Remote HTTP server.
+  "transport": "streamable-http",
+  // Endpoint URL.
+  "url": "https://example.com/mcp",
+  // Optional request headers.
+  "headers": {
+    "Authorization": "Bearer <token>"
+  },
+  // Optional timeout in ms.
+  "timeoutMs": 15000
+}`;
+
+const mcpStringMapSchema = z.record(z.string(), z.string());
+const mcpStdioServerDraftSchema = z.object({
+  id: z.string().trim().min(1, '"id" must not be empty.').optional(),
+  name: z.string().trim().min(1, '"name" is required.'),
+  enabled: z.boolean().optional(),
+  timeoutMs: z.number().int().positive().optional(),
+  transport: z.literal("stdio"),
+  command: z.string().trim().min(1, '"command" is required for stdio servers.'),
+  args: z.array(z.string()).optional(),
+  env: mcpStringMapSchema.optional(),
+});
+const mcpStreamableHttpServerDraftSchema = z.object({
+  id: z.string().trim().min(1, '"id" must not be empty.').optional(),
+  name: z.string().trim().min(1, '"name" is required.'),
+  enabled: z.boolean().optional(),
+  timeoutMs: z.number().int().positive().optional(),
+  transport: z.literal("streamable-http"),
+  url: z.string().trim().min(1, '"url" is required for streamable-http servers.'),
+  headers: mcpStringMapSchema.optional(),
+});
+const mcpServerDraftSchema = z.discriminatedUnion("transport", [
+  mcpStdioServerDraftSchema,
+  mcpStreamableHttpServerDraftSchema,
+]);
+
+type McpServerDraftInput = z.output<typeof mcpServerDraftSchema>;
+
+function formatMcpServerJson(server?: McpServerConfig): string {
+  const template =
+    server ??
+    ({
+      name: "Filesystem",
+      enabled: true,
+      transport: "stdio",
+      command: "npx",
+      args: ["-y", "@modelcontextprotocol/server-filesystem", "."],
+    } satisfies Omit<Extract<McpServerConfig, { transport: "stdio" }>, "id">);
+
+  return JSON.stringify(template, null, 2);
+}
+
+function formatMcpServerIssue(issue: z.ZodIssue): string {
+  if (issue.path.length === 0) return issue.message;
+  return `${issue.path.join(".")}: ${issue.message}`;
+}
+
+function findMcpIssueNode(
+  tree: JsonNode,
+  path: readonly PropertyKey[],
+): JsonNode {
+  const jsonPath = path.filter(
+    (segment): segment is string | number =>
+      typeof segment === "string" || typeof segment === "number",
+  );
+
+  const exactNode =
+    jsonPath.length > 0 ? findNodeAtLocation(tree, jsonPath) : tree;
+  if (exactNode) return exactNode;
+
+  const parentNode =
+    jsonPath.length > 0
+      ? findNodeAtLocation(tree, jsonPath.slice(0, -1))
+      : undefined;
+  return parentNode ?? tree;
+}
+
+function buildMcpServerDiagnostics(raw: string): Diagnostic[] {
+  if (!raw.trim()) {
+    return [
+      {
+        from: 0,
+        to: 1,
+        severity: "error",
+        message: "Server JSON is required.",
+      },
+    ];
+  }
+
+  const parseErrors: ParseError[] = [];
+  const tree = parseTree(raw, parseErrors, {
+    allowTrailingComma: false,
+    disallowComments: true,
+  });
+  if (parseErrors.length > 0 || !tree) {
+    return parseErrors.map((error) => ({
+      from: error.offset,
+      to: error.offset + Math.max(error.length, 1),
+      severity: "error",
+      message: `Invalid JSON: ${printParseErrorCode(error.error)}.`,
+    }));
+  }
+
+  const parsed = JSON.parse(raw) as unknown;
+  const result = mcpServerDraftSchema.safeParse(parsed);
+  if (result.success) return [];
+
+  return result.error.issues.map((issue) => {
+    const node = findMcpIssueNode(tree, issue.path);
+    return {
+      from: node.offset,
+      to: node.offset + Math.max(node.length, 1),
+      severity: "error",
+      message: formatMcpServerIssue(issue),
+    };
+  });
+}
+
+function parseMcpServerJson(
+  raw: string,
+  fallbackId: string,
+): { ok: true; data: McpServerConfig } | { ok: false; error: string } {
+  const trimmed = raw.trim();
+  if (!trimmed) {
+    return { ok: false, error: "Server JSON is required." };
+  }
+
+  const diagnostics = buildMcpServerDiagnostics(trimmed);
+  if (diagnostics.length > 0) {
+    return { ok: false, error: diagnostics[0]?.message ?? "Server JSON is invalid." };
+  }
+
+  const parsed = mcpServerDraftSchema.parse(
+    JSON.parse(trimmed),
+  ) as McpServerDraftInput;
+  return {
+    ok: true,
+    data: {
+      ...parsed,
+      id: parsed.id?.trim() || fallbackId,
+      enabled: parsed.enabled ?? true,
+    },
+  };
+}
+
+function McpSchemaHelpModal({
+  themeMode,
+  onClose,
+}: {
+  themeMode: "dark" | "light";
+  onClose: () => void;
+}) {
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [onClose]);
+
+  return createPortal(
+    <div
+      className="error-modal-backdrop"
+      onClick={onClose}
+      role="dialog"
+      aria-modal
+      aria-label="MCP Server JSON Schema"
+    >
+      <ModalShell
+        className="settings-schema-modal"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="settings-schema-modal__header">
+          <div className="settings-schema-modal__title-wrap">
+            <div className="settings-schema-modal__icon">
+              <span className="material-symbols-outlined text-primary">
+                help
+              </span>
+            </div>
+            <div className="settings-schema-modal__heading">
+              <p className="settings-schema-modal__eyebrow">MCP Settings</p>
+              <h2 className="settings-schema-modal__title">
+                MCP Server JSON Schema
+              </h2>
+              <p className="settings-schema-modal__subtitle">
+                Paste one JSON object per server. Start with{" "}
+                <code>transport</code>, then fill in the required keys for that
+                transport.
+              </p>
+            </div>
+          </div>
+          <Button
+            className="settings-schema-modal__close"
+            type="button"
+            variant="ghost"
+            size="xxs"
+            onClick={onClose}
+            title="Close (Esc)"
+          >
+            <span className="material-symbols-outlined text-lg">close</span>
+          </Button>
+        </div>
+
+        <div className="settings-schema-modal__content">
+          <Panel variant="inset" className="settings-schema-intro">
+            <p className="settings-schema-intro__text">
+              Examples below use short comments for explanation only. Remove the
+              comments before pasting into the editor.
+            </p>
+            <div className="settings-schema-rules">
+              <span className="settings-schema-rule">One JSON object</span>
+              <span className="settings-schema-rule">Pick one transport</span>
+              <span className="settings-schema-rule">Remove comments before pasting</span>
+            </div>
+          </Panel>
+
+          <div className="settings-schema-examples">
+            <Panel variant="inset" className="settings-schema-example">
+              <div className="settings-schema-example__header">
+                <p className="settings-schema-example__title">Example: stdio</p>
+                <Badge variant="primary">Local command</Badge>
+              </div>
+              <div className="settings-schema-example__code">
+                <SyntaxHighlighter
+                  language="javascript"
+                  style={themeMode === "dark" ? a11yDark : oneLight}
+                  customStyle={{
+                    margin: 0,
+                    padding: 0,
+                    background: "transparent",
+                    fontSize: "var(--text-xxs)",
+                    lineHeight: 1.6,
+                  }}
+                  codeTagProps={{
+                    style: {
+                      fontFamily: "var(--font-mono)",
+                    },
+                  }}
+                  wrapLongLines
+                >
+                  {MCP_SCHEMA_STDIO_EXAMPLE}
+                </SyntaxHighlighter>
+              </div>
+            </Panel>
+            <Panel variant="inset" className="settings-schema-example">
+              <div className="settings-schema-example__header">
+                <p className="settings-schema-example__title">
+                  Example: streamable-http
+                </p>
+                <Badge variant="success">Remote endpoint</Badge>
+              </div>
+              <div className="settings-schema-example__code">
+                <SyntaxHighlighter
+                  language="javascript"
+                  style={themeMode === "dark" ? a11yDark : oneLight}
+                  customStyle={{
+                    margin: 0,
+                    padding: 0,
+                    background: "transparent",
+                    fontSize: "var(--text-xxs)",
+                    lineHeight: 1.6,
+                  }}
+                  codeTagProps={{
+                    style: {
+                      fontFamily: "var(--font-mono)",
+                    },
+                  }}
+                  wrapLongLines
+                >
+                  {MCP_SCHEMA_STREAMABLE_HTTP_EXAMPLE}
+                </SyntaxHighlighter>
+              </div>
+            </Panel>
+          </div>
+        </div>
+
+        <div className="settings-schema-modal__footer">
+          <Button type="button" variant="secondary" size="xs" onClick={onClose}>
+            Close
+          </Button>
+        </div>
+      </ModalShell>
+    </div>,
+    document.body,
+  );
+}
 
 async function fetchOpenAICompatibleModels(
   baseUrl: string,
@@ -298,6 +634,196 @@ function ProviderConfigurator({
           </Button>
         </div>
       </div>
+    </Panel>
+  );
+}
+
+function McpServerConfigurator({
+  server,
+  themeMode,
+  onSave,
+  onCancel,
+}: {
+  server?: McpServerConfig;
+  themeMode: "dark" | "light";
+  onSave: (server: McpServerConfig) => void | Promise<void>;
+  onCancel: () => void;
+}) {
+  const [serverId] = useState(() => server?.id ?? uuidv4());
+  const [jsonInput, setJsonInput] = useState(() => formatMcpServerJson(server));
+  const [showSchemaHelp, setShowSchemaHelp] = useState(false);
+  const [probeStatus, setProbeStatus] = useState<McpProbeStatus>("idle");
+  const [probeError, setProbeError] = useState<string | null>(null);
+  const [probeResult, setProbeResult] = useState<McpServerProbeResult | null>(
+    null,
+  );
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const liveValidation = parseMcpServerJson(jsonInput, serverId);
+
+  const buildServerDraft = (): McpServerConfig | null => {
+    if (!liveValidation.ok) {
+      setSaveError(liveValidation.error);
+      return null;
+    }
+
+    setSaveError(null);
+    return liveValidation.data;
+  };
+
+  const handleTest = async () => {
+    const nextServer = buildServerDraft();
+    if (!nextServer) return;
+
+    setProbeStatus("testing");
+    setProbeError(null);
+    setProbeResult(null);
+    try {
+      const result = await testMcpServer(nextServer);
+      setProbeResult(result);
+      setProbeStatus("ok");
+    } catch (error) {
+      setProbeStatus("error");
+      setProbeError(error instanceof Error ? error.message : String(error));
+    }
+  };
+
+  const handleSaveClick = () => {
+    const nextServer = buildServerDraft();
+    if (!nextServer) return;
+    void onSave(nextServer);
+  };
+
+  return (
+    <Panel className="settings-provider-form">
+      <div className="settings-provider-form__grid">
+        <div className="settings-field settings-field--full-span">
+          <label className="settings-field-label">Server JSON</label>
+          <div className="settings-input-wrap settings-json-editor-wrap">
+            <JsonCodeEditor
+              aria-label="Server JSON"
+              value={jsonInput}
+              onChange={(value) => {
+                setJsonInput(value);
+                setSaveError(null);
+              }}
+              themeMode={themeMode}
+              placeholder="Paste one MCP server object as JSON."
+              validate={buildMcpServerDiagnostics}
+              className="settings-json-editor"
+              minHeight="260px"
+            />
+          </div>
+        </div>
+      </div>
+
+      <div className="settings-row">
+        <div className="settings-row-info">
+          <div className="settings-row-label settings-row-label-with-action">
+            <span>JSON schema</span>
+            <IconButton
+              type="button"
+              className="settings-inline-help-btn"
+              aria-label="Open MCP JSON schema help"
+              title="Open MCP JSON schema help"
+              onClick={() => setShowSchemaHelp(true)}
+            >
+              <span className="material-symbols-outlined text-sm">
+                help_outline
+              </span>
+            </IconButton>
+          </div>
+          <span className="settings-row-desc">
+            Use the same object shape that is persisted to disk. Common fields
+            are `name`, `enabled`, `transport`, and optional `timeoutMs`; `id`
+            is optional when creating a new entry.
+          </span>
+        </div>
+      </div>
+
+      {probeResult ? (
+        <Panel variant="inset" className="settings-callout">
+          <div className="settings-callout__icon">
+            <span className="material-symbols-outlined text-success text-[18px]">
+              check_circle
+            </span>
+          </div>
+          <div className="settings-callout__body">
+            <p className="settings-callout__title">
+              {probeResult.toolCount} tool
+              {probeResult.toolCount === 1 ? "" : "s"} discovered
+            </p>
+            <p className="settings-callout__copy">
+              {probeResult.tools.length > 0
+                ? probeResult.tools
+                    .slice(0, 6)
+                    .map((tool) => tool.title ?? tool.name)
+                    .join(", ")
+                : "The server connected successfully but returned no tools."}
+            </p>
+          </div>
+        </Panel>
+      ) : null}
+
+      <div className="settings-provider-form__footer">
+        <div className="settings-provider-form__status" aria-live="polite">
+          {probeStatus === "ok" && !probeResult ? (
+            <span className="settings-feedback settings-feedback--success">
+              <span className="material-symbols-outlined text-md">
+                check_circle
+              </span>
+              Server connected successfully.
+            </span>
+          ) : null}
+          {probeStatus === "error" && probeError ? (
+            <span className="settings-feedback settings-feedback--error">
+              <span className="material-symbols-outlined text-md">error</span>
+              {probeError}
+            </span>
+          ) : null}
+          {saveError ? (
+            <span className="settings-feedback settings-feedback--error">
+              <span className="material-symbols-outlined text-md">error</span>
+              {saveError}
+            </span>
+          ) : !liveValidation.ok ? (
+            <span className="settings-feedback settings-feedback--error">
+              <span className="material-symbols-outlined text-md">error</span>
+              {liveValidation.error}
+            </span>
+          ) : null}
+        </div>
+
+      <div className="settings-provider-form__actions">
+        <Button type="button" variant="ghost" size="xs" onClick={onCancel}>
+          Cancel
+          </Button>
+          <Button
+            type="button"
+            variant="secondary"
+            size="xs"
+            onClick={() => {
+              void handleTest();
+            }}
+            loading={probeStatus === "testing"}
+          >
+            Test
+          </Button>
+          <Button
+            type="button"
+            size="xs"
+            onClick={handleSaveClick}
+          >
+            Save Server
+          </Button>
+        </div>
+      </div>
+
+      {showSchemaHelp ? (
+        <McpSchemaHelpModal
+          themeMode={themeMode}
+          onClose={() => setShowSchemaHelp(false)}
+        />
+      ) : null}
     </Panel>
   );
 }
@@ -958,6 +1484,267 @@ function ProvidersSection({
   );
 }
 
+function McpServersSection({
+  controller,
+}: {
+  controller: SettingsControllerValue;
+}) {
+  const [editingServerId, setEditingServerId] = useState<string | null>(null);
+  const [isAdding, setIsAdding] = useState(false);
+  const [probeStatusById, setProbeStatusById] = useState<
+    Record<string, ProviderRefreshStatus>
+  >({});
+  const probeResetTimeoutsRef = useRef<Record<string, number>>({});
+
+  const clearProbeResetTimeout = useCallback((serverId: string) => {
+    const timeoutId = probeResetTimeoutsRef.current[serverId];
+    if (timeoutId !== undefined) {
+      window.clearTimeout(timeoutId);
+      delete probeResetTimeoutsRef.current[serverId];
+    }
+  }, []);
+
+  const scheduleProbeStatusReset = useCallback(
+    (serverId: string) => {
+      clearProbeResetTimeout(serverId);
+      probeResetTimeoutsRef.current[serverId] = window.setTimeout(() => {
+        setProbeStatusById((prev) => ({ ...prev, [serverId]: "idle" }));
+        delete probeResetTimeoutsRef.current[serverId];
+      }, REFRESH_FEEDBACK_MS);
+    },
+    [clearProbeResetTimeout],
+  );
+
+  useEffect(() => {
+    return () => {
+      Object.values(probeResetTimeoutsRef.current).forEach((timeoutId) => {
+        window.clearTimeout(timeoutId);
+      });
+      probeResetTimeoutsRef.current = {};
+    };
+  }, []);
+
+  const handleSaveServer = async (server: McpServerConfig) => {
+    const nextServers = [
+      ...controller.mcpServers.filter((entry) => entry.id !== server.id),
+      server,
+    ];
+    await saveMcpServers(nextServers);
+    controller.setMcpServers(nextServers);
+    setIsAdding(false);
+    setEditingServerId(null);
+  };
+
+  const handleDeleteServer = async (serverId: string) => {
+    const nextServers = controller.mcpServers.filter(
+      (server) => server.id !== serverId,
+    );
+    await saveMcpServers(nextServers);
+    controller.setMcpServers(nextServers);
+  };
+
+  const handleToggleEnabled = async (
+    server: McpServerConfig,
+    enabled: boolean,
+  ) => {
+    const nextServers = controller.mcpServers.map((entry) =>
+      entry.id === server.id ? { ...entry, enabled } : entry,
+    );
+    await saveMcpServers(nextServers);
+    controller.setMcpServers(nextServers);
+  };
+
+  const handleProbeServer = async (server: McpServerConfig) => {
+    clearProbeResetTimeout(server.id);
+    setProbeStatusById((prev) => ({ ...prev, [server.id]: "loading" }));
+    try {
+      await testMcpServer(server);
+      setProbeStatusById((prev) => ({ ...prev, [server.id]: "ok" }));
+      scheduleProbeStatusReset(server.id);
+    } catch (error) {
+      console.error(`Failed to probe MCP server "${server.name}"`, error);
+      setProbeStatusById((prev) => ({ ...prev, [server.id]: "error" }));
+      scheduleProbeStatusReset(server.id);
+    }
+  };
+
+  const handleToggleArtifactizeReturnedFiles = async (enabled: boolean) => {
+    const nextSettings = {
+      ...controller.mcpSettings,
+      artifactizeReturnedFiles: enabled,
+    };
+    await saveMcpSettings(nextSettings);
+    controller.setMcpSettings(nextSettings);
+  };
+
+  return (
+    <div className="settings-page__section-stack">
+      <SectionCard
+        title="Global MCP Registry"
+        description="Configure the MCP servers that the main agent can discover for every run."
+        actions={
+          <Button
+            type="button"
+            size="xs"
+            onClick={() => {
+              setIsAdding(true);
+              setEditingServerId(null);
+            }}
+            className="text-nowrap"
+          >
+            Add Server
+          </Button>
+        }
+      >
+        <div className="settings-row">
+          <div className="settings-row-info">
+            <span className="settings-row-label">
+              Save returned files as artifacts
+            </span>
+            <span className="settings-row-desc">
+              When enabled, MCP image or file payloads are stored as artifacts
+              and replaced in model context with artifact references.
+            </span>
+          </div>
+          <ToggleSwitch
+            checked={controller.mcpSettings.artifactizeReturnedFiles}
+            className="settings-switch"
+            title="Save returned files as artifacts"
+            onChange={() => {
+              void handleToggleArtifactizeReturnedFiles(
+                !controller.mcpSettings.artifactizeReturnedFiles,
+              );
+            }}
+          />
+        </div>
+
+        <div className="settings-provider-list">
+          {controller.mcpServers.length === 0 && !isAdding ? (
+            <Panel variant="inset" className="settings-empty-panel">
+              <span className="material-symbols-outlined settings-empty-panel__icon">
+                extension
+              </span>
+              <div className="settings-empty-panel__copy">
+                <span className="settings-empty-panel__title">
+                  No MCP servers configured
+                </span>
+                <span className="settings-empty-panel__description">
+                  Add a global MCP server to discover external tools at run
+                  start.
+                </span>
+              </div>
+            </Panel>
+          ) : null}
+
+          {controller.mcpServers.map((server) => {
+            const probeStatus = probeStatusById[server.id] ?? "idle";
+            const probeIcon =
+              probeStatus === "loading"
+                ? "autorenew"
+                : probeStatus === "ok"
+                  ? "check_circle"
+                  : probeStatus === "error"
+                    ? "error"
+                    : "bolt";
+            const probeTitle =
+              probeStatus === "loading"
+                ? "Testing server…"
+                : probeStatus === "ok"
+                  ? "Server probe passed."
+                  : probeStatus === "error"
+                    ? "Server probe failed."
+                    : "Test server";
+
+            return editingServerId === server.id ? (
+              <McpServerConfigurator
+                key={server.id}
+                server={server}
+                themeMode={controller.themeMode}
+                onSave={handleSaveServer}
+                onCancel={() => setEditingServerId(null)}
+              />
+            ) : (
+              <Panel key={server.id} className="settings-provider-card">
+                <div className="settings-provider-card__copy">
+                  <span className="settings-provider-card__title">
+                    {server.name}
+                  </span>
+                  <span className="settings-provider-card__meta">
+                    {server.transport}
+                    {" · "}
+                    {server.enabled ? "enabled" : "disabled"}
+                  </span>
+                </div>
+                <div className="settings-provider-card__actions">
+                  <ToggleSwitch
+                    checked={server.enabled}
+                    className="settings-switch"
+                    onChange={() =>
+                      void handleToggleEnabled(server, !server.enabled)
+                    }
+                  />
+                  <IconButton
+                    className={cn(
+                      "settings-provider-card__icon-btn",
+                      probeStatus === "ok" &&
+                        "settings-provider-card__icon-btn--success",
+                      probeStatus === "error" &&
+                        "settings-provider-card__icon-btn--danger",
+                    )}
+                    onClick={() => void handleProbeServer(server)}
+                    title={probeTitle}
+                    aria-label={`Test ${server.name}`}
+                    disabled={probeStatus === "loading"}
+                  >
+                    <span
+                      className={cn(
+                        "material-symbols-outlined text-sm",
+                        probeStatus === "loading" && "animate-spin",
+                      )}
+                    >
+                      {probeIcon}
+                    </span>
+                  </IconButton>
+                  <IconButton
+                    className="settings-provider-card__icon-btn"
+                    onClick={() => setEditingServerId(server.id)}
+                    title={`Edit ${server.name}`}
+                    aria-label={`Edit ${server.name}`}
+                  >
+                    <span className="material-symbols-outlined text-sm">
+                      edit
+                    </span>
+                  </IconButton>
+                  <IconButton
+                    className="settings-provider-card__icon-btn settings-provider-card__icon-btn--danger"
+                    onClick={() => {
+                      void handleDeleteServer(server.id);
+                    }}
+                    title={`Delete ${server.name}`}
+                    aria-label={`Delete ${server.name}`}
+                  >
+                    <span className="material-symbols-outlined text-sm">
+                      delete
+                    </span>
+                  </IconButton>
+                </div>
+              </Panel>
+            );
+          })}
+
+          {isAdding ? (
+            <McpServerConfigurator
+              themeMode={controller.themeMode}
+              onSave={handleSaveServer}
+              onCancel={() => setIsAdding(false)}
+            />
+          ) : null}
+        </div>
+      </SectionCard>
+    </div>
+  );
+}
+
 function UpdatesSection({
   controller,
 }: {
@@ -1089,6 +1876,8 @@ function renderSection(
       return <NotificationsSection controller={controller} />;
     case "providers":
       return <ProvidersSection controller={controller} />;
+    case "mcp":
+      return <McpServersSection controller={controller} />;
     case "voice":
       return <VoiceSection controller={controller} />;
     case "updates":

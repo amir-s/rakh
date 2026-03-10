@@ -1,0 +1,57 @@
+import type { ToolCallDisplay } from "@/agent/types";
+
+const TOOL_ICON: Record<string, string> = {
+  workspace_listDir: "folder_open",
+  workspace_stat: "info",
+  workspace_readFile: "description",
+  workspace_writeFile: "edit_document",
+  workspace_editFile: "difference",
+  workspace_glob: "search",
+  workspace_search: "manage_search",
+  exec_run: "terminal",
+  git_worktree_init: "account_tree",
+  user_input: "person",
+  agent_card_add: "dashboard_customize",
+  agent_artifact_create: "inventory_2",
+  agent_artifact_version: "layers",
+  agent_artifact_get: "pageview",
+  agent_artifact_list: "lists",
+  agent_todo_add: "checklist",
+  agent_todo_update: "checklist",
+  agent_todo_list: "checklist",
+  agent_todo_remove: "checklist",
+};
+
+const TOOL_LABEL: Record<string, string> = {
+  workspace_listDir: "LIST DIRECTORY",
+  workspace_stat: "STAT FILE",
+  workspace_readFile: "READ FILE",
+  workspace_writeFile: "WRITE FILE",
+  workspace_editFile: "EDIT FILE",
+  workspace_glob: "GLOB FILES",
+  workspace_search: "SEARCH FILES",
+  exec_run: "RUN COMMAND",
+  git_worktree_init: "CREATE ISOLATED BRANCH",
+  user_input: "ASK USER",
+  agent_card_add: "ADD CARD",
+  agent_artifact_create: "CREATE ARTIFACT",
+  agent_artifact_version: "VERSION ARTIFACT",
+  agent_artifact_get: "GET ARTIFACT",
+  agent_artifact_list: "LIST ARTIFACTS",
+  agent_todo_add: "ADD TODO",
+  agent_todo_update: "UPDATE TODO",
+  agent_todo_list: "LIST TODOS",
+  agent_todo_remove: "REMOVE TODO",
+};
+
+export function getToolCallIcon(tc: Pick<ToolCallDisplay, "tool" | "mcp">): string {
+  if (tc.mcp) return "extension";
+  return TOOL_ICON[tc.tool] ?? "build";
+}
+
+export function getToolCallLabel(tc: Pick<ToolCallDisplay, "tool" | "mcp">): string {
+  if (tc.mcp) {
+    return `MCP / ${tc.mcp.serverName} / ${tc.mcp.toolTitle ?? tc.mcp.toolName}`;
+  }
+  return TOOL_LABEL[tc.tool] ?? tc.tool.toUpperCase();
+}

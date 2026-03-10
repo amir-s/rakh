@@ -17,6 +17,12 @@ import {
   type ProviderInstance,
   type CommunicationProfileRecord,
 } from "@/agent/db";
+import {
+  mcpServersAtom,
+  mcpSettingsAtom,
+  type McpServerConfig,
+  type McpSettings,
+} from "@/agent/mcp";
 import { ensureNotificationPermission } from "@/notifications";
 import { upsertWorkspaceSessions } from "@/agent/persistence";
 import {
@@ -52,6 +58,10 @@ async function confirmInstallUpdate(version: string): Promise<boolean> {
 export interface SettingsControllerValue {
   providers: ProviderInstance[];
   setProviders: (providers: ProviderInstance[]) => void;
+  mcpServers: McpServerConfig[];
+  setMcpServers: (servers: McpServerConfig[]) => void;
+  mcpSettings: McpSettings;
+  setMcpSettings: (settings: McpSettings) => void;
   envKeysAvailable: EnvKeyEntry[];
   themeMode: "dark" | "light";
   toggleThemeMode: () => void;
@@ -82,6 +92,8 @@ export interface SettingsControllerValue {
 export function useSettingsController(): SettingsControllerValue {
   const { tabs } = useTabs();
   const [providers, setProviders] = useAtom(providersAtom);
+  const [mcpServers, setMcpServers] = useAtom(mcpServersAtom);
+  const [mcpSettings, setMcpSettings] = useAtom(mcpSettingsAtom);
   const [themeMode, setThemeMode] = useAtom(themeModeAtom);
   const [themeName, setThemeName] = useAtom(themeNameAtom);
   const [globalCommunicationProfile, setGlobalCommunicationProfile] = useAtom(
@@ -212,6 +224,10 @@ export function useSettingsController(): SettingsControllerValue {
   return {
     providers,
     setProviders,
+    mcpServers,
+    setMcpServers,
+    mcpSettings,
+    setMcpSettings,
     envKeysAvailable,
     themeMode,
     toggleThemeMode,

@@ -14,6 +14,7 @@ import {
 import { getExecCommandBadge } from "@/components/compactToolCallStatus";
 import { deserializeDiff } from "@/components/diffSerialization";
 import type { EditFileChange } from "@/agent/tools/workspace";
+import { getToolCallIcon, getToolCallLabel } from "@/components/toolDisplay";
 import { cn } from "@/utils/cn";
 import { Badge, StatusDot } from "@/components/ui";
 
@@ -43,55 +44,6 @@ const NON_EXPANDABLE_TOOLS = new Set([
   "agent_todo_list",
   "agent_todo_remove",
 ]);
-
-/* ── Icon + label maps for all tool rows ─────────────────────────────────────── */
-const TOOL_ICON: Record<string, string> = {
-  workspace_listDir: "folder_open",
-  workspace_stat: "info",
-  workspace_readFile: "description",
-  workspace_glob: "search",
-  workspace_search: "manage_search",
-  workspace_editFile: "edit_document",
-  workspace_writeFile: "note_add",
-  exec_run: "terminal",
-  git_worktree_init: "account_tree",
-  agent_card_add: "dashboard_customize",
-  agent_artifact_create: "inventory_2",
-  agent_artifact_version: "layers",
-  agent_artifact_get: "pageview",
-  agent_artifact_list: "lists",
-  agent_todo_add: "checklist",
-  agent_todo_update: "checklist",
-  agent_todo_list: "checklist",
-  agent_todo_remove: "checklist",
-  agent_title_set: "title",
-  agent_title_get: "title",
-  user_input: "contact_support",
-};
-
-const TOOL_LABEL: Record<string, string> = {
-  workspace_listDir: "List Dir",
-  workspace_stat: "Stat File",
-  workspace_readFile: "Read File",
-  workspace_glob: "Glob",
-  workspace_search: "Search",
-  workspace_editFile: "Edit File",
-  workspace_writeFile: "Write File",
-  exec_run: "Run Command",
-  git_worktree_init: "Git Worktree",
-  agent_card_add: "Add Card",
-  agent_artifact_create: "Create Artifact",
-  agent_artifact_version: "Version Artifact",
-  agent_artifact_get: "Get Artifact",
-  agent_artifact_list: "List Artifacts",
-  agent_todo_add: "Add Todo",
-  agent_todo_update: "Update Todo",
-  agent_todo_list: "List Todos",
-  agent_todo_remove: "Remove Todo",
-  agent_title_set: "Set Title",
-  agent_title_get: "Get Title",
-  user_input: "Question",
-};
 
 const STATUS_DOT: Record<string, string> = {
   pending: "pending",
@@ -1161,8 +1113,8 @@ export default function CompactToolCall({
     tc.status !== "awaiting_worktree" &&
     tc.status !== "awaiting_setup_action";
 
-  const icon = TOOL_ICON[tc.tool] ?? "build";
-  const label = TOOL_LABEL[tc.tool] ?? tc.tool;
+  const icon = getToolCallIcon(tc);
+  const label = getToolCallLabel(tc);
   const dotStatus = STATUS_DOT[tc.status] ?? "pending";
   const statusDotVariant =
     dotStatus === "pending"

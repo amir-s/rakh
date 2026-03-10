@@ -1,14 +1,15 @@
 pub mod db;
 pub mod exec;
-pub mod external_tools;
 pub mod fs_ops;
 pub mod git;
+pub mod mcp;
 pub mod pty;
 pub mod shell_env;
 pub mod utils;
 pub mod whisper;
 
 use db::{init_db, AppState};
+use mcp::McpRunState;
 use std::collections::HashMap;
 use std::sync::Mutex;
 
@@ -31,11 +32,10 @@ pub fn run() {
             pty_masters: Mutex::new(HashMap::new()),
             db: Mutex::new(db),
         })
+        .manage(McpRunState::default())
         .invoke_handler(tauri::generate_handler![
             db::load_provider_env_api_keys,
             git::git_worktree_add,
-            external_tools::open_in_editor,
-            external_tools::open_shell,
             fs_ops::list_dir,
             fs_ops::stat_file,
             fs_ops::read_file,
@@ -66,6 +66,14 @@ pub fn run() {
             db::providers_save,
             db::profiles_load,
             db::profiles_save,
+            mcp::mcp_servers_load,
+            mcp::mcp_settings_load,
+            mcp::mcp_servers_save,
+            mcp::mcp_settings_save,
+            mcp::mcp_test_server,
+            mcp::mcp_prepare_run,
+            mcp::mcp_call_tool,
+            mcp::mcp_shutdown_run,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

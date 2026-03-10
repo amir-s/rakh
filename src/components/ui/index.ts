@@ -1,6 +1,7 @@
 export { default as Badge } from "./Badge";
 export { default as Button } from "./Button";
 export { default as IconButton } from "./IconButton";
+export { default as JsonCodeEditor } from "./JsonCodeEditor";
 export { default as ModalShell } from "./ModalShell";
 export { default as Panel } from "./Panel";
 export { default as SegmentedControl } from "./SegmentedControl";

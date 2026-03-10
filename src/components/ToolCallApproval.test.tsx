@@ -127,4 +127,27 @@ describe("ToolCallApproval", () => {
 
     expect(approvalMocks.resolveWorktreeSetupActionMock).not.toHaveBeenCalled();
   });
+
+  it("renders MCP tool calls with a friendly server and tool label", () => {
+    render(
+      <ToolCallApproval
+        toolCall={{
+          id: "tc-mcp",
+          tool: "mcp_filesystem_read_file",
+          args: { path: "README.md" },
+          mcp: {
+            serverId: "filesystem",
+            serverName: "Filesystem",
+            toolName: "read_file",
+            toolTitle: "Read File",
+          },
+          status: "awaiting_approval",
+        }}
+        tabId="tab-1"
+        onOpenProjectSettings={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("MCP / Filesystem / Read File")).not.toBeNull();
+  });
 });

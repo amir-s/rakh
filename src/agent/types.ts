@@ -134,6 +134,12 @@ export interface ToolCallDisplay {
   id: string;
   tool: string;
   args: Record<string, unknown>;
+  mcp?: {
+    serverId: string;
+    serverName: string;
+    toolName: string;
+    toolTitle?: string;
+  };
   result?: unknown;
   /** Live stdout+stderr accumulated while the command is running. */
   streamingOutput?: string;
@@ -216,10 +222,7 @@ export interface ChatMessage {
    * Subagent messages carry the subagent's name (e.g. "Planner").
    */
   agentName?: string;
-  /**
-   * Stable bubble/thread identifier for assistant messages that should stay in
-   * the same UI bubble even when other assistant messages interleave.
-   */
+  /** Stable assistant bubble thread key for interleaved assistant messages. */
   bubbleGroupId?: string;
   /** Optional streamed reasoning content for this assistant turn. */
   reasoning?: string;

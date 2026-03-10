@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { createPortal } from "react-dom";
 import type { ToolCallDisplay } from "@/agent/types";
+import { getToolCallIcon, getToolCallLabel } from "@/components/toolDisplay";
 import { cn } from "@/utils/cn";
 import { Button, ModalShell } from "@/components/ui";
 
@@ -9,46 +10,6 @@ import { Button, ModalShell } from "@/components/ui";
    completed (done / denied / error / running) tool call's parameters and
    result after the fact.
 ───────────────────────────────────────────────────────────────────────────── */
-
-/** Icon shown per tool category. Falls back to "build". */
-const TOOL_ICON: Record<string, string> = {
-  workspace_listDir: "folder_open",
-  workspace_readFile: "description",
-  workspace_writeFile: "edit_document",
-  workspace_editFile: "difference",
-  workspace_glob: "search",
-  workspace_search: "manage_search",
-  exec_run: "terminal",
-  agent_card_add: "dashboard_customize",
-  agent_artifact_create: "inventory_2",
-  agent_artifact_version: "layers",
-  agent_artifact_get: "pageview",
-  agent_artifact_list: "lists",
-  agent_todo_add: "checklist",
-  agent_todo_update: "checklist",
-  agent_todo_list: "checklist",
-  agent_todo_remove: "checklist",
-};
-
-/** Human-friendly label shown in the modal header. */
-const TOOL_LABEL: Record<string, string> = {
-  workspace_listDir: "LIST DIRECTORY",
-  workspace_readFile: "READ FILE",
-  workspace_writeFile: "WRITE FILE",
-  workspace_editFile: "EDIT FILE",
-  workspace_glob: "GLOB FILES",
-  workspace_search: "SEARCH FILES",
-  exec_run: "RUN COMMAND",
-  agent_card_add: "ADD CARD",
-  agent_artifact_create: "CREATE ARTIFACT",
-  agent_artifact_version: "VERSION ARTIFACT",
-  agent_artifact_get: "GET ARTIFACT",
-  agent_artifact_list: "LIST ARTIFACTS",
-  agent_todo_add: "ADD TODO",
-  agent_todo_update: "UPDATE TODO",
-  agent_todo_list: "LIST TODOS",
-  agent_todo_remove: "REMOVE TODO",
-};
 
 /** Status badge Tailwind classes */
 const STATUS_BADGE: Record<string, { className: string; label: string }> = {
@@ -105,8 +66,8 @@ export default function ToolCallDetailsModal({
 }: ToolCallDetailsModalProps) {
   const { tool, args, result, status } = toolCall;
 
-  const icon = TOOL_ICON[tool] ?? "build";
-  const label = TOOL_LABEL[tool] ?? tool.toUpperCase();
+  const icon = getToolCallIcon(toolCall);
+  const label = getToolCallLabel(toolCall);
   const badge = STATUS_BADGE[status];
 
   // Close on Escape

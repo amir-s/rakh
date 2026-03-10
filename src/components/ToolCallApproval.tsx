@@ -16,39 +16,12 @@ import type { EditFileChange } from "@/agent/tools/workspace";
 import type { DiffFile } from "@/components/DiffViewer";
 import { deserializeDiff } from "@/components/diffSerialization";
 import { Badge, Button, TextField } from "@/components/ui";
+import { getToolCallIcon, getToolCallLabel } from "@/components/toolDisplay";
 
 /* ─────────────────────────────────────────────────────────────────────────────
    ToolCallApproval — rendered when a tool call is in "awaiting_approval" state.
    Generic approval card for tool args and pending actions.
 ───────────────────────────────────────────────────────────────────────────── */
-
-/** Icon shown for each tool category. Falls back to "build". */
-const TOOL_ICON: Record<string, string> = {
-  workspace_listDir: "folder_open",
-  workspace_readFile: "description",
-  workspace_writeFile: "edit_document",
-  workspace_editFile: "difference",
-  workspace_glob: "search",
-  exec_run: "terminal",
-  agent_todo_add: "checklist",
-  agent_todo_update: "checklist",
-  agent_todo_list: "checklist",
-  agent_todo_remove: "checklist",
-};
-
-/** Human-friendly label shown in the card header. */
-const TOOL_LABEL: Record<string, string> = {
-  workspace_listDir: "LIST DIRECTORY",
-  workspace_readFile: "READ FILE",
-  workspace_writeFile: "WRITE FILE",
-  workspace_editFile: "EDIT FILE",
-  workspace_glob: "GLOB FILES",
-  exec_run: "RUN COMMAND",
-  agent_todo_add: "ADD TODO",
-  agent_todo_update: "UPDATE TODO",
-  agent_todo_list: "LIST TODOS",
-  agent_todo_remove: "REMOVE TODO",
-};
 
 /** Render a single arg value — keeps strings unquoted, objects as compact JSON. */
 function renderArgValue(value: unknown): string {
@@ -666,8 +639,8 @@ export default function ToolCallApproval({
     );
   }
 
-  const icon = TOOL_ICON[tool] ?? "build";
-  const label = TOOL_LABEL[tool] ?? tool.toUpperCase();
+  const icon = getToolCallIcon(toolCall);
+  const label = getToolCallLabel(toolCall);
 
   const argEntries = Object.entries(args);
 

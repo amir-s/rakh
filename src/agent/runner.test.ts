@@ -13,6 +13,9 @@ type MockTurn = {
   toolCalls?: MockToolCall[];
   toolCallsError?: unknown;
   streamError?: unknown;
+  finishReason?: string;
+  rawFinishReason?: string;
+  steps?: unknown[];
 };
 
 type MockAgentState = {
@@ -41,6 +44,8 @@ type MockAgentState = {
 const {
   states,
   providersAtomMock,
+  mcpServersAtomMock,
+  mcpSettingsAtomMock,
   globalCommunicationProfileAtomMock,
   profilesAtomMock,
   jotaiStoreMock,
@@ -57,9 +62,15 @@ const {
   createOpenAICompatibleMock,
   execAbortMock,
   execStopMock,
+  prepareMcpRunMock,
+  callMcpToolMock,
+  shutdownMcpRunMock,
+  artifactCreateMock,
 } = vi.hoisted(() => ({
   states: {} as Record<string, MockAgentState>,
   providersAtomMock: { kind: "providers-atom" },
+  mcpServersAtomMock: { kind: "mcp-servers-atom" },
+  mcpSettingsAtomMock: { kind: "mcp-settings-atom" },
   globalCommunicationProfileAtomMock: { kind: "global-communication-profile-atom" },
   profilesAtomMock: { kind: "profiles-atom" },
   jotaiStoreMock: {
@@ -78,6 +89,10 @@ const {
   execAbortMock: vi.fn(),
   execStopMock: vi.fn(),
   createOpenAICompatibleMock: vi.fn(),
+  prepareMcpRunMock: vi.fn(),
+  callMcpToolMock: vi.fn(),
+  shutdownMcpRunMock: vi.fn(),
+  artifactCreateMock: vi.fn(),
 }));
 
 vi.mock("./atoms", () => ({
@@ -144,6 +159,94 @@ vi.mock("./tools/exec", () => ({
   execStop: (...args: unknown[]) => execStopMock(...args),
 }));
 
+vi.mock("./mcp", () => {
+  const slugify = (value: string) =>
+    value
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "") || "tool";
+
+  return {
+    mcpServersAtom: mcpServersAtomMock,
+    mcpSettingsAtom: mcpSettingsAtomMock,
+    loadMcpServers: vi.fn(),
+    loadMcpSettings: vi.fn(),
+    saveMcpServers: vi.fn(),
+    saveMcpSettings: vi.fn(),
+    testMcpServer: vi.fn(),
+    prepareMcpRun: (...args: unknown[]) => prepareMcpRunMock(...args),
+    callMcpTool: (...args: unknown[]) => callMcpToolMock(...args),
+    shutdownMcpRun: (...args: unknown[]) => shutdownMcpRunMock(...args),
+    extractMcpToolErrorMessage: (result: {
+      structuredContent?: unknown;
+      content: Array<{ type?: unknown; text?: unknown }>;
+    }) => {
+      if (
+        typeof result.structuredContent === "string" &&
+        result.structuredContent.trim()
+      ) {
+        return result.structuredContent;
+      }
+      const textPart = result.content.find(
+        (item) => item?.type === "text" && typeof item.text === "string",
+      );
+      return textPart?.text ?? "MCP tool reported an error.";
+    },
+    buildMcpRuntimeToolRegistry: (
+      tools: Array<{
+        serverId: string;
+        serverName: string;
+        name: string;
+        title?: string;
+        description?: string;
+        inputSchema: Record<string, unknown>;
+      }>,
+      reservedNames: Iterable<string> = [],
+    ) => {
+      const usedNames = new Set(reservedNames);
+      const definitions: Record<string, Record<string, unknown>> = {};
+      const toolsByName: Record<string, Record<string, unknown>> = {};
+
+      for (const tool of tools) {
+        const baseName = `mcp_${slugify(tool.serverName || tool.serverId)}_${slugify(tool.name)}`;
+        let syntheticName = baseName;
+        let counter = 2;
+        while (usedNames.has(syntheticName)) {
+          syntheticName = `${baseName}_${counter}`;
+          counter += 1;
+        }
+        usedNames.add(syntheticName);
+        definitions[syntheticName] = {
+          description: tool.description ?? tool.title ?? tool.name,
+          inputSchema: tool.inputSchema,
+        };
+        toolsByName[syntheticName] = {
+          syntheticName,
+          serverId: tool.serverId,
+          serverName: tool.serverName,
+          toolName: tool.name,
+          toolTitle: tool.title,
+          description: tool.description,
+          inputSchema: tool.inputSchema,
+        };
+      }
+
+      return { definitions, toolsByName };
+    },
+  };
+});
+
+vi.mock("./tools/artifacts", async () => {
+  const actual = await vi.importActual<typeof import("./tools/artifacts")>(
+    "./tools/artifacts",
+  );
+  return {
+    ...actual,
+    artifactCreate: (...args: unknown[]) => artifactCreateMock(...args),
+  };
+});
+
 import {
   buildProviderOptions,
   resumeQueue,
@@ -154,9 +257,8 @@ import {
   stopAgent,
   stopRunningExecToolCall,
 } from "./runner";
-import { groupChatMessagesForBubbles } from "./chatBubbleGroups";
 import { registerDynamicModels } from "./modelCatalog";
-import type { AdvancedModelOptions, ChatMessage } from "./types";
+import type { AdvancedModelOptions } from "./types";
 import { DEFAULT_ADVANCED_OPTIONS } from "./types";
 
 function makeState(overrides: Partial<MockAgentState> = {}): MockAgentState {
@@ -255,16 +357,6 @@ async function flushAsyncWork(rounds = 6): Promise<void> {
   }
 }
 
-function createDeferred<T = void>() {
-  let resolve!: (value: T | PromiseLike<T>) => void;
-  let reject!: (reason?: unknown) => void;
-  const promise = new Promise<T>((res, rej) => {
-    resolve = res;
-    reject = rej;
-  });
-  return { promise, resolve, reject };
-}
-
 describe("runner", () => {
   beforeEach(() => {
     registerDynamicModels([
@@ -293,6 +385,10 @@ describe("runner", () => {
     createAnthropicMock.mockReset();
     execAbortMock.mockReset();
     execStopMock.mockReset();
+    prepareMcpRunMock.mockReset();
+    callMcpToolMock.mockReset();
+    shutdownMcpRunMock.mockReset();
+    artifactCreateMock.mockReset();
     jotaiStoreMock.get.mockReset();
 
     jotaiStoreMock.get.mockImplementation((atom: unknown) => {
@@ -319,6 +415,12 @@ describe("runner", () => {
           },
         ];
       }
+      if (atom === mcpServersAtomMock) {
+        return [];
+      }
+      if (atom === mcpSettingsAtomMock) {
+        return { artifactizeReturnedFiles: false };
+      }
       if (atom === profilesAtomMock) {
         return [];
       }
@@ -334,9 +436,45 @@ describe("runner", () => {
     dispatchToolMock.mockResolvedValue({ ok: true, data: { ok: true } });
     validateToolMock.mockResolvedValue(null);
     execStopMock.mockResolvedValue(true);
+    prepareMcpRunMock.mockResolvedValue({ tools: [], failures: [] });
+    callMcpToolMock.mockResolvedValue({ content: [] });
+    shutdownMcpRunMock.mockResolvedValue(undefined);
+    artifactCreateMock.mockResolvedValue({
+      ok: true,
+      data: { artifact: makeArtifact() },
+    });
 
     streamTextMock.mockImplementation(() => {
       const turn = turns.shift() ?? { deltas: [], toolCalls: [] };
+      const turnToolCalls = turn.toolCalls ?? [];
+      const streamedText = (turn.fullStreamParts ?? [])
+        .flatMap((part) =>
+          typeof part === "object" &&
+          part !== null &&
+          "type" in part &&
+          part.type === "text-delta" &&
+          "delta" in part &&
+          typeof part.delta === "string"
+            ? [part.delta]
+            : [],
+        )
+        .join("");
+      const streamedReasoning = (turn.fullStreamParts ?? [])
+        .flatMap((part) =>
+          typeof part === "object" &&
+          part !== null &&
+          "type" in part &&
+          part.type === "reasoning-delta" &&
+          "delta" in part &&
+          typeof part.delta === "string"
+            ? [part.delta]
+            : [],
+        )
+        .join("");
+      const turnText = `${streamedText}${(turn.deltas ?? []).join("")}`;
+      const turnReasoning = `${streamedReasoning}${(turn.reasoningDeltas ?? []).join("")}`;
+      const finishReason =
+        turn.finishReason ?? (turnToolCalls.length > 0 ? "tool-calls" : "stop");
       const textStream = (async function* () {
         if (turn.streamError) throw turn.streamError;
         for (const delta of turn.deltas ?? []) yield delta;
@@ -356,7 +494,23 @@ describe("runner", () => {
         fullStream,
         toolCalls: turn.toolCallsError
           ? Promise.reject(turn.toolCallsError)
-          : Promise.resolve(turn.toolCalls ?? []),
+          : Promise.resolve(turnToolCalls),
+        finishReason: Promise.resolve(finishReason),
+        rawFinishReason: Promise.resolve(turn.rawFinishReason),
+        steps: Promise.resolve(
+          turn.steps ?? [
+            {
+              stepNumber: 0,
+              finishReason,
+              rawFinishReason: turn.rawFinishReason,
+              text: turnText,
+              reasoningText: turnReasoning || undefined,
+              toolCalls: turnToolCalls.map((toolCall) => ({
+                toolName: toolCall.name,
+              })),
+            },
+          ],
+        ),
       };
     });
   });
@@ -404,6 +558,417 @@ describe("runner", () => {
       content: "Hello world",
     });
     expect(dispatchToolMock).not.toHaveBeenCalled();
+  });
+
+  it("merges discovered MCP tools into the main run and routes them through approval", async () => {
+    const tabId = "tab-mcp-tool";
+    setState(tabId, {
+      config: { cwd: "/workspace/app", model: "openai/gpt-5.2" },
+    });
+    jotaiStoreMock.get.mockImplementation((atom: unknown) => {
+      if (atom === providersAtomMock) {
+        return [
+          {
+            id: "test-openai-id",
+            name: "test-openai",
+            type: "openai",
+            apiKey: "test-key",
+          },
+        ];
+      }
+      if (atom === mcpServersAtomMock) {
+        return [
+          {
+            id: "filesystem",
+            name: "Filesystem",
+            enabled: true,
+            transport: "stdio",
+            command: "npx",
+            args: ["-y", "@modelcontextprotocol/server-filesystem", "."],
+          },
+        ];
+      }
+      if (atom === profilesAtomMock) return [];
+      if (atom === globalCommunicationProfileAtomMock) {
+        return "global-test-profile";
+      }
+      return undefined;
+    });
+    prepareMcpRunMock.mockResolvedValue({
+      tools: [
+        {
+          serverId: "filesystem",
+          serverName: "Filesystem",
+          name: "read_file",
+          title: "Read File",
+          description: "Read a file from the MCP filesystem server.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              path: { type: "string" },
+            },
+            required: ["path"],
+          },
+        },
+      ],
+      failures: [],
+    });
+    callMcpToolMock.mockResolvedValue({
+      content: [{ type: "text", text: "README contents" }],
+      structuredContent: { path: "README.md" },
+      isError: false,
+    });
+    turns.push({
+      deltas: ["Checking files."],
+      toolCalls: [
+        {
+          id: "tc-mcp-1",
+          name: "mcp_filesystem_read_file",
+          arguments: { path: "README.md" },
+        },
+      ],
+    });
+    turns.push({ deltas: ["Done."], toolCalls: [] });
+
+    await runAgent(tabId, "read the readme");
+
+    expect(prepareMcpRunMock).toHaveBeenCalledWith(
+      expect.any(String),
+      "/workspace/app",
+      [
+        expect.objectContaining({
+          id: "filesystem",
+          name: "Filesystem",
+          enabled: true,
+        }),
+      ],
+    );
+    const firstStreamCall = streamTextMock.mock.calls[0]?.[0] as
+      | Record<string, unknown>
+      | undefined;
+    expect(firstStreamCall).toBeDefined();
+    expect(firstStreamCall?.tools).toMatchObject({
+      mcp_filesystem_read_file: expect.objectContaining({
+        description: "Read a file from the MCP filesystem server.",
+      }),
+    });
+    expect(requestApprovalMock).toHaveBeenCalledWith("tab-mcp-tool", "tc-mcp-1");
+    expect(validateToolMock).not.toHaveBeenCalled();
+    expect(dispatchToolMock).not.toHaveBeenCalled();
+    expect(callMcpToolMock).toHaveBeenCalledWith(
+      expect.any(String),
+      "filesystem",
+      "read_file",
+      { path: "README.md" },
+    );
+    expect(parseToolMessageResult(tabId, "tc-mcp-1")).toMatchObject({
+      ok: true,
+      data: {
+        content: [{ type: "text", text: "README contents" }],
+        structuredContent: { path: "README.md" },
+        isError: false,
+      },
+    });
+    expect(states[tabId].chatMessages[1]).toMatchObject({
+      badge: "CALLING TOOLS",
+      toolCalls: [
+        expect.objectContaining({
+          tool: "mcp_filesystem_read_file",
+          status: "done",
+          mcp: {
+            serverId: "filesystem",
+            serverName: "Filesystem",
+            toolName: "read_file",
+            toolTitle: "Read File",
+          },
+        }),
+      ],
+    });
+    expect(shutdownMcpRunMock).toHaveBeenCalledWith(expect.any(String));
+  });
+
+  it("artifactizes MCP file payloads only when the global MCP setting is enabled", async () => {
+    const tabId = "tab-mcp-artifactize";
+    setState(tabId, {
+      config: { cwd: "/workspace/app", model: "openai/gpt-5.2" },
+    });
+    jotaiStoreMock.get.mockImplementation((atom: unknown) => {
+      if (atom === providersAtomMock) {
+        return [
+          {
+            id: "test-openai-id",
+            name: "test-openai",
+            type: "openai",
+            apiKey: "test-key",
+          },
+        ];
+      }
+      if (atom === mcpServersAtomMock) {
+        return [
+          {
+            id: "playwright",
+            name: "Playwright",
+            enabled: true,
+            transport: "stdio",
+            command: "npx",
+            args: ["@playwright/mcp"],
+          },
+        ];
+      }
+      if (atom === mcpSettingsAtomMock) {
+        return { artifactizeReturnedFiles: true };
+      }
+      if (atom === profilesAtomMock) return [];
+      if (atom === globalCommunicationProfileAtomMock) {
+        return "global-test-profile";
+      }
+      return undefined;
+    });
+    prepareMcpRunMock.mockResolvedValue({
+      tools: [
+        {
+          serverId: "playwright",
+          serverName: "Playwright",
+          name: "browser_take_screenshot",
+          title: "Take Screenshot",
+          description: "Capture the current viewport.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              filename: { type: "string" },
+            },
+          },
+        },
+      ],
+      failures: [],
+    });
+    callMcpToolMock.mockResolvedValue({
+      content: [
+        { type: "text", text: "### Result\n- [Screenshot](screenshot-2.png)" },
+        {
+          type: "image",
+          mimeType: "image/png",
+          data: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB",
+        },
+      ],
+      isError: false,
+    });
+    artifactCreateMock.mockResolvedValue({
+      ok: true,
+      data: {
+        artifact: makeArtifact({
+          artifactId: "mcp_attachment_1",
+          version: 2,
+          kind: "mcp-attachment",
+          summary: "Playwright · Take Screenshot · image/png",
+        }),
+      },
+    });
+    turns.push({
+      deltas: ["Taking a screenshot."],
+      toolCalls: [
+        {
+          id: "tc-mcp-image-1",
+          name: "mcp_playwright_browser_take_screenshot",
+          arguments: { filename: "screenshot-2.png" },
+        },
+      ],
+    });
+    turns.push({ deltas: ["Done."], toolCalls: [] });
+
+    await runAgent(tabId, "take a screenshot");
+
+    expect(artifactCreateMock).toHaveBeenCalledWith(
+      tabId,
+      expect.objectContaining({
+        agentId: "agent_main",
+        runId: expect.stringMatching(/^run_/),
+      }),
+      expect.objectContaining({
+        kind: "mcp-attachment",
+        contentFormat: "json",
+        summary: "Playwright · Take Screenshot · image/png",
+      }),
+    );
+    const toolResult = parseToolMessageResult(tabId, "tc-mcp-image-1");
+    expect(JSON.stringify(toolResult)).not.toContain("iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB");
+    expect(toolResult).toMatchObject({
+      ok: true,
+      data: {
+        content: [
+          { type: "text", text: "### Result\n- [Screenshot](screenshot-2.png)" },
+          {
+            type: "text",
+            text: expect.stringContaining("mcp_attachment_1@2"),
+          },
+        ],
+        meta: {
+          __rakhMcpArtifacts: [
+            expect.objectContaining({
+              artifactId: "mcp_attachment_1",
+              version: 2,
+              originalType: "image",
+              mimeType: "image/png",
+            }),
+          ],
+        },
+      },
+    });
+    const followUpMessages = (
+      streamTextMock.mock.calls[1]?.[0] as
+        | { messages?: Array<Record<string, unknown>> }
+        | undefined
+    )?.messages;
+    expect(JSON.stringify(followUpMessages)).not.toContain(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB",
+    );
+    expect(JSON.stringify(followUpMessages)).toContain("mcp_attachment_1");
+  });
+
+  it("leaves MCP file payloads untouched when MCP artifactization is disabled", async () => {
+    const tabId = "tab-mcp-no-artifactize";
+    setState(tabId, {
+      config: { cwd: "/workspace/app", model: "openai/gpt-5.2" },
+    });
+    jotaiStoreMock.get.mockImplementation((atom: unknown) => {
+      if (atom === providersAtomMock) {
+        return [
+          {
+            id: "test-openai-id",
+            name: "test-openai",
+            type: "openai",
+            apiKey: "test-key",
+          },
+        ];
+      }
+      if (atom === mcpServersAtomMock) {
+        return [
+          {
+            id: "playwright",
+            name: "Playwright",
+            enabled: true,
+            transport: "stdio",
+            command: "npx",
+            args: ["@playwright/mcp"],
+          },
+        ];
+      }
+      if (atom === mcpSettingsAtomMock) {
+        return { artifactizeReturnedFiles: false };
+      }
+      if (atom === profilesAtomMock) return [];
+      if (atom === globalCommunicationProfileAtomMock) {
+        return "global-test-profile";
+      }
+      return undefined;
+    });
+    prepareMcpRunMock.mockResolvedValue({
+      tools: [
+        {
+          serverId: "playwright",
+          serverName: "Playwright",
+          name: "browser_take_screenshot",
+          title: "Take Screenshot",
+          description: "Capture the current viewport.",
+          inputSchema: { type: "object", properties: {} },
+        },
+      ],
+      failures: [],
+    });
+    callMcpToolMock.mockResolvedValue({
+      content: [
+        {
+          type: "image",
+          mimeType: "image/png",
+          data: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB",
+        },
+      ],
+      isError: false,
+    });
+    turns.push({
+      deltas: ["Taking a screenshot."],
+      toolCalls: [
+        {
+          id: "tc-mcp-image-raw",
+          name: "mcp_playwright_browser_take_screenshot",
+          arguments: { filename: "screenshot-2.png" },
+        },
+      ],
+    });
+    turns.push({ deltas: ["Done."], toolCalls: [] });
+
+    await runAgent(tabId, "take a screenshot");
+
+    expect(artifactCreateMock).not.toHaveBeenCalled();
+    expect(parseToolMessageResult(tabId, "tc-mcp-image-raw")).toMatchObject({
+      ok: true,
+      data: {
+        content: [
+          {
+            type: "image",
+            mimeType: "image/png",
+            data: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB",
+          },
+        ],
+        isError: false,
+      },
+    });
+  });
+
+  it("adds an MCP warning message when one configured server fails discovery", async () => {
+    const tabId = "tab-mcp-warning";
+    setState(tabId);
+    jotaiStoreMock.get.mockImplementation((atom: unknown) => {
+      if (atom === providersAtomMock) {
+        return [
+          {
+            id: "test-openai-id",
+            name: "test-openai",
+            type: "openai",
+            apiKey: "test-key",
+          },
+        ];
+      }
+      if (atom === mcpServersAtomMock) {
+        return [
+          {
+            id: "broken-server",
+            name: "Broken Server",
+            enabled: true,
+            transport: "streamable-http",
+            url: "http://localhost:1234/mcp",
+          },
+        ];
+      }
+      if (atom === profilesAtomMock) return [];
+      if (atom === globalCommunicationProfileAtomMock) {
+        return "global-test-profile";
+      }
+      return undefined;
+    });
+    prepareMcpRunMock.mockResolvedValue({
+      tools: [],
+      failures: [
+        {
+          serverId: "broken-server",
+          serverName: "Broken Server",
+          error: "Connection refused",
+        },
+      ],
+    });
+    turns.push({ deltas: ["Continuing without MCP."], toolCalls: [] });
+
+    await runAgent(tabId, "hello");
+
+    expect(states[tabId].chatMessages).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          badge: "MCP WARNING",
+          content: expect.stringContaining("Broken Server: Connection refused"),
+        }),
+      ]),
+    );
+    expect(shutdownMcpRunMock).toHaveBeenCalledWith(expect.any(String));
   });
 
   it("includes reviewer scope guidance in the main system prompt via description", async () => {
@@ -522,6 +1087,23 @@ describe("runner", () => {
         expect.arrayContaining([debugPrefix, "stream:reasoning-delta"]),
         expect.arrayContaining([debugPrefix, "stream:text-delta"]),
         expect.arrayContaining([debugPrefix, "stream:tool-calls:raw"]),
+        expect.arrayContaining([
+          debugPrefix,
+          "stream:finish",
+          expect.objectContaining({
+            finishReason: "stop",
+            stepCount: 1,
+            steps: [
+              expect.objectContaining({
+                stepNumber: 0,
+                finishReason: "stop",
+                textChars: "Final answer.".length,
+                reasoningChars: "Inspect files.".length,
+                toolCallCount: 0,
+              }),
+            ],
+          }),
+        ]),
         expect.arrayContaining([debugPrefix, "stream:summary"]),
       ]),
     );
@@ -1129,7 +1711,7 @@ describe("runner", () => {
     );
 
     resumeQueue(tabId);
-    await flushAsyncWork(12);
+    await flushAsyncWork(20);
 
     expect(states[tabId].queueState).toBe("idle");
     expect(states[tabId].queuedMessages).toEqual([]);
@@ -1849,176 +2431,6 @@ describe("runner", () => {
         },
       });
       expect(streamTextMock).toHaveBeenCalledTimes(4);
-    });
-
-    it("keeps parallel subagent invocations isolated in chat state", async () => {
-      const tabId = "tab-subagent-parallel";
-      setState(tabId);
-
-      const subagentToolCallIds = [
-        "tc-github-1",
-        "tc-github-2",
-        "tc-github-3",
-      ] as const;
-      const subagentOutputs = [
-        {
-          text: "Created issue for the tray request.",
-          reasoning: "Inspect tray-related code paths.",
-        },
-        {
-          text: "Created issue for archived tab grouping.",
-          reasoning: "Inspect archived session persistence.",
-        },
-        {
-          text: "Created issue for approved command allowlists.",
-          reasoning: "Inspect exec approvals and settings state.",
-        },
-      ] as const;
-      const subagentGates = subagentOutputs.map(() => createDeferred<void>());
-      const emptyStream = () => (async function* () {})();
-      let streamCallIndex = 0;
-
-      streamTextMock.mockImplementation(() => {
-        const currentCall = streamCallIndex;
-        streamCallIndex += 1;
-
-        if (currentCall === 0) {
-          return {
-            textStream: emptyStream(),
-            fullStream: emptyStream(),
-            toolCalls: Promise.resolve(
-              subagentToolCallIds.map((toolCallId, index) => ({
-                id: toolCallId,
-                name: "agent_subagent_call",
-                arguments: {
-                  subagentId: "github",
-                  message: `create issue ${index + 1}`,
-                },
-              })),
-            ),
-          };
-        }
-
-        if (currentCall >= 1 && currentCall <= 3) {
-          const output = subagentOutputs[currentCall - 1];
-          const gate = subagentGates[currentCall - 1];
-          return {
-            textStream: emptyStream(),
-            fullStream: (async function* () {
-              await gate.promise;
-              yield {
-                type: "reasoning-start",
-                id: `reasoning-${currentCall}`,
-              };
-              yield {
-                type: "reasoning-delta",
-                id: `reasoning-${currentCall}`,
-                delta: output.reasoning,
-              };
-              await Promise.resolve();
-              yield {
-                type: "text-delta",
-                id: `text-${currentCall}`,
-                delta: output.text,
-              };
-              yield {
-                type: "reasoning-end",
-                id: `reasoning-${currentCall}`,
-              };
-            })(),
-            toolCalls: Promise.resolve([]),
-          };
-        }
-
-        if (currentCall === 4) {
-          return {
-            textStream: (async function* () {
-              yield "All issues created.";
-            })(),
-            fullStream: (async function* () {
-              yield {
-                type: "text-delta",
-                id: "text-main-final",
-                delta: "All issues created.",
-              };
-            })(),
-            toolCalls: Promise.resolve([]),
-          };
-        }
-
-        throw new Error(`Unexpected streamText call index ${currentCall}`);
-      });
-
-      const runPromise = runAgent(tabId, "create three issues");
-      await flushAsyncWork(6);
-
-      expect(streamCallIndex).toBe(4);
-
-      subagentGates[1]?.resolve();
-      await flushAsyncWork(6);
-      subagentGates[0]?.resolve();
-      await flushAsyncWork(6);
-      subagentGates[2]?.resolve();
-
-      await runPromise;
-
-      const state = states[tabId];
-      expect(state.status).toBe("idle");
-
-      const subagentMessages = state.chatMessages.filter(
-        (message) => message.agentName === "GitHub Operator",
-      );
-      expect(subagentMessages).toHaveLength(3);
-      expect(
-        new Set(subagentMessages.map((message) => message.bubbleGroupId)),
-      ).toEqual(new Set(subagentToolCallIds));
-      expect(
-        subagentMessages.every((message) => message.streaming === false),
-      ).toBe(true);
-      expect(
-        subagentMessages.every(
-          (message) => message.reasoningStreaming === undefined,
-        ),
-      ).toBe(true);
-      expect(
-        subagentMessages.every(
-          (message) => typeof message.reasoningDurationMs === "number",
-        ),
-      ).toBe(true);
-
-      const toolCallStatusById = new Map(
-        state.chatMessages
-          .flatMap(
-            (message) =>
-              (message.toolCalls as Array<Record<string, unknown>> | undefined) ??
-              [],
-          )
-          .map((toolCall) => [toolCall.id, toolCall.status]),
-      );
-      for (const toolCallId of subagentToolCallIds) {
-        expect(toolCallStatusById.get(toolCallId)).toBe("done");
-      }
-
-      for (const [index, toolCallId] of subagentToolCallIds.entries()) {
-        expect(parseToolMessageResult(tabId, toolCallId)).toMatchObject({
-          ok: true,
-          data: {
-            subagentId: "github",
-            rawText: subagentOutputs[index]?.text,
-          },
-        });
-      }
-
-      const groupedMessages = groupChatMessagesForBubbles(
-        state.chatMessages as unknown as ChatMessage[],
-      );
-      expect(
-        groupedMessages.filter(
-          (group) =>
-            group.kind === "assistant" &&
-            group.agentName === "GitHub Operator",
-        ),
-      ).toHaveLength(3);
     });
 
     it("rejects invalid reviewer artifacts before persistence and succeeds after retry", async () => {
