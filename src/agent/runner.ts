@@ -951,15 +951,51 @@ function appendChatMessage(tabId: string, msg: ChatMessage): void {
   }));
 }
 
-function updateLastChatMessage(
+function updateChatMessageById(
   tabId: string,
+  messageId: string,
   updater: (msg: ChatMessage) => ChatMessage,
 ): void {
   patchAgentState(tabId, (prev) => {
-    const msgs = [...prev.chatMessages];
-    if (msgs.length === 0) return prev;
-    msgs[msgs.length - 1] = updater(msgs[msgs.length - 1]);
-    return { ...prev, chatMessages: msgs };
+    let didUpdate = false;
+    const chatMessages = prev.chatMessages.map((msg) => {
+      if (msg.id !== messageId) return msg;
+      didUpdate = true;
+      return updater(msg);
+    });
+    return didUpdate ? { ...prev, chatMessages } : prev;
+  });
+}
+
+function finalizeLatestStreamingAssistantMessage(tabId: string): void {
+  const finalizedAtMs = Date.now();
+  patchAgentState(tabId, (prev) => {
+    const chatMessages = [...prev.chatMessages];
+    for (let index = chatMessages.length - 1; index >= 0; index -= 1) {
+      const msg = chatMessages[index];
+      if (msg.role !== "assistant") continue;
+      const reasoningStartedAtMs = msg.reasoningStartedAtMs;
+      const shouldFinalizeReasoningDuration =
+        typeof reasoningStartedAtMs === "number" &&
+        typeof msg.reasoningDurationMs !== "number";
+      if (
+        !msg.streaming &&
+        !msg.reasoningStreaming &&
+        !shouldFinalizeReasoningDuration
+      ) {
+        continue;
+      }
+      chatMessages[index] = {
+        ...msg,
+        streaming: false,
+        reasoningStreaming: undefined,
+        reasoningDurationMs: shouldFinalizeReasoningDuration
+          ? Math.max(0, finalizedAtMs - reasoningStartedAtMs)
+          : msg.reasoningDurationMs,
+      };
+      return { ...prev, chatMessages };
+    }
+    return prev;
   });
 }
 
@@ -1286,6 +1322,7 @@ interface SubagentLoopOptions {
   parentModelId: string;
   providers: ProviderInstance[];
   debugEnabled: boolean;
+  bubbleGroupId?: string;
 }
 
 /**
@@ -1313,10 +1350,12 @@ async function runSubagentLoop(
     parentModelId,
     providers,
     debugEnabled,
+    bubbleGroupId,
   } = opts;
 
   const startedAtMs = Date.now();
   const modelId = resolveSubagentModelId(subagentDef, parentModelId, providers);
+  const resolvedBubbleGroupId = bubbleGroupId?.trim() || msgId();
 
   let languageModel;
   try {
@@ -1667,6 +1706,7 @@ async function runSubagentLoop(
       id: assistantChatId,
       role: "assistant",
       agentName: subagentDef.name,
+      bubbleGroupId: resolvedBubbleGroupId,
       content: "",
       timestamp: Date.now(),
       streaming: true,
@@ -1682,19 +1722,16 @@ async function runSubagentLoop(
     });
 
     const updateSubagentStreamMsg = () => {
-      updateLastChatMessage(tabId, (m) =>
-        m.id === assistantChatId
-          ? {
-              ...m,
-              agentName: subagentDef.name,
-              content: accText,
-              reasoning: accReasoning || undefined,
-              reasoningStreaming: reasoningActive ? true : undefined,
-              reasoningStartedAtMs: reasoningStartedAtMs ?? undefined,
-              reasoningDurationMs: reasoningDurationMs ?? undefined,
-            }
-          : m,
-      );
+      updateChatMessageById(tabId, assistantChatId, (m) => ({
+        ...m,
+        agentName: subagentDef.name,
+        bubbleGroupId: resolvedBubbleGroupId,
+        content: accText,
+        reasoning: accReasoning || undefined,
+        reasoningStreaming: reasoningActive ? true : undefined,
+        reasoningStartedAtMs: reasoningStartedAtMs ?? undefined,
+        reasoningDurationMs: reasoningDurationMs ?? undefined,
+      }));
     };
 
     try {
@@ -1785,11 +1822,11 @@ async function runSubagentLoop(
     );
 
     // Finalise the streaming assistant message.
-    updateLastChatMessage(tabId, (m) => {
-      if (m.id !== assistantChatId) return m;
+    updateChatMessageById(tabId, assistantChatId, (m) => {
       return {
         ...m,
         agentName: subagentDef.name,
+        bubbleGroupId: resolvedBubbleGroupId,
         content: accText,
         reasoning: accReasoning || undefined,
         reasoningStreaming: undefined,
@@ -2277,9 +2314,7 @@ async function runAgentTurn(
       }
       const msg = err instanceof Error ? err.message : String(err);
       setAgentErrorState(tabId, msg, serializeError(err));
-      updateLastChatMessage(tabId, (m) =>
-        m.role === "assistant" ? { ...m, streaming: false } : m,
-      );
+      finalizeLatestStreamingAssistantMessage(tabId);
       return;
     } finally {
       clearActiveRun(tabId, activeRun);
@@ -2471,9 +2506,7 @@ async function runAgentTurn(
     }
     const msg = err instanceof Error ? err.message : String(err);
     setAgentErrorState(tabId, msg, serializeError(err));
-    updateLastChatMessage(tabId, (m) =>
-      m.role === "assistant" ? { ...m, streaming: false } : m,
-    );
+    finalizeLatestStreamingAssistantMessage(tabId);
   } finally {
     clearActiveRun(tabId, activeRun);
     if (activeRun.abortReason !== null) return;
@@ -2582,18 +2615,14 @@ async function agentLoop(
       };
 
       const updateStreamingMessage = () => {
-        updateLastChatMessage(tabId, (m) =>
-          m.id === assistantChatId
-            ? {
-                ...m,
-                content: accText,
-                reasoning: accReasoning || undefined,
-                reasoningStreaming: reasoningActive ? true : undefined,
-                reasoningStartedAtMs: reasoningStartedAtMs ?? undefined,
-                reasoningDurationMs: reasoningDurationMs ?? undefined,
-              }
-            : m,
-        );
+        updateChatMessageById(tabId, assistantChatId, (m) => ({
+          ...m,
+          content: accText,
+          reasoning: accReasoning || undefined,
+          reasoningStreaming: reasoningActive ? true : undefined,
+          reasoningStartedAtMs: reasoningStartedAtMs ?? undefined,
+          reasoningDurationMs: reasoningDurationMs ?? undefined,
+        }));
       };
 
       const fullStream = (result as { fullStream?: AsyncIterable<unknown> })
@@ -2758,8 +2787,7 @@ async function agentLoop(
 
     // Finalise the streaming chat message. Every assistant turn maps to one
     // assistant bubble; tool calls for this turn stay attached to this bubble.
-    updateLastChatMessage(tabId, (m) => {
-      if (m.id !== assistantChatId) return m;
+    updateChatMessageById(tabId, assistantChatId, (m) => {
       return {
         ...m,
         content: accText,
@@ -2881,6 +2909,7 @@ async function agentLoop(
             parentModelId: modelId,
             providers,
             debugEnabled,
+            bubbleGroupId: tcId,
           });
 
           updateToolCallById({
