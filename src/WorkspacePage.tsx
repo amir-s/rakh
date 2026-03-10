@@ -32,6 +32,7 @@ import ToolCallDetailsModal from "@/components/ToolCallDetailsModal";
 import ModelPickerModal from "@/components/ModelPickerModal";
 import CompactToolCall from "@/components/CompactToolCall";
 import ReasoningThought from "@/components/ReasoningThought";
+import ProjectCommandBar from "@/components/ProjectCommandBar";
 import {
   MentionTextarea,
   type MentionTextareaHandle,
@@ -65,7 +66,10 @@ import {
   upsertSavedProject,
   type SavedProject,
 } from "@/projects";
-import { writeProjectScriptsConfig } from "@/projectScripts";
+import {
+  writeProjectScriptsConfig,
+  type ProjectCommandConfig,
+} from "@/projectScripts";
 
 /* ─────────────────────────────────────────────────────────────────────────────
    Page
@@ -197,9 +201,16 @@ export default function WorkspacePage() {
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
   const [projectSettingsProject, setProjectSettingsProject] =
     useState<SavedProject | null>(null);
+  const [projectCommands, setProjectCommands] = useState<ProjectCommandConfig[]>([]);
+  const [commandBarOpen, setCommandBarOpen] = useState(true);
+  const [terminalCommandRequest, setTerminalCommandRequest] = useState<{
+    id: number;
+    command: string;
+  } | null>(null);
   const [reasoningExpandedById, setReasoningExpandedById] = useState<
     Record<string, boolean>
   >({});
+  const terminalCommandRequestIdRef = useRef(0);
 
   // Track unseen updates even when pane is collapsed
   const {
@@ -277,7 +288,43 @@ export default function WorkspacePage() {
     }
   }, [isNewSession]);
 
+  useEffect(() => {
+    if (isNewSession) {
+      setProjectCommands([]);
+      return;
+    }
+
+    const projectPath = agent.config.projectPath?.trim();
+    if (!projectPath) {
+      setProjectCommands([]);
+      return;
+    }
+
+    let cancelled = false;
+    const savedProject =
+      findSavedProject(projectPath) ?? {
+        path: projectPath,
+        name: inferProjectName(projectPath),
+      };
+
+    void resolveSavedProject(savedProject)
+      .then((resolvedProject) => {
+        if (cancelled) return;
+        setProjectCommands(resolvedProject.commands ?? []);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setProjectCommands([]);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTabId, agent.config.projectPath, isNewSession]);
+
   const toggleTerminal = useCallback(() => setTerminalOpen((v) => !v), []);
+  const toggleCommandBar = useCallback(() => setCommandBarOpen((v) => !v), []);
+  const openTerminal = useCallback(() => setTerminalOpen(true), []);
   const toggleArtifacts = useCallback(() => setArtifactOpen((v) => !v), []);
   const toggleReasoning = useCallback((messageId: string) => {
     setReasoningExpandedById((prev) => ({
@@ -410,6 +457,7 @@ export default function WorkspacePage() {
           ? { setupCommand: resolvedProject.setupCommand }
           : { setupCommand: undefined }),
       });
+      setProjectCommands(resolvedProject.commands ?? []);
       setProjectSettingsProject(null);
     },
     [agent],
@@ -440,9 +488,23 @@ export default function WorkspacePage() {
           ? { setupCommand: resolvedProject.setupCommand }
           : { setupCommand: undefined }),
       });
+      setProjectCommands(resolvedProject.commands ?? []);
       setProjectSettingsProject(resolvedProject);
     },
     [agent],
+  );
+
+  const handleRunProjectCommand = useCallback(
+    (command: ProjectCommandConfig) => {
+      const nextId = terminalCommandRequestIdRef.current + 1;
+      terminalCommandRequestIdRef.current = nextId;
+      openTerminal();
+      setTerminalCommandRequest({
+        id: nextId,
+        command: command.command,
+      });
+    },
+    [openTerminal],
   );
 
   const handleInput = (e: ChangeEvent<HTMLTextAreaElement>) => {
@@ -587,20 +649,27 @@ export default function WorkspacePage() {
   // ── Global Keyboard shortcuts ───────────────────────────────────────────
   useEffect(() => {
     const handleGlobalKeyDown = (e: globalThis.KeyboardEvent) => {
+      const key = e.key.toLowerCase();
+
       if (e.ctrlKey && !e.altKey && !e.shiftKey && !e.metaKey) {
-        if (e.key === "t" || e.key === "T") {
+        if (key === "t") {
           e.preventDefault();
           toggleTerminal();
         }
-        if (e.key === "a" || e.key === "A") {
+        if (key === "a") {
           e.preventDefault();
           toggleArtifacts();
         }
       }
+
+      if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && key === "b") {
+        e.preventDefault();
+        toggleCommandBar();
+      }
     };
     window.addEventListener("keydown", handleGlobalKeyDown);
     return () => window.removeEventListener("keydown", handleGlobalKeyDown);
-  }, [toggleTerminal, toggleArtifacts]);
+  }, [toggleTerminal, toggleArtifacts, toggleCommandBar]);
 
   const executePlanDisabled =
     isAgentBusy || voiceInput.busy || voiceInput.isRecording;
@@ -657,9 +726,38 @@ export default function WorkspacePage() {
     : voiceInput.isTranscribing
       ? "Transcribing voice..."
       : "Send";
+  const commandBarShortcutKeys =
+    typeof navigator !== "undefined" &&
+    (((navigator.platform ?? "").toLowerCase().startsWith("mac")) ||
+      navigator.userAgent.toLowerCase().includes("mac os"))
+      ? ["⌘", "B"]
+      : ["Ctrl", "B"];
 
   return (
     <div className="workspace-outer">
+      {commandBarOpen ? (
+        <ProjectCommandBar
+          commands={projectCommands}
+          onCommandClick={handleRunProjectCommand}
+          variant="workspace"
+          trailingContent={
+            <span className="project-command-bar__shortcut-hint">
+              <span className="project-command-bar__shortcut-label">Toggle</span>
+              <span className="project-command-bar__shortcut-keys" aria-hidden="true">
+                {commandBarShortcutKeys.map((key) => (
+                  <kbd
+                    key={key}
+                    className="project-command-bar__shortcut-key"
+                  >
+                    {key}
+                  </kbd>
+                ))}
+              </span>
+            </span>
+          }
+        />
+      ) : null}
+
       {/* ── Two-pane row ────────────────────────────────────────────── */}
       <div className="workspace" ref={containerRef}>
         {/* ════════════════════════════════════════════════════════════
@@ -1056,6 +1154,7 @@ export default function WorkspacePage() {
         activeTabId={activeTabId}
         cwd={agent.config.cwd}
         agentTitle={agent.tabTitle}
+        commandRequest={terminalCommandRequest}
       />
 
       {/* Error details modal */}

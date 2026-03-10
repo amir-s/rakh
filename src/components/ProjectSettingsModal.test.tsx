@@ -73,6 +73,7 @@ describe("ProjectSettingsModal", () => {
     fireEvent.click(screen.getByTitle("Toggle label visibility"));
     fireEvent.click(screen.getAllByRole("button", { name: "SAVE" })[0]);
 
+    expect(screen.queryByText("Run app")).toBeNull();
     fireEvent.click(
       screen.getByRole("button", { name: "Edit command Run app" }),
     );

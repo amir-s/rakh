@@ -24,6 +24,7 @@ type PtyExitPayload = {
 };
 
 type TermSession = {
+  tabId: string;
   term: XTerm;
   fitAddon: FitAddon;
   sessionId: string;
@@ -48,6 +49,10 @@ interface TerminalProps {
   activeTabId: string;
   cwd?: string;
   agentTitle?: string;
+  commandRequest?: {
+    id: number;
+    command: string;
+  } | null;
 }
 
 export default function Terminal({
@@ -57,6 +62,7 @@ export default function Terminal({
   activeTabId,
   cwd,
   agentTitle,
+  commandRequest = null,
 }: TerminalProps) {
   const terminalRef = useRef<HTMLDivElement>(null);
   const handleRef = useRef<HTMLDivElement>(null);
@@ -66,8 +72,41 @@ export default function Terminal({
   const [, bumpTerminalUiVersion] = useReducer((n: number) => n + 1, 0);
 
   const sessionsRef = useRef<Map<string, TermSession>>(new Map());
+  const queuedCommandsRef = useRef<Map<string, string[]>>(new Map());
+  const lastCommandRequestIdRef = useRef<number | null>(null);
   /** Track previous cwd to detect mid-session changes (e.g. worktree switch) */
   const prevCwdRef = useRef<string | undefined>(undefined);
+
+  const queueCommand = useCallback((tabId: string, command: string) => {
+    const normalized = command.trim();
+    if (!normalized) return;
+
+    const existing = queuedCommandsRef.current.get(tabId) ?? [];
+    existing.push(normalized);
+    queuedCommandsRef.current.set(tabId, existing);
+  }, []);
+
+  const flushQueuedCommands = useCallback(
+    async (tabId: string, session: TermSession) => {
+      const queued = queuedCommandsRef.current.get(tabId);
+      if (!queued?.length || !session.sessionId || session.exited) return;
+
+      queuedCommandsRef.current.delete(tabId);
+      for (const command of queued) {
+        try {
+          await invoke("write_pty", {
+            sessionId: session.sessionId,
+            data: `${command}\r`,
+          });
+        } catch (error) {
+          console.error("Failed to run queued PTY command", error);
+          queueCommand(tabId, command);
+          break;
+        }
+      }
+    },
+    [queueCommand],
+  );
 
   const disposePtyBindings = useCallback((session: TermSession) => {
     if (session.outputUnlisten) {
@@ -89,7 +128,7 @@ export default function Terminal({
   }, []);
 
   const spawnShellForSession = useCallback(
-    async (session: TermSession) => {
+    async (session: TermSession, spawnCwd?: string) => {
       if (session.spawning) return;
 
       session.spawning = true;
@@ -101,7 +140,7 @@ export default function Terminal({
 
       try {
         const sid = await invoke<string>("spawn_pty", {
-          cwd: cwd || "",
+          cwd: spawnCwd ?? cwd ?? "",
           rows: session.term.rows || 24,
           cols: session.term.cols || 80,
         });
@@ -169,6 +208,8 @@ export default function Terminal({
           });
         });
 
+        await flushQueuedCommands(session.tabId, session);
+
         if (isOpen) {
           setTimeout(() => session.fitAddon.fit(), 0);
         }
@@ -183,16 +224,63 @@ export default function Terminal({
         bumpTerminalUiVersion();
       }
     },
-    [cwd, disposePtyBindings, isOpen],
+    [cwd, disposePtyBindings, flushQueuedCommands, isOpen],
   );
+
+  const ensureSession = useCallback(() => {
+    if (!outputWrapRef.current) return null;
+
+    let session = sessionsRef.current.get(activeTabId);
+    if (session) return session;
+
+    const wrap = outputWrapRef.current;
+    const container = document.createElement("div");
+    container.style.width = "100%";
+    container.style.height = "100%";
+    wrap.appendChild(container);
+
+    const term = new XTerm({
+      allowTransparency: true,
+
+      theme: {
+        background: "var(--color-term-bg)",
+        foreground: "var(--color-text, #ffffff)",
+      },
+      fontFamily:
+        'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace',
+      fontSize: 13,
+    });
+
+    const fitAddon = new FitAddon();
+    term.loadAddon(fitAddon);
+    term.loadAddon(new WebglAddon());
+
+    term.open(container);
+
+    session = {
+      tabId: activeTabId,
+      term,
+      fitAddon,
+      sessionId: "",
+      container,
+      exited: false,
+      exitCode: null,
+      spawning: false,
+    };
+    sessionsRef.current.set(activeTabId, session);
+    bumpTerminalUiVersion();
+    void spawnShellForSession(session, cwd);
+
+    return session;
+  }, [activeTabId, cwd, spawnShellForSession]);
 
   const restartActiveSession = useCallback(() => {
     const session = sessionsRef.current.get(activeTabId);
     if (!session || session.spawning) return;
 
     session.term.write("\r\n\x1b[36mRestarting shell...\x1b[0m\r\n");
-    void spawnShellForSession(session);
-  }, [activeTabId, spawnShellForSession]);
+    void spawnShellForSession(session, cwd);
+  }, [activeTabId, cwd, spawnShellForSession]);
 
   /* ── Sync height when isOpen changes (CSS transition applies) ─── */
   useEffect(() => {
@@ -230,8 +318,7 @@ export default function Terminal({
   useEffect(() => {
     if (!outputWrapRef.current) return;
 
-    const wrap = outputWrapRef.current;
-    let session = sessionsRef.current.get(activeTabId);
+    let session: TermSession | null = sessionsRef.current.get(activeTabId) ?? null;
 
     // Hide all containers
     for (const [id, s] of sessionsRef.current.entries()) {
@@ -246,43 +333,13 @@ export default function Terminal({
     }
 
     if (!session) {
-      const container = document.createElement("div");
-      container.style.width = "100%";
-      container.style.height = "100%";
-      wrap.appendChild(container);
-
-      const term = new XTerm({
-        allowTransparency: true,
-
-        theme: {
-          background: "var(--color-term-bg)",
-          foreground: "var(--color-text, #ffffff)",
-        },
-        fontFamily:
-          'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace',
-        fontSize: 13,
-      });
-
-      const fitAddon = new FitAddon();
-      term.loadAddon(fitAddon);
-      term.loadAddon(new WebglAddon());
-
-      term.open(container);
-
-      session = {
-        term,
-        fitAddon,
-        sessionId: "",
-        container,
-        exited: false,
-        exitCode: null,
-        spawning: false,
-      };
-      sessionsRef.current.set(activeTabId, session);
-      bumpTerminalUiVersion();
-      void spawnShellForSession(session);
+      session = ensureSession();
     }
-  }, [activeTabId, isOpen, spawnShellForSession]);
+
+    if (session) {
+      session.container.style.display = "block";
+    }
+  }, [activeTabId, ensureSession, isOpen]);
 
   /* ── Sync terminal cwd when the agent switches to a worktree mid-session ─── */
   useEffect(() => {
@@ -303,6 +360,38 @@ export default function Terminal({
       data: `cd ${JSON.stringify(cwd)}\r`,
     }).catch(console.error);
   }, [cwd, activeTabId]);
+
+  useEffect(() => {
+    if (!commandRequest) return;
+    if (commandRequest.id === lastCommandRequestIdRef.current) return;
+    lastCommandRequestIdRef.current = commandRequest.id;
+
+    const session = ensureSession();
+    if (!session) return;
+
+    if (session.sessionId && !session.exited && !session.spawning) {
+      invoke("write_pty", {
+        sessionId: session.sessionId,
+        data: `${commandRequest.command}\r`,
+      }).catch((error) => {
+        console.error("Failed to run PTY command", error);
+      });
+      return;
+    }
+
+    queueCommand(activeTabId, commandRequest.command);
+    if (session.exited && !session.spawning) {
+      session.term.write("\r\n\x1b[36mRestarting shell...\x1b[0m\r\n");
+      void spawnShellForSession(session, cwd);
+    }
+  }, [
+    activeTabId,
+    commandRequest,
+    cwd,
+    ensureSession,
+    queueCommand,
+    spawnShellForSession,
+  ]);
 
   // Clean up sessions when component unmounts (app close/reload)
   useEffect(() => {

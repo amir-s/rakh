@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { SavedProject } from "@/projects";
 import { PROJECT_SCRIPTS_CONFIG_PATH } from "@/projectScripts";
 import type { ProjectCommandConfig } from "@/projectScripts";
+import ProjectCommandBar from "@/components/ProjectCommandBar";
 import { Button, ModalShell, TextField, ToggleSwitch } from "@/components/ui";
 
 export interface ProjectSettingsSavePayload {
@@ -75,10 +76,6 @@ function buildCommands(drafts: CommandDraft[]): ProjectCommandConfig[] {
       };
     })
     .filter((command): command is ProjectCommandConfig => command !== null);
-}
-
-function commandShowsLabel(command: CommandDraft): boolean {
-  return command.showLabel || !command.icon.trim();
 }
 
 function normalizeCommandDraft(draft: CommandDraft): CommandDraft | null {
@@ -169,6 +166,17 @@ export default function ProjectSettingsModal({
     !hasProjectConfigFile && projectConfigStage !== "visible";
   const selectedCommandIcon = editingCommand?.draft.icon.trim() ?? "";
   const commandIconOptions = getCommandIconOptions(selectedCommandIcon);
+  const previewCommands = useMemo<ProjectCommandConfig[]>(
+    () =>
+      commands.map((command) => ({
+        id: command.draftId,
+        label: command.label.trim() || "Untitled",
+        command: command.command.trim(),
+        ...(command.icon.trim() ? { icon: command.icon.trim() } : {}),
+        ...(command.showLabel !== true ? { showLabel: false } : {}),
+      })),
+    [commands],
+  );
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -427,39 +435,22 @@ export default function ProjectSettingsModal({
               </Button>
             </div>
 
-            {commands.length > 0 ? (
-              <div className="project-settings-modal__bookmark-bar" role="list">
-                {commands.map((command) => (
-                  <button
-                    key={command.draftId}
-                    type="button"
-                    className="project-settings-modal__bookmark-item"
-                    title={`Edit ${command.label.trim() || "command"}`}
-                    aria-label={`Edit command ${command.label.trim() || "command"}`}
-                    onClick={() =>
-                      setEditingCommand({
-                        draft: { ...command },
-                        editingId: command.draftId,
-                      })
-                    }
-                  >
-                    <div className="project-settings-modal__bookmark-main">
-                      <span
-                        className="material-symbols-outlined text-base"
-                        aria-hidden="true"
-                      >
-                        {command.icon.trim() || "terminal"}
-                      </span>
-                      {commandShowsLabel(command) ? (
-                        <span className="project-settings-modal__bookmark-label">
-                          {command.label.trim() || "Untitled"}
-                        </span>
-                      ) : null}
-                    </div>
-                  </button>
-                ))}
-              </div>
-            ) : null}
+            <ProjectCommandBar
+              commands={previewCommands}
+              variant="modal"
+              buttonAriaLabel={(command) => `Edit command ${command.label}`}
+              buttonTitle={(command) => `Edit ${command.label}`}
+              onCommandClick={(command) => {
+                const matchingCommand = commands.find(
+                  (entry) => entry.draftId === command.id,
+                );
+                if (!matchingCommand) return;
+                setEditingCommand({
+                  draft: { ...matchingCommand },
+                  editingId: matchingCommand.draftId,
+                });
+              }}
+            />
 
             {editingCommand ? (
               <div className="project-settings-modal__command-card">
