@@ -26,6 +26,10 @@ const workspaceMocks = vi.hoisted(() => ({
   openSettingsTabMock: vi.fn<(section?: string) => void>(),
   patchAgentStateMock: vi.fn(),
   updateTabMock: vi.fn(),
+  findSavedProjectMock: vi.fn(),
+  inferProjectNameMock: vi.fn((path: string) => path.split("/").pop() ?? path),
+  resolveSavedProjectMock: vi.fn(),
+  upsertSavedProjectMock: vi.fn(),
   agentState: {
     autoApproveCommands: "no" as const,
     autoApproveEdits: false,
@@ -33,6 +37,7 @@ const workspaceMocks = vi.hoisted(() => ({
     config: {
       cwd: "/repo",
       model: "model-1",
+      projectPath: undefined as string | undefined,
       worktreeBranch: "main",
     },
     contextWindowKb: null,
@@ -66,6 +71,11 @@ const workspaceMocks = vi.hoisted(() => ({
   transcriptCallback: null as null | ((transcript: string) => void),
   invokeMock: vi.fn(),
   eventHandlers: new Map<string, (event: { payload: unknown }) => void>(),
+  terminalProps: null as null | {
+    isOpen: boolean;
+    cwd?: string;
+    commandRequest?: { id: number; command: string } | null;
+  },
 }));
 
 vi.mock("jotai", async () => {
@@ -109,6 +119,16 @@ vi.mock("@/contexts/TabsContext", () => ({
     openSettingsTab: workspaceMocks.openSettingsTabMock,
     updateTab: workspaceMocks.updateTabMock,
   }),
+}));
+
+vi.mock("@/projects", () => ({
+  findSavedProject: (projectPath: string) =>
+    workspaceMocks.findSavedProjectMock(projectPath),
+  inferProjectName: (path: string) => workspaceMocks.inferProjectNameMock(path),
+  resolveSavedProject: (project: unknown) =>
+    workspaceMocks.resolveSavedProjectMock(project),
+  upsertSavedProject: (project: unknown) =>
+    workspaceMocks.upsertSavedProjectMock(project),
 }));
 
 vi.mock("@/agent/useAgents", () => ({
@@ -173,7 +193,29 @@ vi.mock("@/components/ConversationCards", () => ({
 }));
 
 vi.mock("@/components/Terminal", () => ({
-  default: () => null,
+  default: ({
+    isOpen,
+    cwd,
+    commandRequest,
+  }: {
+    isOpen: boolean;
+    cwd?: string;
+    commandRequest?: { id: number; command: string } | null;
+  }) => {
+    workspaceMocks.terminalProps = {
+      isOpen,
+      cwd,
+      commandRequest: commandRequest ?? null,
+    };
+    return (
+      <div
+        data-testid="terminal"
+        data-open={String(isOpen)}
+        data-cwd={cwd ?? ""}
+        data-command={commandRequest?.command ?? ""}
+      />
+    );
+  },
 }));
 
 vi.mock("@/components/UserMessage", () => ({
@@ -409,6 +451,10 @@ describe("WorkspacePage chat input", () => {
       configurable: true,
       value: vi.fn(),
     });
+    Object.defineProperty(window.navigator, "platform", {
+      configurable: true,
+      value: "MacIntel",
+    });
     installSelectionGeometryPolyfills();
     workspaceMocks.sendMessageMock.mockReset();
     workspaceMocks.queueMessageMock.mockReset();
@@ -423,8 +469,13 @@ describe("WorkspacePage chat input", () => {
     workspaceMocks.openSettingsTabMock.mockReset();
     workspaceMocks.patchAgentStateMock.mockReset();
     workspaceMocks.updateTabMock.mockReset();
+    workspaceMocks.findSavedProjectMock.mockReset();
+    workspaceMocks.inferProjectNameMock.mockReset();
+    workspaceMocks.resolveSavedProjectMock.mockReset();
+    workspaceMocks.upsertSavedProjectMock.mockReset();
     workspaceMocks.transcriptCallback = null;
     workspaceMocks.eventHandlers.clear();
+    workspaceMocks.terminalProps = null;
     workspaceMocks.invokeMock.mockReset();
     workspaceMocks.invokeMock.mockResolvedValue({
       matches: [
@@ -434,6 +485,20 @@ describe("WorkspacePage chat input", () => {
       ],
       truncated: false,
     });
+    workspaceMocks.inferProjectNameMock.mockImplementation(
+      (path: string) => path.split("/").pop() ?? path,
+    );
+    workspaceMocks.upsertSavedProjectMock.mockImplementation((project: { path: string }) => [
+      project,
+    ]);
+    workspaceMocks.resolveSavedProjectMock.mockImplementation(async (project: unknown) => {
+      const value = project as { path: string; name?: string; commands?: unknown[] };
+      return {
+        path: value.path,
+        name: value.name ?? (value.path.split("/").pop() || value.path),
+        ...(Array.isArray(value.commands) ? { commands: value.commands } : {}),
+      };
+    });
     workspaceMocks.agentState = {
       autoApproveCommands: "no",
       autoApproveEdits: false,
@@ -441,6 +506,7 @@ describe("WorkspacePage chat input", () => {
       config: {
         cwd: "/repo",
         model: "model-1",
+        projectPath: undefined,
         worktreeBranch: "main",
       },
       contextWindowKb: null,
@@ -675,6 +741,104 @@ describe("WorkspacePage chat input", () => {
       showDebug: false,
     });
     expect(nextState.showDebug).toBe(true);
+  });
+
+  it("renders project commands and opens the terminal when one is executed", async () => {
+    workspaceMocks.agentState = {
+      ...workspaceMocks.agentState,
+      config: {
+        ...workspaceMocks.agentState.config,
+        projectPath: "/repo",
+      },
+    };
+    workspaceMocks.findSavedProjectMock.mockReturnValue({
+      path: "/repo",
+      name: "Repo",
+    });
+    workspaceMocks.resolveSavedProjectMock.mockResolvedValue({
+      path: "/repo",
+      name: "Repo",
+      commands: [
+        {
+          id: "app",
+          label: "App",
+          command: "npm run dev",
+          icon: "play_arrow",
+        },
+        {
+          id: "lint",
+          label: "Lint",
+          command: "npm run lint",
+          icon: "rule",
+          showLabel: false,
+        },
+      ],
+    });
+
+    render(<WorkspacePage />);
+
+    const appButton = await screen.findByRole("button", { name: "Run App" });
+    expect(screen.getByText("App")).not.toBeNull();
+    expect(screen.queryByText("Lint")).toBeNull();
+    expect(screen.getByRole("button", { name: "Run Lint" })).not.toBeNull();
+    expect(screen.getByText("Toggle")).not.toBeNull();
+    expect(screen.getByText("⌘", { selector: "kbd" })).not.toBeNull();
+    expect(screen.getByText("B", { selector: "kbd" })).not.toBeNull();
+
+    fireEvent.click(appButton);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("terminal").getAttribute("data-open")).toBe("true");
+    });
+    expect(screen.getByTestId("terminal").getAttribute("data-command")).toBe(
+      "npm run dev",
+    );
+  });
+
+  it("toggles the project command bar with Cmd+B", async () => {
+    workspaceMocks.agentState = {
+      ...workspaceMocks.agentState,
+      config: {
+        ...workspaceMocks.agentState.config,
+        projectPath: "/repo",
+      },
+    };
+    workspaceMocks.findSavedProjectMock.mockReturnValue({
+      path: "/repo",
+      name: "Repo",
+    });
+    workspaceMocks.resolveSavedProjectMock.mockResolvedValue({
+      path: "/repo",
+      name: "Repo",
+      commands: [
+        {
+          id: "app",
+          label: "App",
+          command: "npm run dev",
+          icon: "play_arrow",
+        },
+      ],
+    });
+
+    render(<WorkspacePage />);
+
+    await screen.findByRole("button", { name: "Run App" });
+    expect(screen.getByText("Toggle")).not.toBeNull();
+    expect(screen.getByText("⌘", { selector: "kbd" })).not.toBeNull();
+    expect(screen.getByText("B", { selector: "kbd" })).not.toBeNull();
+
+    fireEvent.keyDown(window, { key: "b", metaKey: true });
+
+    await waitFor(() => {
+      expect(screen.queryByRole("button", { name: "Run App" })).toBeNull();
+    });
+    expect(screen.queryByText("Toggle")).toBeNull();
+
+    fireEvent.keyDown(window, { key: "b", metaKey: true });
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Run App" })).not.toBeNull();
+    });
   });
 
   it("does not show the queue strip while the agent is busy with no submitted follow-up", async () => {
