@@ -8,9 +8,29 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
-import type { ReactNode } from "react";
+import type {
+  ChangeEvent,
+  KeyboardEvent as ReactKeyboardEvent,
+  MouseEvent as ReactMouseEvent,
+  ReactNode,
+} from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import WorkspacePage from "./WorkspacePage";
+
+type MockToolCall = {
+  id: string;
+  tool: string;
+  args: Record<string, unknown>;
+  status: string;
+};
+
+type MockChatMessage = {
+  id?: string;
+  role?: string;
+  content?: string;
+  timestamp?: number;
+  toolCalls?: MockToolCall[];
+};
 
 const workspaceMocks = vi.hoisted(() => ({
   sendMessageMock: vi.fn<(message: string) => void>(),
@@ -33,12 +53,13 @@ const workspaceMocks = vi.hoisted(() => ({
   agentState: {
     autoApproveCommands: "no" as const,
     autoApproveEdits: false,
-    chatMessages: [],
+    chatMessages: [] as MockChatMessage[],
     config: {
       cwd: "/repo",
       model: "model-1",
       projectPath: undefined as string | undefined,
       worktreeBranch: "main",
+      worktreePath: undefined as string | undefined,
     },
     contextWindowKb: null,
     contextWindowPct: null,
@@ -70,6 +91,12 @@ const workspaceMocks = vi.hoisted(() => ({
   },
   transcriptCallback: null as null | ((transcript: string) => void),
   invokeMock: vi.fn(),
+  execRunMock: vi.fn(),
+  readGitHeadStateMock: vi.fn(),
+  stageAllGitChangesMock: vi.fn(),
+  switchToGitBranchMock: vi.fn(),
+  detachGitHeadMock: vi.fn(),
+  upsertSessionMock: vi.fn(),
   eventHandlers: new Map<string, (event: { payload: unknown }) => void>(),
   terminalProps: null as null | {
     isOpen: boolean;
@@ -139,6 +166,25 @@ vi.mock("@/agent/useModels", () => ({
   useModels: () => ({
     models: [{ id: "model-1", name: "Model 1" }],
   }),
+}));
+
+vi.mock("@/agent/tools/exec", () => ({
+  execRun: (...args: unknown[]) => workspaceMocks.execRunMock(...args),
+}));
+
+vi.mock("@/agent/tools/git", () => ({
+  readGitHeadState: (...args: unknown[]) =>
+    workspaceMocks.readGitHeadStateMock(...args),
+  stageAllGitChanges: (...args: unknown[]) =>
+    workspaceMocks.stageAllGitChangesMock(...args),
+  switchToGitBranch: (...args: unknown[]) =>
+    workspaceMocks.switchToGitBranchMock(...args),
+  detachGitHead: (...args: unknown[]) =>
+    workspaceMocks.detachGitHeadMock(...args),
+}));
+
+vi.mock("@/agent/persistence", () => ({
+  upsertSession: (...args: unknown[]) => workspaceMocks.upsertSessionMock(...args),
 }));
 
 vi.mock("@/agent/atoms", () => ({
@@ -294,6 +340,40 @@ vi.mock("@/components/ui", () => ({
       {children}
     </button>
   ),
+  ModalShell: ({
+    children,
+    className,
+    onClick,
+  }: {
+    children: ReactNode;
+    className?: string;
+    onClick?: (event: ReactMouseEvent<HTMLDivElement>) => void;
+  }) => (
+    <div className={className} onClick={onClick}>
+      {children}
+    </div>
+  ),
+  TextField: ({
+    value,
+    onChange,
+    onKeyDown,
+    placeholder,
+    autoFocus,
+  }: {
+    value?: string;
+    onChange?: (event: ChangeEvent<HTMLInputElement>) => void;
+    onKeyDown?: (event: ReactKeyboardEvent<HTMLInputElement>) => void;
+    placeholder?: string;
+    autoFocus?: boolean;
+  }) => (
+    <input
+      value={value}
+      onChange={onChange}
+      onKeyDown={onKeyDown}
+      placeholder={placeholder}
+      autoFocus={autoFocus}
+    />
+  ),
 }));
 
 vi.mock("@/components/voice-input/VoiceInputUi", () => ({
@@ -433,6 +513,29 @@ function applyLastPatch<T extends object>(state: T): T {
   return updater(state);
 }
 
+function makeExecRunResult(
+  overrides: Partial<{
+    exitCode: number;
+    stdout: string;
+    stderr: string;
+  }> = {},
+) {
+  return {
+    ok: true as const,
+    data: {
+      command: "git",
+      args: [],
+      cwd: "/repo",
+      exitCode: overrides.exitCode ?? 0,
+      durationMs: 4,
+      stdout: overrides.stdout ?? "",
+      stderr: overrides.stderr ?? "",
+      truncatedStdout: false,
+      truncatedStderr: false,
+    },
+  };
+}
+
 type PatchedChatState = {
   chatMessages: Array<{ role?: string; content?: string }>;
   showDebug: boolean;
@@ -477,6 +580,12 @@ describe("WorkspacePage chat input", () => {
     workspaceMocks.eventHandlers.clear();
     workspaceMocks.terminalProps = null;
     workspaceMocks.invokeMock.mockReset();
+    workspaceMocks.execRunMock.mockReset();
+    workspaceMocks.readGitHeadStateMock.mockReset();
+    workspaceMocks.stageAllGitChangesMock.mockReset();
+    workspaceMocks.switchToGitBranchMock.mockReset();
+    workspaceMocks.detachGitHeadMock.mockReset();
+    workspaceMocks.upsertSessionMock.mockReset();
     workspaceMocks.invokeMock.mockResolvedValue({
       matches: [
         "src/components/MentionTextarea.tsx",
@@ -499,6 +608,24 @@ describe("WorkspacePage chat input", () => {
         ...(Array.isArray(value.commands) ? { commands: value.commands } : {}),
       };
     });
+    workspaceMocks.execRunMock.mockResolvedValue(makeExecRunResult());
+    workspaceMocks.readGitHeadStateMock.mockResolvedValue({
+      ok: true,
+      data: { mode: "detached" },
+    });
+    workspaceMocks.stageAllGitChangesMock.mockResolvedValue({
+      ok: true,
+      data: { staged: true },
+    });
+    workspaceMocks.switchToGitBranchMock.mockResolvedValue({
+      ok: true,
+      data: { branch: "main" },
+    });
+    workspaceMocks.detachGitHeadMock.mockResolvedValue({
+      ok: true,
+      data: { detached: true },
+    });
+    workspaceMocks.upsertSessionMock.mockResolvedValue(undefined);
     workspaceMocks.agentState = {
       autoApproveCommands: "no",
       autoApproveEdits: false,
@@ -508,6 +635,7 @@ describe("WorkspacePage chat input", () => {
         model: "model-1",
         projectPath: undefined,
         worktreeBranch: "main",
+        worktreePath: undefined,
       },
       contextWindowKb: null,
       contextWindowPct: null,
@@ -768,6 +896,117 @@ describe("WorkspacePage chat input", () => {
       expect(workspaceMocks.invokeMock).toHaveBeenCalledWith("open_shell", {
         cwd: "/repo",
       });
+    });
+  });
+
+  it("shows handoff in the command bar for managed worktrees and opens the modal", async () => {
+    workspaceMocks.agentState = {
+      ...workspaceMocks.agentState,
+      config: {
+        ...workspaceMocks.agentState.config,
+        worktreePath: "/repo/.rakh/feat-session",
+        worktreeBranch: "feat/session",
+      },
+    };
+    workspaceMocks.readGitHeadStateMock.mockResolvedValue({
+      ok: true,
+      data: { mode: "branch", branch: "feat/session" },
+    });
+    workspaceMocks.execRunMock.mockResolvedValue(
+      makeExecRunResult({ stdout: " M src/app.ts\n" }),
+    );
+
+    render(<WorkspacePage />);
+
+    const handoffButton = await screen.findByRole("button", {
+      name: "Handoff",
+    });
+    await waitFor(() => {
+      expect(handoffButton.hasAttribute("disabled")).toBe(false);
+    });
+
+    fireEvent.click(handoffButton);
+
+    expect(screen.getByDisplayValue("changes from rakh")).not.toBeNull();
+    expect(
+      screen.getByRole("dialog", { name: "Handoff session branch" }).textContent,
+    ).toContain("feat/session");
+  });
+
+  it("re-enables handoff after the worktree holds the branch again", async () => {
+    workspaceMocks.agentState = {
+      ...workspaceMocks.agentState,
+      status: "working",
+      chatMessages: [
+        {
+          id: "msg-1",
+          role: "assistant",
+          content: "",
+          timestamp: Date.now(),
+          toolCalls: [
+            {
+              id: "tc-1",
+              tool: "workspace_writeFile",
+              args: {},
+              status: "awaiting_branch_release",
+            },
+          ],
+        },
+      ],
+      config: {
+        ...workspaceMocks.agentState.config,
+        worktreePath: "/repo/.rakh/feat-session",
+        worktreeBranch: "feat/session",
+      },
+    };
+    workspaceMocks.readGitHeadStateMock
+      .mockResolvedValueOnce({
+        ok: true,
+        data: { mode: "detached" },
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        data: { mode: "branch", branch: "feat/session" },
+      });
+    workspaceMocks.execRunMock.mockResolvedValue(
+      makeExecRunResult({ stdout: " M src/app.ts\n" }),
+    );
+
+    const view = render(<WorkspacePage />);
+    const handoffButton = await screen.findByRole("button", {
+      name: "Handoff",
+    });
+
+    await waitFor(() => {
+      expect(handoffButton.hasAttribute("disabled")).toBe(true);
+    });
+
+    workspaceMocks.agentState = {
+      ...workspaceMocks.agentState,
+      chatMessages: [
+        {
+          id: "msg-1",
+          role: "assistant",
+          content: "",
+          timestamp: Date.now(),
+          toolCalls: [
+            {
+              id: "tc-1",
+              tool: "workspace_writeFile",
+              args: {},
+              status: "done",
+            },
+          ],
+        },
+      ],
+    };
+
+    view.rerender(<WorkspacePage />);
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: "Handoff" }).hasAttribute("disabled"),
+      ).toBe(false);
     });
   });
 

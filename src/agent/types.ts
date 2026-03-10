@@ -153,6 +153,7 @@ export interface ToolCallDisplay {
     | "pending"
     | "awaiting_approval"
     | "awaiting_worktree"
+    | "awaiting_branch_release"
     | "awaiting_setup_action"
     | "running"
     | "done"

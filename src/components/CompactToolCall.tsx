@@ -51,6 +51,7 @@ const STATUS_DOT: Record<string, string> = {
   done: "done",
   error: "error",
   denied: "error",
+  awaiting_branch_release: "error",
   awaiting_setup_action: "error",
 };
 
@@ -1105,12 +1106,14 @@ export default function CompactToolCall({
   const isExpandable =
     tc.status !== "awaiting_approval" &&
     tc.status !== "awaiting_worktree" &&
+    tc.status !== "awaiting_branch_release" &&
     tc.status !== "awaiting_setup_action" &&
     !NON_EXPANDABLE_TOOLS.has(tc.tool);
   const isInspectable =
     showDebug &&
     tc.status !== "awaiting_approval" &&
     tc.status !== "awaiting_worktree" &&
+    tc.status !== "awaiting_branch_release" &&
     tc.status !== "awaiting_setup_action";
 
   const icon = getToolCallIcon(tc);

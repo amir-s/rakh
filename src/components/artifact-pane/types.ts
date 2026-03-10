@@ -9,7 +9,6 @@ export type ArtifactTab =
   | "TODO"
   | "REVIEW"
   | "ARTIFACTS"
-  | "GIT"
   | "DEBUG";
 
 export type KnownArtifactType =

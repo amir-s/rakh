@@ -56,6 +56,7 @@ import type {
 import {
   requiresApproval,
   requestApproval,
+  requestBranchReleaseAction,
   requestUserInput,
   cancelAllApprovals,
   consumeApprovalReason,
@@ -90,6 +91,10 @@ import {
   buildWriteFileDiffFiles,
 } from "@/components/patchDiffFiles";
 import { serializeDiff } from "@/components/diffSerialization";
+import {
+  getBranchReleaseInstructions,
+  switchToGitBranch,
+} from "./tools/git";
 import type {
   EditFileChange,
   SearchFilesOutput,
@@ -558,6 +563,89 @@ function buildToolCallDisplay(
   };
 }
 
+function isManagedWorktreeWriteTool(toolName: string): boolean {
+  return toolName === "workspace_writeFile" || toolName === "workspace_editFile";
+}
+
+const worktreeLeaseCheckPromises = new Map<
+  string,
+  Promise<Extract<ToolResult<unknown>, { ok: false }> | null>
+>();
+
+async function ensureManagedWorktreeLease(
+  tabId: string,
+  toolCallId: string,
+  updateToolCallById: (patch: Partial<ToolCallDisplay>) => void,
+): Promise<Extract<ToolResult<unknown>, { ok: false }> | null> {
+  const state = getAgentState(tabId);
+  const worktreePath = state.config.worktreePath?.trim();
+  const worktreeBranch = state.config.worktreeBranch?.trim();
+  if (!worktreePath || !worktreeBranch) return null;
+
+  const existing = worktreeLeaseCheckPromises.get(tabId);
+  if (existing) return existing;
+
+  let promise: Promise<Extract<ToolResult<unknown>, { ok: false }> | null>;
+  promise = (async () => {
+    while (true) {
+      const switchResult = await switchToGitBranch(worktreePath, worktreeBranch);
+      if (switchResult.ok) return null;
+
+      const details = switchResult.error.details;
+      if (
+        !isRecord(details) ||
+        details.reason !== "branch_checked_out_elsewhere"
+      ) {
+        return switchResult;
+      }
+
+      const blockingPath =
+        typeof details.blockingPath === "string"
+          ? details.blockingPath
+          : undefined;
+      updateToolCallById({
+        status: "awaiting_branch_release",
+        result: {
+          branch: worktreeBranch,
+          path: worktreePath,
+          blockingPath,
+          message: switchResult.error.message,
+          instructions: getBranchReleaseInstructions(
+            worktreeBranch,
+            blockingPath,
+          ),
+        },
+      });
+
+      const { action } = await requestBranchReleaseAction(tabId, toolCallId);
+      if (action === "retry") {
+        continue;
+      }
+
+      return {
+        ok: false as const,
+        error: {
+          code: "RUN_ABORTED" as const,
+          message:
+            "User aborted while the session branch was checked out elsewhere.",
+          details: {
+            branch: worktreeBranch,
+            path: worktreePath,
+            ...(blockingPath ? { blockingPath } : {}),
+          },
+        },
+      };
+    }
+  })().finally(() => {
+    if (worktreeLeaseCheckPromises.get(tabId) === promise) {
+      worktreeLeaseCheckPromises.delete(tabId);
+    }
+  });
+
+  worktreeLeaseCheckPromises.set(tabId, promise);
+  return promise;
+}
+
 /* ─────────────────────────────────────────────────────────────────────────────
    buildProviderOptions — maps AdvancedModelOptions to AI SDK providerOptions
 ─────────────────────────────────────────────────────────────────────────── */
@@ -1019,6 +1107,7 @@ function interruptActiveRun(
     status === "pending" ||
     status === "awaiting_approval" ||
     status === "awaiting_worktree" ||
+    status === "awaiting_branch_release" ||
     status === "awaiting_setup_action" ||
     status === "running";
 
@@ -2373,6 +2462,21 @@ async function runSubagentLoop(
         }
         const preparedArgs = preparedArtifactCall.data.args;
 
+        if (isManagedWorktreeWriteTool(tc.function.name)) {
+          const leaseError = await ensureManagedWorktreeLease(
+            tabId,
+            tcId,
+            updateToolCallById,
+          );
+          if (leaseError) {
+            updateToolCallById({
+              status: "error",
+              result: leaseError.error,
+            });
+            return { tool_call_id: tcId, result: leaseError };
+          }
+        }
+
         // Pre-validation (same as main agent)
         const validationResult = await validateTool(
           tabId,
@@ -3506,6 +3610,21 @@ async function agentLoop(
                 error: toolError,
               },
             };
+          }
+        }
+
+        if (isManagedWorktreeWriteTool(tc.function.name)) {
+          const leaseError = await ensureManagedWorktreeLease(
+            tabId,
+            tcId,
+            updateToolCallById,
+          );
+          if (leaseError) {
+            updateToolCallById({
+              status: "error",
+              result: leaseError.error,
+            });
+            return { tool_call_id: tcId, result: leaseError };
           }
         }
 

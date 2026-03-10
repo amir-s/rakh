@@ -1,7 +1,6 @@
 import { useEffect } from "react";
 import { useTabs } from "@/contexts/TabsContext";
 import {
-  useAgentConfig,
   useAgentReviewEdits,
   useAgentShowDebug,
   useAgentTodos,
@@ -9,7 +8,6 @@ import {
 import { cn } from "@/utils/cn";
 import ArtifactsPane from "./artifact-pane/ArtifactsPane";
 import DebugPane from "./artifact-pane/DebugPane";
-import GitPane from "./artifact-pane/GitPane";
 import PlanPane from "./artifact-pane/PlanPane";
 import ReviewPane from "./artifact-pane/ReviewPane";
 import TodoPane from "./artifact-pane/TodoPane";
@@ -52,13 +50,12 @@ export default function ArtifactPane({
   const { activeTabId } = useTabs();
   const todos = useAgentTodos(activeTabId);
   const reviewEdits = useAgentReviewEdits(activeTabId);
-  const config = useAgentConfig(activeTabId);
   const showDebug = useAgentShowDebug(activeTabId);
 
   const todoDone = todos.filter((todo) => todo.status === "done").length;
   const visibleTabs: ArtifactTab[] = showDebug
-    ? ["PLAN", "TODO", "REVIEW", "ARTIFACTS", "GIT", "DEBUG"]
-    : ["PLAN", "TODO", "REVIEW", "ARTIFACTS", "GIT"];
+    ? ["PLAN", "TODO", "REVIEW", "ARTIFACTS", "DEBUG"]
+    : ["PLAN", "TODO", "REVIEW", "ARTIFACTS"];
   const effectiveActiveTab: ArtifactTab =
     !showDebug && activeTab === "DEBUG" ? "PLAN" : activeTab;
 
@@ -165,13 +162,6 @@ export default function ArtifactPane({
             error={artifactInventoryError}
             getContentEntry={getArtifactContentEntry}
             ensureArtifactContent={ensureArtifactContent}
-          />
-        ) : null}
-
-        {effectiveActiveTab === "GIT" ? (
-          <GitPane
-            gitPath={config.worktreePath ?? config.cwd}
-            configBranch={config.worktreeBranch}
           />
         ) : null}
 

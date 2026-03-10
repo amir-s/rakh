@@ -2,9 +2,11 @@ import { beforeEach, describe, expect, it } from "vitest";
 import {
   cancelAllApprovals,
   consumeApprovalReason,
+  requestBranchReleaseAction,
   requestApproval,
   requestWorktreeSetupAction,
   requestWorktreeApproval,
+  resolveBranchReleaseAction,
   requiresApproval,
   resolveApproval,
   resolveWorktreeSetupAction,
@@ -152,6 +154,16 @@ describe("approvals - resolver lifecycle", () => {
     await expect(retry).resolves.toEqual({ action: "retry" });
 
     const canceled = requestWorktreeSetupAction("tabA", "setup-2");
+    cancelAllApprovals();
+    await expect(canceled).resolves.toEqual({ action: "abort" });
+  });
+
+  it("supports branch release actions and cancellation fallback", async () => {
+    const retry = requestBranchReleaseAction("tabA", "lease-1");
+    resolveBranchReleaseAction("tabA", "lease-1", "retry");
+    await expect(retry).resolves.toEqual({ action: "retry" });
+
+    const canceled = requestBranchReleaseAction("tabA", "lease-2");
     cancelAllApprovals();
     await expect(canceled).resolves.toEqual({ action: "abort" });
   });

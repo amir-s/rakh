@@ -20,6 +20,23 @@ export interface GitWorktreeInitInput {
   suggestedBranch: string;
 }
 
+interface GitExecOutput {
+  exitCode: number;
+  stdout: string;
+  stderr: string;
+}
+
+export interface GitHeadState {
+  mode: "branch" | "detached";
+  branch?: string;
+}
+
+export interface BranchReleaseGuidance {
+  branch: string;
+  blockingPath?: string;
+  message: string;
+}
+
 export interface GitWorktreeSetupOutput {
   status: "not_configured" | "success" | "failed_continued";
   command?: string;
@@ -54,6 +71,172 @@ export interface GitWorktreeInitOutput {
 
 type OutputStream = "stdout" | "stderr";
 type OutputCallback = (stream: OutputStream, data: string) => void;
+
+async function runGitCommand(
+  cwd: string,
+  args: string[],
+  options: {
+    timeoutMs?: number;
+    maxStdoutBytes?: number;
+    maxStderrBytes?: number;
+  } = {},
+): Promise<ToolResult<GitExecOutput>> {
+  try {
+    const result = await invoke<GitExecOutput>("exec_run", {
+      command: "git",
+      args,
+      cwd,
+      env: {},
+      timeoutMs: options.timeoutMs ?? 10_000,
+      maxStdoutBytes: options.maxStdoutBytes ?? 32_000,
+      maxStderrBytes: options.maxStderrBytes ?? 32_000,
+      stdin: null,
+    });
+    return { ok: true, data: result };
+  } catch (error) {
+    return {
+      ok: false,
+      error: {
+        code: "INTERNAL",
+        message: `Failed to run git ${args.join(" ")}: ${error}`,
+      },
+    };
+  }
+}
+
+function getGitFailureMessage(result: GitExecOutput, fallback: string): string {
+  return (result.stderr || result.stdout).trim() || fallback;
+}
+
+function parseBranchReleaseGuidance(
+  branch: string,
+  text: string,
+): BranchReleaseGuidance | null {
+  if (!text.includes("already checked out at")) return null;
+  const blockingPathMatch = text.match(/already checked out at ['`](.+?)['`]/);
+  return {
+    branch,
+    blockingPath: blockingPathMatch?.[1],
+    message: text.trim(),
+  };
+}
+
+function getExistingBranchMessage(branch: string, error: unknown): string | null {
+  const message = String(error);
+  if (
+    message.includes("already exists") ||
+    message.includes("already a branch named") ||
+    message.includes("reference already exists")
+  ) {
+    return `Branch "${branch}" already exists. Choose a different branch name.`;
+  }
+  return null;
+}
+
+export function getBranchReleaseInstructions(
+  branch: string,
+  blockingPath?: string,
+): string[] {
+  return [
+    blockingPath
+      ? `Release \`${branch}\` in \`${blockingPath}\` with \`git switch --detach\` or \`git switch <other-branch>\`.`
+      : `Release \`${branch}\` in the other checkout with \`git switch --detach\` or \`git switch <other-branch>\`.`,
+    "Then retry once the branch is no longer checked out elsewhere.",
+  ];
+}
+
+export async function readGitHeadState(
+  cwd: string,
+): Promise<ToolResult<GitHeadState>> {
+  const result = await runGitCommand(cwd, ["symbolic-ref", "--quiet", "--short", "HEAD"]);
+  if (!result.ok) return result;
+  if (result.data.exitCode === 0) {
+    const branch = result.data.stdout.trim();
+    return { ok: true, data: { mode: "branch", branch: branch || undefined } };
+  }
+  if (result.data.exitCode === 1) {
+    return { ok: true, data: { mode: "detached" } };
+  }
+  return {
+    ok: false,
+    error: {
+      code: "INTERNAL",
+      message: getGitFailureMessage(result.data, "Failed to read git HEAD state."),
+    },
+  };
+}
+
+export async function switchToGitBranch(
+  cwd: string,
+  branch: string,
+): Promise<
+  ToolResult<{
+    branch: string;
+    guidance?: BranchReleaseGuidance;
+  }>
+> {
+  const result = await runGitCommand(cwd, ["switch", branch]);
+  if (!result.ok) return result;
+  if (result.data.exitCode === 0) {
+    return { ok: true, data: { branch } };
+  }
+
+  const message = getGitFailureMessage(
+    result.data,
+    `Failed to switch to branch "${branch}".`,
+  );
+  const guidance = parseBranchReleaseGuidance(branch, message);
+  return {
+    ok: false,
+    error: {
+      code: guidance ? "CONFLICT" : "INTERNAL",
+      message,
+      details: guidance
+        ? {
+            branch,
+            blockingPath: guidance.blockingPath,
+            reason: "branch_checked_out_elsewhere",
+          }
+        : undefined,
+    },
+  };
+}
+
+export async function detachGitHead(cwd: string): Promise<ToolResult<{ detached: true }>> {
+  const result = await runGitCommand(cwd, ["switch", "--detach"]);
+  if (!result.ok) return result;
+  if (result.data.exitCode === 0) {
+    return { ok: true, data: { detached: true } };
+  }
+  return {
+    ok: false,
+    error: {
+      code: "INTERNAL",
+      message: getGitFailureMessage(result.data, "Failed to detach HEAD."),
+    },
+  };
+}
+
+export async function stageAllGitChanges(
+  cwd: string,
+): Promise<ToolResult<{ staged: true }>> {
+  const result = await runGitCommand(cwd, ["add", "-A"], {
+    timeoutMs: 30_000,
+    maxStdoutBytes: 8_000,
+    maxStderrBytes: 16_000,
+  });
+  if (!result.ok) return result;
+  if (result.data.exitCode === 0) {
+    return { ok: true, data: { staged: true } };
+  }
+  return {
+    ok: false,
+    error: {
+      code: "INTERNAL",
+      message: getGitFailureMessage(result.data, "Failed to stage changes."),
+    },
+  };
+}
 
 function sanitiseBranch(raw: string): string {
   return raw
@@ -323,44 +506,64 @@ export async function gitWorktreeInit(
   const repoSlug = trimEdgeSlashes(slug) || repoName;
   updateWorktreeToolCall(tabId, toolCallId, {
     status: "awaiting_worktree",
+    result: null,
     argPatch: {
       suggestedBranch: input.suggestedBranch,
       repoSlug,
       setupCommand: config.setupCommand ?? "",
+      branchError: "",
     },
   });
 
-  const { approved, branchName } = await requestWorktreeApproval(tabId, toolCallId);
+  let finalPath = "";
+  let finalBranch = sanitised;
 
-  if (!approved) {
-    patchAgentState(tabId, (prev) => ({
-      ...prev,
-      config: { ...prev.config, worktreeDeclined: true },
-    }));
-    return { ok: true, data: { declined: true } };
-  }
+  while (true) {
+    const { approved, branchName } = await requestWorktreeApproval(tabId, toolCallId);
 
-  const finalBranch = sanitiseBranch(branchName || sanitised);
-  let finalPath: string;
+    if (!approved) {
+      patchAgentState(tabId, (prev) => ({
+        ...prev,
+        config: { ...prev.config, worktreeDeclined: true },
+      }));
+      return { ok: true, data: { declined: true } };
+    }
 
-  try {
-    const created = await invoke<{ path: string; branch: string }>(
-      "git_worktree_add",
-      {
-        repoPath: repoRoot,
-        repoSlug,
-        branch: finalBranch,
-      },
-    );
-    finalPath = created.path;
-  } catch (error) {
-    return {
-      ok: false,
-      error: {
-        code: "INTERNAL",
-        message: `Failed to create worktree: ${error}`,
-      },
-    };
+    finalBranch = sanitiseBranch(branchName || sanitised);
+
+    try {
+      const created = await invoke<{ path: string; branch: string }>(
+        "git_worktree_add",
+        {
+          repoPath: repoRoot,
+          repoSlug,
+          branch: finalBranch,
+        },
+      );
+      finalPath = created.path;
+      break;
+    } catch (error) {
+      const existingBranchMessage = getExistingBranchMessage(finalBranch, error);
+      if (existingBranchMessage) {
+        updateWorktreeToolCall(tabId, toolCallId, {
+          status: "awaiting_worktree",
+          result: { message: existingBranchMessage },
+          argPatch: {
+            suggestedBranch: finalBranch,
+            branchError: existingBranchMessage,
+          },
+        });
+        continue;
+      }
+
+      return {
+        ok: false,
+        error: {
+          code: "INTERNAL",
+          message: `Failed to create worktree: ${error}`,
+        },
+      };
+    }
   }
 
   patchAgentState(tabId, (prev) => ({
@@ -378,6 +581,7 @@ export async function gitWorktreeInit(
     argPatch: {
       branch: finalBranch,
       worktreePath: finalPath,
+      branchError: "",
     },
   });
 

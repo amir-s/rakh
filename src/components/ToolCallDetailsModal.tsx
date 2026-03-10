@@ -38,6 +38,11 @@ const STATUS_BADGE: Record<string, { className: string; label: string }> = {
     className: "bg-primary-dim text-primary",
     label: "AWAITING",
   },
+  awaiting_branch_release: {
+    className:
+      "bg-[color-mix(in_srgb,var(--color-warning)_16%,transparent)] text-warning",
+    label: "RELEASE BRANCH",
+  },
   awaiting_setup_action: {
     className:
       "bg-[color-mix(in_srgb,var(--color-warning)_16%,transparent)] text-warning",

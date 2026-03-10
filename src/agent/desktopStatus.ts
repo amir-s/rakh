@@ -46,6 +46,7 @@ export function getAttentionToolCalls(
       (toolCall) =>
         toolCall.status === "awaiting_approval" ||
         toolCall.status === "awaiting_worktree" ||
+        toolCall.status === "awaiting_branch_release" ||
         toolCall.status === "awaiting_setup_action",
     );
 }
