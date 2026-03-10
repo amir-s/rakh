@@ -65,6 +65,7 @@ export interface PersistedSession {
   showDebug: boolean;
   /** JSON string — AdvancedModelOptions (empty string / '{}' = use defaults) */
   advancedOptions: string;
+  communicationProfile: string;
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
@@ -129,6 +130,7 @@ export function buildPersistedSession(
     advancedOptions: state.config.advancedOptions
       ? JSON.stringify(state.config.advancedOptions)
       : "{}",
+    communicationProfile: state.config.communicationProfile || "global",
     // created_at is only used on the initial INSERT; the DB preserves the
     // original value on subsequent upserts (not included in ON CONFLICT SET).
     createdAt: now,

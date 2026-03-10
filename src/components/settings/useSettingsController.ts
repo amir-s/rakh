@@ -6,13 +6,16 @@ import {
   notifyOnAttentionAtom,
   themeModeAtom,
   themeNameAtom,
+  globalCommunicationProfileAtom,
   voiceInputEnabledAtom,
   voiceModelPathAtom,
   type AppUpdaterState,
 } from "@/agent/atoms";
 import {
   providersAtom,
+  profilesAtom,
   type ProviderInstance,
+  type CommunicationProfileRecord,
 } from "@/agent/db";
 import { ensureNotificationPermission } from "@/notifications";
 import { upsertWorkspaceSessions } from "@/agent/persistence";
@@ -54,6 +57,16 @@ export interface SettingsControllerValue {
   toggleThemeMode: () => void;
   themeName: ThemeName;
   setThemeName: (name: ThemeName) => void;
+  globalCommunicationProfile: string;
+  setGlobalCommunicationProfile: (profile: string) => void;
+  customProfiles: CommunicationProfileRecord[];
+  setCustomProfiles: (profiles: CommunicationProfileRecord[]) => void;
+  isAddingProfile: boolean;
+  setIsAddingProfile: (adding: boolean) => void;
+  editingProfileId: string | null;
+  setEditingProfileId: (id: string | null) => void;
+  saveProfile: (profile: CommunicationProfileRecord) => Promise<void>;
+  deleteProfile: (id: string) => Promise<void>;
   notifyOnAttention: boolean;
   toggleNotifyOnAttention: () => Promise<void>;
   voiceInputEnabled: boolean;
@@ -71,6 +84,10 @@ export function useSettingsController(): SettingsControllerValue {
   const [providers, setProviders] = useAtom(providersAtom);
   const [themeMode, setThemeMode] = useAtom(themeModeAtom);
   const [themeName, setThemeName] = useAtom(themeNameAtom);
+  const [globalCommunicationProfile, setGlobalCommunicationProfile] = useAtom(
+    globalCommunicationProfileAtom,
+  );
+  const [customProfiles, setCustomProfiles] = useAtom(profilesAtom);
   const [appUpdater] = useAtom(appUpdaterStateAtom);
   const [notifyOnAttention, setNotifyOnAttention] = useAtom(
     notifyOnAttentionAtom,
@@ -83,6 +100,27 @@ export function useSettingsController(): SettingsControllerValue {
     useState<VoiceDownloadStatus>("idle");
   const [voiceDownloadError, setVoiceDownloadError] = useState<string | null>(
     null,
+  );
+
+  const [isAddingProfile, setIsAddingProfile] = useState(false);
+  const [editingProfileId, setEditingProfileId] = useState<string | null>(null);
+
+  const handleSaveProfile = useCallback(
+    async (profile: CommunicationProfileRecord) => {
+      const { saveProfile, loadProfiles } = await import("@/agent/db");
+      await saveProfile(profile);
+      setCustomProfiles(await loadProfiles());
+    },
+    [setCustomProfiles],
+  );
+
+  const handleDeleteProfile = useCallback(
+    async (id: string) => {
+      const { deleteProfile, loadProfiles } = await import("@/agent/db");
+      await deleteProfile(id);
+      setCustomProfiles(await loadProfiles());
+    },
+    [setCustomProfiles],
   );
 
   const envKeysAvailable = useEnvProviderKeys();
@@ -179,6 +217,16 @@ export function useSettingsController(): SettingsControllerValue {
     toggleThemeMode,
     themeName,
     setThemeName,
+    globalCommunicationProfile,
+    setGlobalCommunicationProfile,
+    customProfiles,
+    setCustomProfiles,
+    isAddingProfile,
+    setIsAddingProfile,
+    editingProfileId,
+    setEditingProfileId,
+    saveProfile: handleSaveProfile,
+    deleteProfile: handleDeleteProfile,
     notifyOnAttention,
     toggleNotifyOnAttention,
     voiceInputEnabled,

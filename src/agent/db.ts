@@ -27,3 +27,27 @@ export async function deleteProvider(id: string): Promise<void> {
 }
 
 export const providersAtom = atom<ProviderInstance[]>([]);
+
+export interface CommunicationProfileRecord {
+  id: string;
+  name: string;
+  promptSnippet: string;
+}
+
+export async function loadProfiles(): Promise<CommunicationProfileRecord[]> {
+  return invoke<CommunicationProfileRecord[]>("profiles_load");
+}
+
+export async function saveProfile(profile: CommunicationProfileRecord): Promise<void> {
+  const current = await loadProfiles();
+  const updated = [...current.filter((p) => p.id !== profile.id), profile];
+  await invoke("profiles_save", { profiles: updated });
+}
+
+export async function deleteProfile(id: string): Promise<void> {
+  const current = await loadProfiles();
+  const updated = current.filter((p) => p.id !== id);
+  await invoke("profiles_save", { profiles: updated });
+}
+
+export const profilesAtom = atom<CommunicationProfileRecord[]>([]);

@@ -24,6 +24,14 @@ export const themeModeAtom = atomWithStorage<"dark" | "light">(
   "dark",
 );
 
+/** Global fallback communication profile */
+export const globalCommunicationProfileAtom = atomWithStorage<string>(
+  "rakh.communication-profile",
+  "pragmatic",
+);
+
+
+
 /** Specific theme name applied over the mode — persisted in localStorage */
 const themeNameStorage = {
   getItem(key: string, initialValue: ThemeName): ThemeName {

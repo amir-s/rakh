@@ -61,6 +61,7 @@ function makeSession(
       reasoningEffort: "high",
       latencyCostProfile: "fast",
     }),
+    communicationProfile: "pragmatic",
     ...overrides,
   };
 }

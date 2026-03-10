@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { createPortal } from "react-dom";
-import { Button, Badge, ModalShell } from "@/components/ui";
+import { Button, Badge, ModalShell, SelectField } from "@/components/ui";
 import { TextField } from "@/components/ui";
 import {
   useFilteredModels,
@@ -8,11 +8,10 @@ import {
   fmtPrice,
   type GatewayModel,
 } from "@/agent/useModels";
+import { profilesAtom } from "@/agent/db";
+import { useAtomValue } from "jotai";
 
 /* ─────────────────────────────────────────────────────────────────────────────
-   ModelPickerModal — modal with searchable/keyboard-navigable model list.
-
-   Usage:
      const [open, setOpen] = useState(false);
      {open && (
        <ModelPickerModal
@@ -41,17 +40,21 @@ function providerLabel(ownedBy: string): string {
 interface ModelPickerModalProps {
   models: GatewayModel[];
   currentModelId: string;
-  onSelect: (modelId: string) => void;
+  currentProfile?: string;
+  onSelect: (modelId: string, profile?: string) => void;
   onClose: () => void;
 }
 
 export default function ModelPickerModal({
   models,
   currentModelId,
+  currentProfile,
   onSelect,
   onClose,
 }: ModelPickerModalProps) {
   const [query, setQuery] = useState("");
+  const [profile, setProfile] = useState<string | undefined>(currentProfile);
+  const profiles = useAtomValue(profilesAtom);
   const filtered = useFilteredModels(models, query);
 
   const initialIndex = Math.max(
@@ -106,10 +109,10 @@ export default function ModelPickerModal({
       if (e.key === "Enter") {
         e.preventDefault();
         const model = filtered[focusedIndex];
-        if (model) onSelect(model.id);
+        if (model) onSelect(model.id, profile);
       }
     },
-    [filtered, focusedIndex, onClose, onSelect],
+    [filtered, focusedIndex, onClose, onSelect, profile],
   );
 
   return createPortal(
@@ -144,8 +147,8 @@ export default function ModelPickerModal({
           </Button>
         </div>
 
-        {/* ── Search ──────────────────────────────────────────────────── */}
-        <div className="model-picker-search">
+        {/* ── Search & Profile ────────────────────────────────────────── */}
+        <div className="model-picker-search flex flex-col gap-2">
           <TextField
             ref={searchRef}
             placeholder="Search models…"
@@ -160,6 +163,24 @@ export default function ModelPickerModal({
               </span>
             }
           />
+          <div className="flex flex-col gap-1.5 mt-2 px-1">
+            <span className="text-xs text-muted font-medium">Communication Profile (Override)</span>
+            <SelectField
+              value={profile ?? "global"}
+              onChange={(e: React.ChangeEvent<HTMLSelectElement>) =>
+                setProfile(
+                  e.target.value === "global" ? undefined : e.target.value,
+                )
+              }
+            >
+              <option value="global">Use Global Default</option>
+              {profiles.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </SelectField>
+          </div>
         </div>
 
         {/* ── Model list ──────────────────────────────────────────────── */}
@@ -175,7 +196,7 @@ export default function ModelPickerModal({
                 model={m}
                 isActive={m.id === currentModelId}
                 isFocused={idx === focusedIndex}
-                onClick={() => onSelect(m.id)}
+                onClick={() => onSelect(m.id, profile)}
                 onMouseEnter={() => setFocusedIndex(idx)}
               />
             ))

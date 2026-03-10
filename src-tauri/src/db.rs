@@ -56,6 +56,7 @@ pub struct PersistedSession {
     pub show_debug: bool,
     /// JSON-serialised AdvancedModelOptions (empty string / '{}' = use defaults)
     pub advanced_options: String,
+    pub communication_profile: String,
 }
 
 /* ── Artifact models ─────────────────────────────────────────────────────── */
@@ -683,7 +684,8 @@ pub fn init_db() -> Result<Connection, String> {
             created_at       INTEGER NOT NULL,
             updated_at       INTEGER NOT NULL,
             show_debug          INTEGER NOT NULL DEFAULT 0,
-            advanced_options    TEXT    NOT NULL DEFAULT '{}'
+            advanced_options    TEXT    NOT NULL DEFAULT '{}',
+            communication_profile TEXT  NOT NULL DEFAULT 'pragmatic'
         );
     ",
     )
@@ -704,6 +706,8 @@ pub fn init_db() -> Result<Connection, String> {
         .execute_batch("ALTER TABLE sessions ADD COLUMN queued_messages TEXT NOT NULL DEFAULT '[]';");
     let _ = conn
         .execute_batch("ALTER TABLE sessions ADD COLUMN queue_state TEXT NOT NULL DEFAULT 'idle';");
+    let _ = conn
+        .execute_batch("ALTER TABLE sessions ADD COLUMN communication_profile TEXT NOT NULL DEFAULT 'pragmatic';");
     conn.execute_batch(
         "
         CREATE TABLE IF NOT EXISTS artifact_blobs (
@@ -792,7 +796,7 @@ pub fn db_load_sessions(state: State<'_, AppState>) -> Result<Vec<PersistedSessi
                 queued_messages, queue_state,
                 archived, created_at, updated_at,
                 worktree_path, worktree_branch, worktree_declined, show_debug,
-                advanced_options
+                advanced_options, communication_profile
          FROM sessions
          WHERE archived = 0
          ORDER BY updated_at DESC",
@@ -826,6 +830,7 @@ pub fn db_load_sessions(state: State<'_, AppState>) -> Result<Vec<PersistedSessi
                     worktree_declined: row.get::<_, i64>(21)? != 0,
                     show_debug: row.get::<_, i64>(22)? != 0,
                     advanced_options: row.get::<_, String>(23).unwrap_or_default(),
+                    communication_profile: row.get::<_, String>(24).unwrap_or_else(|_| "pragmatic".to_string()),
                 })
             })
             .map_err(|e| e.to_string())?;
@@ -883,8 +888,8 @@ pub fn db_upsert_session(
             chat_messages, api_messages, todos, review_edits,
             queued_messages, queue_state,
             archived, created_at, updated_at,
-            worktree_path, worktree_branch, worktree_declined, show_debug, advanced_options
-         ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24)
+            worktree_path, worktree_branch, worktree_declined, show_debug, advanced_options, communication_profile
+         ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25)
          ON CONFLICT(id) DO UPDATE SET
             label             = excluded.label,
             icon              = excluded.icon,
@@ -907,6 +912,7 @@ pub fn db_upsert_session(
             worktree_declined = excluded.worktree_declined,
             show_debug        = excluded.show_debug,
             advanced_options  = excluded.advanced_options,
+            communication_profile = excluded.communication_profile,
             updated_at        = ?19",
             rusqlite::params![
                 session.id,
@@ -933,6 +939,7 @@ pub fn db_upsert_session(
                 session.worktree_declined as i64,
                 session.show_debug as i64,
                 session.advanced_options,
+                session.communication_profile,
             ],
         )
         .map_err(|e| e.to_string())?;
@@ -1010,7 +1017,7 @@ pub fn db_load_archived_sessions(
                 queued_messages, queue_state,
                 archived, created_at, updated_at,
                 worktree_path, worktree_branch, worktree_declined, show_debug,
-                advanced_options
+                advanced_options, communication_profile
          FROM sessions
          WHERE archived = 1
          ORDER BY updated_at DESC",
@@ -1044,6 +1051,7 @@ pub fn db_load_archived_sessions(
                     worktree_declined: row.get::<_, i64>(21)? != 0,
                     show_debug: row.get::<_, i64>(22)? != 0,
                     advanced_options: row.get::<_, String>(23).unwrap_or_default(),
+                    communication_profile: row.get::<_, String>(24).unwrap_or_else(|_| "pragmatic".to_string()),
                 })
             })
             .map_err(|e| e.to_string())?;
@@ -1634,6 +1642,84 @@ pub fn providers_save(providers: Vec<ProviderRecord>) -> Result<(), String> {
     Ok(())
 }
 
+/* ── Communication Profiles (disk-backed) ────────────────────────────────── */
+
+fn profiles_config_path() -> Result<PathBuf, String> {
+    Ok(app_store_root()?.join("config").join("profiles.json"))
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CommunicationProfileRecord {
+    pub id: String,
+    pub name: String,
+    pub prompt_snippet: String,
+}
+
+#[tauri::command]
+pub fn profiles_load() -> Result<Vec<CommunicationProfileRecord>, String> {
+    tool_log("profiles_load", "start", json!({}));
+    let path = profiles_config_path()?;
+    if !path.exists() {
+        let default_profiles = vec![
+            CommunicationProfileRecord {
+                id: "pragmatic".to_string(),
+                name: "Pragmatic".to_string(),
+                prompt_snippet: "You are a pragmatic, highly competent pair programming assistant. Focus on correctness, conciseness, and delivering working code efficiently. Avoid unnecessary pleasantries and jump straight to the technical solution.".to_string(),
+            },
+            CommunicationProfileRecord {
+                id: "friendly".to_string(),
+                name: "Friendly".to_string(),
+                prompt_snippet: "You are a friendly, encouraging pair programming assistant. Be supportive and use an approachable tone. Take time to explain your thought process clearly and ensure the user feels comfortable asking questions.".to_string(),
+            },
+            CommunicationProfileRecord {
+                id: "kevin".to_string(),
+                name: "Kevin Malone".to_string(),
+                prompt_snippet: "You speak like Kevin Malone from The Office. Why waste time say lot word when few word do trick? Keep reply very short. but coherent. it okay to make mistake if still true and correct. no bs. fast.".to_string(),
+            },
+        ];
+        // We will do a full population of the snippets in the next step
+        tool_log("profiles_load", "ok", json!({ "count": default_profiles.len(), "reason": "defaults_created" }));
+        
+        let _ = profiles_save(default_profiles.clone());
+        
+        return Ok(default_profiles);
+    }
+    let raw = fs::read_to_string(&path)
+        .map_err(|e| format!("INTERNAL: cannot read profiles: {}", e))?;
+    let records: Vec<CommunicationProfileRecord> = serde_json::from_str(&raw)
+        .map_err(|e| format!("INTERNAL: cannot parse profiles: {}", e))?;
+    tool_log("profiles_load", "ok", json!({ "count": records.len() }));
+    Ok(records)
+}
+
+#[tauri::command]
+pub fn profiles_save(profiles: Vec<CommunicationProfileRecord>) -> Result<(), String> {
+    tool_log("profiles_save", "start", json!({ "count": profiles.len() }));
+    let path = profiles_config_path()?;
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|e| format!("INTERNAL: cannot create config dir: {}", e))?;
+    }
+    let raw = serde_json::to_string_pretty(&profiles)
+        .map_err(|e| format!("INTERNAL: cannot serialise profiles: {}", e))?;
+    let tmp = path.with_extension(format!("json.tmp-{}", now_ms()));
+    fs::write(&tmp, raw.as_bytes())
+        .map_err(|e| format!("INTERNAL: cannot write profiles tmp: {}", e))?;
+    match fs::rename(&tmp, &path) {
+        Ok(()) => {}
+        Err(e) => {
+            if path.exists() {
+                let _ = fs::remove_file(&tmp);
+            } else {
+                return Err(format!("INTERNAL: cannot rename profiles file: {}", e));
+            }
+        }
+    }
+    tool_log("profiles_save", "ok", json!({ "count": profiles.len() }));
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1779,7 +1865,8 @@ mod tests {
                 worktree_branch  TEXT    NOT NULL DEFAULT '',
                 worktree_declined INTEGER NOT NULL DEFAULT 0,
                 show_debug       INTEGER NOT NULL DEFAULT 0,
-                advanced_options TEXT    NOT NULL DEFAULT '{}'
+                advanced_options TEXT    NOT NULL DEFAULT '{}',
+                communication_profile TEXT NOT NULL DEFAULT 'pragmatic'
             );
         ",
         )
@@ -1822,6 +1909,7 @@ mod tests {
             worktree_declined: false,
             show_debug: false,
             advanced_options: "{}".to_string(),
+            communication_profile: "pragmatic".to_string(),
         };
 
         db.execute(

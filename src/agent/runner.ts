@@ -10,7 +10,12 @@
  *   → if no tool calls: done
  */
 
-import { getAgentState, patchAgentState, jotaiStore } from "./atoms";
+import {
+  getAgentState,
+  patchAgentState,
+  jotaiStore,
+  globalCommunicationProfileAtom,
+} from "./atoms";
 import { providersAtom } from "./db";
 import {
   TOOL_DEFINITIONS,
@@ -77,7 +82,7 @@ import type {
   EditFileChange,
   SearchFilesOutput,
 } from "@/agent/tools/workspace";
-import type { ProviderInstance } from "./db";
+import { profilesAtom, type ProviderInstance } from "./db";
 import {
   artifactGet,
   getArtifactFrameworkMetadata,
@@ -770,12 +775,21 @@ export async function stopRunningExecToolCall(
    System prompt
 ───────────────────────────────────────────────────────────────────────────── */
 
+function getCommunicationInstruction(profile: string | undefined): string | null {
+  const targetId = !profile || profile === "global" ? jotaiStore.get(globalCommunicationProfileAtom) : profile;
+  if (!targetId) return null;
+  const profiles = jotaiStore.get(profilesAtom);
+  const match = profiles.find((p) => p.id === targetId);
+  return match ? match.promptSnippet : null;
+}
+
 function buildSystemPrompt(
   cwd: string,
   isGitRepo: boolean,
   hasAgentsFile: boolean,
   hasSkillsDir: boolean,
   runtimeContext: SystemPromptRuntimeContext,
+  communicationProfile: string | undefined,
 ): string {
   const gitSection = isGitRepo
     ? `
@@ -887,7 +901,12 @@ Use agent_subagent_call when delegating to a specialist is appropriate.
 When a subagent returns cards, those cards are already visible to the user.
 Read them, but do not recreate the same cards with agent_card_add.
 
-Be concise. Act like a focused senior engineer.`;
+Be concise. Act like a focused senior engineer.${
+  (() => {
+    const inst = getCommunicationInstruction(communicationProfile);
+    return inst ? `\n\nCOMMUNICATION STYLE\n${inst}` : "";
+  })()
+}`;
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
@@ -1152,7 +1171,7 @@ function serializeConversationCardForParent(
 }
 
 /** Build the full system prompt for a subagent (base + output section). */
-function buildSubagentSystemPrompt(def: SubagentDefinition): string {
+function buildSubagentSystemPrompt(def: SubagentDefinition, communicationProfile?: string): string {
   const prompt = def.systemPrompt.trim();
   if (!def.output) return prompt;
 
@@ -1184,6 +1203,11 @@ function buildSubagentSystemPrompt(def: SubagentDefinition): string {
   outputSections.push(
     ["FINAL MESSAGE", def.output.finalMessageInstructions.trim()].join("\n"),
   );
+
+  const commInstruction = getCommunicationInstruction(communicationProfile);
+  if (commInstruction) {
+    outputSections.push(["COMMUNICATION STYLE", commInstruction].join("\n"));
+  }
 
   return `${prompt}\n\n${outputSections.join("\n\n")}`;
 }
@@ -1281,7 +1305,8 @@ async function runSubagentLoop(
   }
 
   const toolDefs = getToolDefinitionsByNames(subagentDef.tools);
-  const systemPromptText = buildSubagentSystemPrompt(subagentDef);
+  const communicationProfile = getAgentState(tabId).config.communicationProfile;
+  const systemPromptText = buildSubagentSystemPrompt(subagentDef, communicationProfile);
 
   // Local API message history — not merged into the parent tab's apiMessages.
   const localApiMessages: ApiMessage[] = [
@@ -2368,6 +2393,7 @@ async function runAgentTurn(
               hasAgentsFile,
               hasSkillsDir,
               buildSystemPromptRuntimeContext(),
+              state.config.communicationProfile,
             ),
           },
         ]

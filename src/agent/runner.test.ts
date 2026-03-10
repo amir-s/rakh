@@ -41,6 +41,8 @@ type MockAgentState = {
 const {
   states,
   providersAtomMock,
+  globalCommunicationProfileAtomMock,
+  profilesAtomMock,
   jotaiStoreMock,
   dispatchToolMock,
   validateToolMock,
@@ -58,6 +60,8 @@ const {
 } = vi.hoisted(() => ({
   states: {} as Record<string, MockAgentState>,
   providersAtomMock: { kind: "providers-atom" },
+  globalCommunicationProfileAtomMock: { kind: "global-communication-profile-atom" },
+  profilesAtomMock: { kind: "profiles-atom" },
   jotaiStoreMock: {
     get: vi.fn(),
   },
@@ -87,10 +91,12 @@ vi.mock("./atoms", () => ({
       typeof patch === "function" ? patch(prev) : { ...prev, ...patch };
   },
   jotaiStore: jotaiStoreMock,
+  globalCommunicationProfileAtom: globalCommunicationProfileAtomMock,
 }));
 
 vi.mock("./db", () => ({
   providersAtom: providersAtomMock,
+  profilesAtom: profilesAtomMock,
 }));
 
 vi.mock("@ai-sdk/openai-compatible", () => ({
@@ -301,6 +307,12 @@ describe("runner", () => {
             baseUrl: "http://localhost:11434",
           },
         ];
+      }
+      if (atom === profilesAtomMock) {
+        return [];
+      }
+      if (atom === globalCommunicationProfileAtomMock) {
+        return "global-test-profile";
       }
       return undefined;
     });
