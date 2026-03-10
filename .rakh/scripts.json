@@ -1,0 +1,17 @@
+{
+  "setupCommand": "npm i",
+  "commands": [
+    {
+      "id": "cmd-akemr4y4-mmk56dbq",
+      "label": "Run",
+      "command": "npm run d",
+      "icon": "play_arrow"
+    },
+    {
+      "id": "cmd-as0bxueb-mmk56kzq",
+      "label": "Build",
+      "command": "npm run b",
+      "icon": "package_2"
+    }
+  ]
+}
