@@ -5,6 +5,7 @@ export type SettingsSectionId =
   | "appearance"
   | "notifications"
   | "providers"
+  | "mcp"
   | "voice"
   | "updates";
 
@@ -57,6 +58,13 @@ export const SETTINGS_SECTIONS: SettingsSectionDefinition[] = [
     label: "AI Providers",
     description: "API keys, model sources, and imports.",
     icon: "hub",
+  },
+  {
+    id: "mcp",
+    groupId: "ai",
+    label: "MCP Servers",
+    description: "Global MCP server registry and discovery checks.",
+    icon: "extension",
   },
   {
     id: "voice",

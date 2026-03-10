@@ -26,6 +26,18 @@ import {
 } from "./tools";
 import { execAbort, execStop } from "./tools/exec";
 import {
+  buildMcpRuntimeToolRegistry,
+  callMcpTool,
+  extractMcpToolErrorMessage,
+  mcpServersAtom,
+  mcpSettingsAtom,
+  prepareMcpRun,
+  shutdownMcpRun,
+  type McpToolDefinition,
+  type McpToolCallResponse,
+  type McpToolRegistration,
+} from "./mcp";
+import {
   getAllSubagents,
   getSubagent,
   findSubagentByTrigger,
@@ -84,6 +96,7 @@ import type {
 } from "@/agent/tools/workspace";
 import { profilesAtom, type ProviderInstance } from "./db";
 import {
+  artifactCreate,
   artifactGet,
   getArtifactFrameworkMetadata,
   withArtifactFrameworkMetadata,
@@ -177,6 +190,372 @@ function isRunAbortedToolResult(result: unknown): boolean {
 
 function shouldStreamToolOutput(toolName: string): boolean {
   return toolName === "exec_run" || toolName === "git_worktree_init";
+}
+
+interface MainAgentMcpRuntime {
+  toolDefinitions: Record<string, McpToolDefinition>;
+  toolsByName: Record<string, McpToolRegistration>;
+}
+
+function buildMcpWarningMessage(failures: Array<{ serverName: string; error: string }>): string {
+  const prefix =
+    failures.length === 1
+      ? "One MCP server could not be loaded for this run:"
+      : `${failures.length} MCP servers could not be loaded for this run:`;
+  const details = failures
+    .map((failure) => `- ${failure.serverName}: ${failure.error}`)
+    .join("\n");
+  return `${prefix}\n${details}`;
+}
+
+async function prepareMainAgentMcpRuntime(
+  tabId: string,
+  runId: string,
+  cwd: string,
+): Promise<MainAgentMcpRuntime> {
+  const configuredServers = jotaiStore.get(mcpServersAtom);
+  if (!configuredServers.some((server) => server.enabled)) {
+    return { toolDefinitions: {}, toolsByName: {} };
+  }
+
+  try {
+    const prepared = await prepareMcpRun(runId, cwd, configuredServers);
+    if (prepared.failures.length > 0) {
+      appendChatMessage(tabId, {
+        id: msgId(),
+        role: "assistant",
+        content: buildMcpWarningMessage(prepared.failures),
+        timestamp: Date.now(),
+        badge: "MCP WARNING",
+      });
+    }
+
+    const registry = buildMcpRuntimeToolRegistry(
+      prepared.tools,
+      Object.keys(TOOL_DEFINITIONS),
+    );
+    return {
+      toolDefinitions: registry.definitions,
+      toolsByName: registry.toolsByName,
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    appendChatMessage(tabId, {
+      id: msgId(),
+      role: "assistant",
+      content: `MCP discovery failed for this run.\n- ${message}`,
+      timestamp: Date.now(),
+      badge: "MCP WARNING",
+    });
+    return { toolDefinitions: {}, toolsByName: {} };
+  }
+}
+
+type McpArtifactPayloadCandidate =
+  | {
+      payload: Record<string, unknown>;
+      originalType: string;
+      mimeType?: string;
+      filename?: string;
+      dataEncoding?: "base64" | "utf8";
+    }
+  | {
+      payload: Record<string, unknown>;
+      originalType: "resource";
+      mimeType?: string;
+      filename?: string;
+      dataEncoding?: "base64" | "utf8";
+    };
+
+interface McpArtifactReference {
+  artifactId: string;
+  version: number;
+  mimeType?: string;
+  originalType: string;
+  filename?: string;
+}
+
+function getMcpArtifactPayloadCandidate(
+  value: unknown,
+): McpArtifactPayloadCandidate | null {
+  if (!isRecord(value)) return null;
+
+  const payloadType =
+    typeof value.type === "string" && value.type.trim()
+      ? value.type.trim()
+      : "file";
+  const mimeType =
+    typeof value.mimeType === "string" && value.mimeType.trim()
+      ? value.mimeType.trim()
+      : undefined;
+  const filename =
+    typeof value.filename === "string" && value.filename.trim()
+      ? value.filename.trim()
+      : typeof value.name === "string" && value.name.trim()
+        ? value.name.trim()
+        : undefined;
+
+  if (
+    typeof value.data === "string" &&
+    (payloadType === "image" ||
+      payloadType === "audio" ||
+      payloadType === "file" ||
+      mimeType !== undefined)
+  ) {
+    return {
+      payload: value,
+      originalType: payloadType,
+      mimeType,
+      filename,
+      dataEncoding: "base64",
+    };
+  }
+
+  if (payloadType !== "resource" || !isRecord(value.resource)) {
+    return null;
+  }
+
+  const resourceMimeType =
+    typeof value.resource.mimeType === "string" && value.resource.mimeType.trim()
+      ? value.resource.mimeType.trim()
+      : undefined;
+  const resourceFilename =
+    typeof value.resource.name === "string" && value.resource.name.trim()
+      ? value.resource.name.trim()
+      : typeof value.resource.uri === "string" && value.resource.uri.trim()
+        ? value.resource.uri.trim()
+        : filename;
+
+  if (typeof value.resource.blob === "string") {
+    return {
+      payload: value,
+      originalType: "resource",
+      mimeType: resourceMimeType,
+      filename: resourceFilename,
+      dataEncoding: "base64",
+    };
+  }
+
+  if (typeof value.resource.text === "string") {
+    return {
+      payload: value,
+      originalType: "resource",
+      mimeType: resourceMimeType,
+      filename: resourceFilename,
+      dataEncoding: "utf8",
+    };
+  }
+
+  return null;
+}
+
+function buildMcpArtifactReferenceMessage(
+  reference: McpArtifactReference,
+): string {
+  const payloadLabel = [
+    reference.originalType,
+    reference.mimeType,
+    reference.filename,
+  ]
+    .filter((part): part is string => typeof part === "string" && part.length > 0)
+    .join(" · ");
+  const prefix = payloadLabel
+    ? `MCP payload stored as artifact (${payloadLabel})`
+    : "MCP payload stored as artifact";
+  return (
+    `${prefix}: ${reference.artifactId}@${reference.version}. ` +
+    "Retrieve it from the artifact repository with agent_artifact_get."
+  );
+}
+
+function buildMcpArtifactReferenceRecord(
+  reference: McpArtifactReference,
+): Record<string, unknown> {
+  return {
+    artifactId: reference.artifactId,
+    version: reference.version,
+    originalType: reference.originalType,
+    ...(reference.mimeType ? { mimeType: reference.mimeType } : {}),
+    ...(reference.filename ? { filename: reference.filename } : {}),
+    note: "Binary MCP payload removed from model context. Retrieve it from the artifact repository with agent_artifact_get.",
+  };
+}
+
+async function createMcpPayloadArtifact(
+  tabId: string,
+  runId: string,
+  mcpTool: McpToolRegistration,
+  candidate: McpArtifactPayloadCandidate,
+): Promise<McpArtifactReference | null> {
+  const summaryParts = [
+    mcpTool.serverName,
+    mcpTool.toolTitle ?? mcpTool.toolName,
+    candidate.mimeType ?? candidate.originalType,
+  ];
+  const summary = summaryParts
+    .filter((part): part is string => typeof part === "string" && part.length > 0)
+    .join(" · ");
+  const artifactInput = {
+    kind: "mcp-attachment",
+    summary,
+    contentFormat: "json" as const,
+    content: JSON.stringify(candidate.payload, null, 2),
+    metadata: {
+      source: {
+        type: "mcp",
+        serverId: mcpTool.serverId,
+        serverName: mcpTool.serverName,
+        toolName: mcpTool.toolName,
+        ...(mcpTool.toolTitle ? { toolTitle: mcpTool.toolTitle } : {}),
+      },
+      attachment: {
+        originalType: candidate.originalType,
+        ...(candidate.mimeType ? { mimeType: candidate.mimeType } : {}),
+        ...(candidate.filename ? { filename: candidate.filename } : {}),
+        ...(candidate.dataEncoding ? { dataEncoding: candidate.dataEncoding } : {}),
+      },
+    },
+  };
+  const artifactResult = await artifactCreate(
+    tabId,
+    { runId, agentId: "agent_main" },
+    artifactInput,
+  );
+  if (!artifactResult.ok) {
+    console.warn("Failed to artifactize MCP payload", {
+      serverId: mcpTool.serverId,
+      toolName: mcpTool.toolName,
+      error: artifactResult.error,
+    });
+    return null;
+  }
+
+  return {
+    artifactId: artifactResult.data.artifact.artifactId,
+    version: artifactResult.data.artifact.version,
+    originalType: candidate.originalType,
+    ...(candidate.mimeType ? { mimeType: candidate.mimeType } : {}),
+    ...(candidate.filename ? { filename: candidate.filename } : {}),
+  };
+}
+
+async function sanitizeMcpStructuredValue(
+  value: unknown,
+  tabId: string,
+  runId: string,
+  mcpTool: McpToolRegistration,
+  artifactRefs: McpArtifactReference[],
+): Promise<unknown> {
+  const candidate = getMcpArtifactPayloadCandidate(value);
+  if (candidate) {
+    const artifactRef = await createMcpPayloadArtifact(tabId, runId, mcpTool, candidate);
+    if (!artifactRef) return value;
+    artifactRefs.push(artifactRef);
+    return buildMcpArtifactReferenceRecord(artifactRef);
+  }
+
+  if (Array.isArray(value)) {
+    return Promise.all(
+      value.map((entry) =>
+        sanitizeMcpStructuredValue(entry, tabId, runId, mcpTool, artifactRefs),
+      ),
+    );
+  }
+
+  if (!isRecord(value)) {
+    return value;
+  }
+
+  const entries = await Promise.all(
+    Object.entries(value).map(async ([key, entry]) => [
+      key,
+      await sanitizeMcpStructuredValue(entry, tabId, runId, mcpTool, artifactRefs),
+    ]),
+  );
+  return Object.fromEntries(entries);
+}
+
+async function maybeArtifactizeMcpToolResult(
+  tabId: string,
+  runId: string,
+  mcpTool: McpToolRegistration,
+  result: McpToolCallResponse,
+  artifactizeReturnedFiles: boolean,
+): Promise<McpToolCallResponse> {
+  if (!artifactizeReturnedFiles) {
+    return result;
+  }
+
+  const artifactRefs: McpArtifactReference[] = [];
+  const nextContent = await Promise.all(
+    result.content.map(async (item) => {
+      const candidate = getMcpArtifactPayloadCandidate(item);
+      if (!candidate) return item;
+
+      const artifactRef = await createMcpPayloadArtifact(tabId, runId, mcpTool, candidate);
+      if (!artifactRef) return item;
+      artifactRefs.push(artifactRef);
+      return {
+        type: "text",
+        text: buildMcpArtifactReferenceMessage(artifactRef),
+      };
+    }),
+  );
+  const nextStructuredContent =
+    result.structuredContent === undefined
+      ? undefined
+      : await sanitizeMcpStructuredValue(
+          result.structuredContent,
+          tabId,
+          runId,
+          mcpTool,
+          artifactRefs,
+        );
+  const nextMeta =
+    result.meta === undefined
+      ? undefined
+      : await sanitizeMcpStructuredValue(result.meta, tabId, runId, mcpTool, artifactRefs);
+
+  if (artifactRefs.length === 0) {
+    return result;
+  }
+
+  const metaRecord = isRecord(nextMeta) ? { ...nextMeta } : {};
+  metaRecord.__rakhMcpArtifacts = artifactRefs.map((reference) =>
+    buildMcpArtifactReferenceRecord(reference),
+  );
+
+  return {
+    ...result,
+    content: nextContent,
+    ...(result.structuredContent !== undefined
+      ? { structuredContent: nextStructuredContent }
+      : {}),
+    meta: metaRecord,
+  };
+}
+
+function buildToolCallDisplay(
+  toolCall: ApiToolCall,
+  mcpToolsByName: Record<string, McpToolRegistration>,
+): ToolCallDisplay {
+  const registration = mcpToolsByName[toolCall.function.name];
+  return {
+    id: toolCall.id,
+    tool: toolCall.function.name,
+    args: parseArgs(toolCall.function.arguments),
+    ...(registration
+      ? {
+          mcp: {
+            serverId: registration.serverId,
+            serverName: registration.serverName,
+            toolName: registration.toolName,
+            ...(registration.toolTitle ? { toolTitle: registration.toolTitle } : {}),
+          },
+        }
+      : {}),
+    status: "pending",
+  };
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
@@ -951,51 +1330,15 @@ function appendChatMessage(tabId: string, msg: ChatMessage): void {
   }));
 }
 
-function updateChatMessageById(
+function updateLastChatMessage(
   tabId: string,
-  messageId: string,
   updater: (msg: ChatMessage) => ChatMessage,
 ): void {
   patchAgentState(tabId, (prev) => {
-    let didUpdate = false;
-    const chatMessages = prev.chatMessages.map((msg) => {
-      if (msg.id !== messageId) return msg;
-      didUpdate = true;
-      return updater(msg);
-    });
-    return didUpdate ? { ...prev, chatMessages } : prev;
-  });
-}
-
-function finalizeLatestStreamingAssistantMessage(tabId: string): void {
-  const finalizedAtMs = Date.now();
-  patchAgentState(tabId, (prev) => {
-    const chatMessages = [...prev.chatMessages];
-    for (let index = chatMessages.length - 1; index >= 0; index -= 1) {
-      const msg = chatMessages[index];
-      if (msg.role !== "assistant") continue;
-      const reasoningStartedAtMs = msg.reasoningStartedAtMs;
-      const shouldFinalizeReasoningDuration =
-        typeof reasoningStartedAtMs === "number" &&
-        typeof msg.reasoningDurationMs !== "number";
-      if (
-        !msg.streaming &&
-        !msg.reasoningStreaming &&
-        !shouldFinalizeReasoningDuration
-      ) {
-        continue;
-      }
-      chatMessages[index] = {
-        ...msg,
-        streaming: false,
-        reasoningStreaming: undefined,
-        reasoningDurationMs: shouldFinalizeReasoningDuration
-          ? Math.max(0, finalizedAtMs - reasoningStartedAtMs)
-          : msg.reasoningDurationMs,
-      };
-      return { ...prev, chatMessages };
-    }
-    return prev;
+    const msgs = [...prev.chatMessages];
+    if (msgs.length === 0) return prev;
+    msgs[msgs.length - 1] = updater(msgs[msgs.length - 1]);
+    return { ...prev, chatMessages: msgs };
   });
 }
 
@@ -1095,6 +1438,89 @@ function logStreamDebug(
     return;
   }
   console.log(prefix, event, toLoggable(payload));
+}
+
+interface DebuggableStreamStep {
+  stepNumber?: unknown;
+  finishReason?: unknown;
+  rawFinishReason?: unknown;
+  text?: unknown;
+  reasoningText?: unknown;
+  toolCalls?: unknown;
+}
+
+interface DebuggableStreamResult {
+  finishReason?: PromiseLike<unknown>;
+  rawFinishReason?: PromiseLike<unknown>;
+  steps?: PromiseLike<unknown>;
+}
+
+function summarizeStreamStepForDebug(
+  step: unknown,
+  fallbackStepNumber: number,
+): Record<string, unknown> {
+  if (!isRecord(step)) {
+    return { stepNumber: fallbackStepNumber };
+  }
+
+  const debugStep = step as DebuggableStreamStep;
+  const toolCalls = Array.isArray(debugStep.toolCalls) ? debugStep.toolCalls : [];
+  const toolNames = toolCalls
+    .map((toolCall) =>
+      isRecord(toolCall) && typeof toolCall.toolName === "string"
+        ? toolCall.toolName
+        : null,
+    )
+    .filter((toolName): toolName is string => toolName !== null);
+
+  return {
+    stepNumber:
+      typeof debugStep.stepNumber === "number"
+        ? debugStep.stepNumber
+        : fallbackStepNumber,
+    ...(typeof debugStep.finishReason === "string"
+      ? { finishReason: debugStep.finishReason }
+      : {}),
+    ...(typeof debugStep.rawFinishReason === "string"
+      ? { rawFinishReason: debugStep.rawFinishReason }
+      : {}),
+    textChars:
+      typeof debugStep.text === "string" ? debugStep.text.length : undefined,
+    reasoningChars:
+      typeof debugStep.reasoningText === "string"
+        ? debugStep.reasoningText.length
+        : undefined,
+    toolCallCount: toolCalls.length,
+    ...(toolNames.length > 0 ? { toolNames } : {}),
+  };
+}
+
+async function logStreamFinishDebug(
+  tabId: string,
+  debugEnabled: boolean,
+  result: DebuggableStreamResult,
+): Promise<void> {
+  if (!debugEnabled) return;
+
+  try {
+    const [finishReason, rawFinishReason, stepsValue] = await Promise.all([
+      result.finishReason ?? Promise.resolve(undefined),
+      result.rawFinishReason ?? Promise.resolve(undefined),
+      result.steps ?? Promise.resolve(undefined),
+    ]);
+    const steps = Array.isArray(stepsValue) ? stepsValue : [];
+
+    logStreamDebug(tabId, debugEnabled, "stream:finish", {
+      ...(typeof finishReason === "string" ? { finishReason } : {}),
+      ...(typeof rawFinishReason === "string" ? { rawFinishReason } : {}),
+      stepCount: steps.length,
+      steps: steps.map((step, index) =>
+        summarizeStreamStepForDebug(step, index),
+      ),
+    });
+  } catch (error) {
+    logStreamDebug(tabId, debugEnabled, "stream:finish:error", error);
+  }
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
@@ -1322,7 +1748,6 @@ interface SubagentLoopOptions {
   parentModelId: string;
   providers: ProviderInstance[];
   debugEnabled: boolean;
-  bubbleGroupId?: string;
 }
 
 /**
@@ -1350,12 +1775,10 @@ async function runSubagentLoop(
     parentModelId,
     providers,
     debugEnabled,
-    bubbleGroupId,
   } = opts;
 
   const startedAtMs = Date.now();
   const modelId = resolveSubagentModelId(subagentDef, parentModelId, providers);
-  const resolvedBubbleGroupId = bubbleGroupId?.trim() || msgId();
 
   let languageModel;
   try {
@@ -1706,7 +2129,6 @@ async function runSubagentLoop(
       id: assistantChatId,
       role: "assistant",
       agentName: subagentDef.name,
-      bubbleGroupId: resolvedBubbleGroupId,
       content: "",
       timestamp: Date.now(),
       streaming: true,
@@ -1722,16 +2144,19 @@ async function runSubagentLoop(
     });
 
     const updateSubagentStreamMsg = () => {
-      updateChatMessageById(tabId, assistantChatId, (m) => ({
-        ...m,
-        agentName: subagentDef.name,
-        bubbleGroupId: resolvedBubbleGroupId,
-        content: accText,
-        reasoning: accReasoning || undefined,
-        reasoningStreaming: reasoningActive ? true : undefined,
-        reasoningStartedAtMs: reasoningStartedAtMs ?? undefined,
-        reasoningDurationMs: reasoningDurationMs ?? undefined,
-      }));
+      updateLastChatMessage(tabId, (m) =>
+        m.id === assistantChatId
+          ? {
+              ...m,
+              agentName: subagentDef.name,
+              content: accText,
+              reasoning: accReasoning || undefined,
+              reasoningStreaming: reasoningActive ? true : undefined,
+              reasoningStartedAtMs: reasoningStartedAtMs ?? undefined,
+              reasoningDurationMs: reasoningDurationMs ?? undefined,
+            }
+          : m,
+      );
     };
 
     try {
@@ -1822,11 +2247,11 @@ async function runSubagentLoop(
     );
 
     // Finalise the streaming assistant message.
-    updateChatMessageById(tabId, assistantChatId, (m) => {
+    updateLastChatMessage(tabId, (m) => {
+      if (m.id !== assistantChatId) return m;
       return {
         ...m,
         agentName: subagentDef.name,
-        bubbleGroupId: resolvedBubbleGroupId,
         content: accText,
         reasoning: accReasoning || undefined,
         reasoningStreaming: undefined,
@@ -2314,7 +2739,9 @@ async function runAgentTurn(
       }
       const msg = err instanceof Error ? err.message : String(err);
       setAgentErrorState(tabId, msg, serializeError(err));
-      finalizeLatestStreamingAssistantMessage(tabId);
+      updateLastChatMessage(tabId, (m) =>
+        m.role === "assistant" ? { ...m, streaming: false } : m,
+      );
       return;
     } finally {
       clearActiveRun(tabId, activeRun);
@@ -2506,7 +2933,9 @@ async function runAgentTurn(
     }
     const msg = err instanceof Error ? err.message : String(err);
     setAgentErrorState(tabId, msg, serializeError(err));
-    finalizeLatestStreamingAssistantMessage(tabId);
+    updateLastChatMessage(tabId, (m) =>
+      m.role === "assistant" ? { ...m, streaming: false } : m,
+    );
   } finally {
     clearActiveRun(tabId, activeRun);
     if (activeRun.abortReason !== null) return;
@@ -2548,59 +2977,69 @@ async function agentLoop(
     advancedOpts,
     modelEntry?.sdk_id?.trim(),
   );
+  const mcpRuntime = await prepareMainAgentMcpRuntime(
+    tabId,
+    runId,
+    getAgentState(tabId).config.cwd,
+  );
+  const toolDefinitions = {
+    ...TOOL_DEFINITIONS,
+    ...mcpRuntime.toolDefinitions,
+  };
 
-  // Loop until the model returns a turn with no tool calls
-  for (let iteration = 0; iteration < 50; iteration++) {
-    if (signal.aborted) return;
+  try {
+    // Loop until the model returns a turn with no tool calls
+    for (let iteration = 0; iteration < 50; iteration++) {
+      if (signal.aborted) return;
 
-    const turnStartedAtMs = Date.now();
-    const currentApiMessages = getAgentState(tabId).apiMessages;
-    logStreamDebug(tabId, debugEnabled, "turn:start", {
-      iteration,
-      apiMessageCount: currentApiMessages.length,
-      modelId,
-    });
-    let usedFullStream = false;
-    let streamPartCount = 0;
-    let streamErrorPartCount = 0;
-    let textDeltaCount = 0;
-    let textDeltaChars = 0;
-    let reasoningDeltaCount = 0;
-    let reasoningDeltaChars = 0;
-    let reasoningStartCount = 0;
-    let reasoningEndCount = 0;
+      const turnStartedAtMs = Date.now();
+      const currentApiMessages = getAgentState(tabId).apiMessages;
+      logStreamDebug(tabId, debugEnabled, "turn:start", {
+        iteration,
+        apiMessageCount: currentApiMessages.length,
+        modelId,
+      });
+      let usedFullStream = false;
+      let streamPartCount = 0;
+      let streamErrorPartCount = 0;
+      let textDeltaCount = 0;
+      let textDeltaChars = 0;
+      let reasoningDeltaCount = 0;
+      let reasoningDeltaChars = 0;
+      let reasoningStartCount = 0;
+      let reasoningEndCount = 0;
 
-    // --- Streaming turn ---
-    let accText = "";
-    let accReasoning = "";
-    let reasoningActive = false;
-    let reasoningStartedAtMs: number | null = null;
-    let reasoningDurationMs: number | null = null;
-    const streamErrors: unknown[] = [];
+      // --- Streaming turn ---
+      let accText = "";
+      let accReasoning = "";
+      let reasoningActive = false;
+      let reasoningStartedAtMs: number | null = null;
+      let reasoningDurationMs: number | null = null;
+      const streamErrors: unknown[] = [];
 
-    // Create a placeholder assistant chat message for streaming
-    const assistantChatId = msgId();
-    appendChatMessage(tabId, {
-      id: assistantChatId,
-      role: "assistant",
-      content: "",
-      timestamp: Date.now(),
-      streaming: true,
-    });
+      // Create a placeholder assistant chat message for streaming
+      const assistantChatId = msgId();
+      appendChatMessage(tabId, {
+        id: assistantChatId,
+        role: "assistant",
+        content: "",
+        timestamp: Date.now(),
+        streaming: true,
+      });
 
-    patchAgentState(tabId, { status: "thinking", streamingContent: "" });
+      patchAgentState(tabId, { status: "thinking", streamingContent: "" });
 
-    const mappedMessages = mapApiMessagesToModelMessages(currentApiMessages);
+      const mappedMessages = mapApiMessagesToModelMessages(currentApiMessages);
 
-    const result = streamText({
-      model: languageModel,
-      messages: mappedMessages,
-      tools: TOOL_DEFINITIONS,
-      abortSignal: signal,
-      ...(providerOptions ? { providerOptions } : {}),
-    });
+      const result = streamText({
+        model: languageModel,
+        messages: mappedMessages,
+        tools: toolDefinitions,
+        abortSignal: signal,
+        ...(providerOptions ? { providerOptions } : {}),
+      });
 
-    try {
+      try {
       const ensureReasoningStart = () => {
         if (reasoningStartedAtMs === null) {
           reasoningStartedAtMs = Date.now();
@@ -2615,14 +3054,18 @@ async function agentLoop(
       };
 
       const updateStreamingMessage = () => {
-        updateChatMessageById(tabId, assistantChatId, (m) => ({
-          ...m,
-          content: accText,
-          reasoning: accReasoning || undefined,
-          reasoningStreaming: reasoningActive ? true : undefined,
-          reasoningStartedAtMs: reasoningStartedAtMs ?? undefined,
-          reasoningDurationMs: reasoningDurationMs ?? undefined,
-        }));
+        updateLastChatMessage(tabId, (m) =>
+          m.id === assistantChatId
+            ? {
+                ...m,
+                content: accText,
+                reasoning: accReasoning || undefined,
+                reasoningStreaming: reasoningActive ? true : undefined,
+                reasoningStartedAtMs: reasoningStartedAtMs ?? undefined,
+                reasoningDurationMs: reasoningDurationMs ?? undefined,
+              }
+            : m,
+        );
       };
 
       const fullStream = (result as { fullStream?: AsyncIterable<unknown> })
@@ -2714,117 +3157,114 @@ async function agentLoop(
           updateStreamingMessage();
         }
       }
-    } catch (err) {
-      logStreamDebug(tabId, debugEnabled, "stream:throw", err);
-      // Re-throw if it's not a generic abort
-      if (!signal.aborted) throw attachStreamErrors(err, streamErrors);
-      return;
-    }
+      } catch (err) {
+        logStreamDebug(tabId, debugEnabled, "stream:throw", err);
+        // Re-throw if it's not a generic abort
+        if (!signal.aborted) throw attachStreamErrors(err, streamErrors);
+        return;
+      }
 
-    let sdkToolCalls: unknown;
-    try {
-      sdkToolCalls = await result.toolCalls;
-      logStreamDebug(
-        tabId,
-        debugEnabled,
-        "stream:tool-calls:raw",
-        sdkToolCalls,
-      );
-    } catch (err) {
-      logStreamDebug(tabId, debugEnabled, "stream:tool-calls:error", err);
-      throw attachStreamErrors(err, streamErrors);
-    }
+      let sdkToolCalls: unknown;
+      try {
+        sdkToolCalls = await result.toolCalls;
+        logStreamDebug(
+          tabId,
+          debugEnabled,
+          "stream:tool-calls:raw",
+          sdkToolCalls,
+        );
+      } catch (err) {
+        logStreamDebug(tabId, debugEnabled, "stream:tool-calls:error", err);
+        throw attachStreamErrors(err, streamErrors);
+      }
+      await logStreamFinishDebug(tabId, debugEnabled, result);
 
-    // --- Turn complete ---
-    if (reasoningStartedAtMs !== null && reasoningDurationMs === null) {
-      reasoningDurationMs = Math.max(0, Date.now() - reasoningStartedAtMs);
-    }
-    patchAgentState(tabId, { streamingContent: null });
+      // --- Turn complete ---
+      if (reasoningStartedAtMs !== null && reasoningDurationMs === null) {
+        reasoningDurationMs = Math.max(0, Date.now() - reasoningStartedAtMs);
+      }
+      patchAgentState(tabId, { streamingContent: null });
 
-    // Build the assistant API message
-    const parsedToolCalls: ApiToolCall[] = (
-      Array.isArray(sdkToolCalls) ? sdkToolCalls : []
-    )
-      .map((tc) => toApiToolCall(tc))
-      .filter((tc): tc is ApiToolCall => tc !== null);
-    logStreamDebug(tabId, debugEnabled, "stream:tool-calls:parsed", {
-      count: parsedToolCalls.length,
-      toolCallIds: parsedToolCalls.map((tc) => tc.id),
-      toolNames: parsedToolCalls.map((tc) => tc.function.name),
-    });
-    logStreamDebug(tabId, debugEnabled, "stream:summary", {
-      iteration,
-      turnDurationMs: Math.max(0, Date.now() - turnStartedAtMs),
-      usedFullStream,
-      streamPartCount,
-      streamErrorPartCount,
-      textDeltaCount,
-      textDeltaChars,
-      reasoningStartCount,
-      reasoningEndCount,
-      reasoningDeltaCount,
-      reasoningDeltaChars,
-      assistantTextChars: accText.length,
-      assistantReasoningChars: accReasoning.length,
-      toolCallCount: parsedToolCalls.length,
-      reasoningDurationMs: reasoningDurationMs ?? undefined,
-    });
-
-    const assistantApiMsg: AssistantApiMessage = {
-      role: "assistant",
-      content: accText || null,
-      ...(parsedToolCalls.length > 0 ? { tool_calls: parsedToolCalls } : {}),
-    };
-
-    const pendingToolCallDisplays: ToolCallDisplay[] = parsedToolCalls.map(
-      (tc) => ({
-        id: tc.id,
-        tool: tc.function.name,
-        args: parseArgs(tc.function.arguments),
-        status: "pending" as const,
-      }),
-    );
-
-    // Finalise the streaming chat message. Every assistant turn maps to one
-    // assistant bubble; tool calls for this turn stay attached to this bubble.
-    updateChatMessageById(tabId, assistantChatId, (m) => {
-      return {
-        ...m,
-        content: accText,
-        reasoning: accReasoning || undefined,
-        reasoningStreaming: undefined,
-        reasoningStartedAtMs: reasoningStartedAtMs ?? undefined,
+      // Build the assistant API message
+      const parsedToolCalls: ApiToolCall[] = (
+        Array.isArray(sdkToolCalls) ? sdkToolCalls : []
+      )
+        .map((tc) => toApiToolCall(tc))
+        .filter((tc): tc is ApiToolCall => tc !== null);
+      logStreamDebug(tabId, debugEnabled, "stream:tool-calls:parsed", {
+        count: parsedToolCalls.length,
+        toolCallIds: parsedToolCalls.map((tc) => tc.id),
+        toolNames: parsedToolCalls.map((tc) => tc.function.name),
+      });
+      logStreamDebug(tabId, debugEnabled, "stream:summary", {
+        iteration,
+        turnDurationMs: Math.max(0, Date.now() - turnStartedAtMs),
+        usedFullStream,
+        streamPartCount,
+        streamErrorPartCount,
+        textDeltaCount,
+        textDeltaChars,
+        reasoningStartCount,
+        reasoningEndCount,
+        reasoningDeltaCount,
+        reasoningDeltaChars,
+        assistantTextChars: accText.length,
+        assistantReasoningChars: accReasoning.length,
+        toolCallCount: parsedToolCalls.length,
         reasoningDurationMs: reasoningDurationMs ?? undefined,
-        streaming: false,
-        badge: parsedToolCalls.length > 0 ? "CALLING TOOLS" : undefined,
-        toolCalls:
-          parsedToolCalls.length > 0 ? pendingToolCallDisplays : undefined,
+      });
+
+      const assistantApiMsg: AssistantApiMessage = {
+        role: "assistant",
+        content: accText || null,
+        ...(parsedToolCalls.length > 0 ? { tool_calls: parsedToolCalls } : {}),
       };
-    });
 
-    // Append assistant message to API history
-    patchAgentState(tabId, (prev) => ({
-      ...prev,
-      apiMessages: [...prev.apiMessages, assistantApiMsg],
-    }));
+      const pendingToolCallDisplays: ToolCallDisplay[] = parsedToolCalls.map((tc) =>
+        buildToolCallDisplay(tc, mcpRuntime.toolsByName),
+      );
 
-    // --- No tool calls → agent is done ---
-    if (parsedToolCalls.length === 0) {
-      patchAgentState(tabId, { status: "idle" });
-      return;
-    }
+      // Finalise the streaming chat message. Every assistant turn maps to one
+      // assistant bubble; tool calls for this turn stay attached to this bubble.
+      updateLastChatMessage(tabId, (m) => {
+        if (m.id !== assistantChatId) return m;
+        return {
+          ...m,
+          content: accText,
+          reasoning: accReasoning || undefined,
+          reasoningStreaming: undefined,
+          reasoningStartedAtMs: reasoningStartedAtMs ?? undefined,
+          reasoningDurationMs: reasoningDurationMs ?? undefined,
+          streaming: false,
+          badge: parsedToolCalls.length > 0 ? "CALLING TOOLS" : undefined,
+          toolCalls:
+            parsedToolCalls.length > 0 ? pendingToolCallDisplays : undefined,
+        };
+      });
 
-    // --- Execute tool calls in parallel ---
-    patchAgentState(tabId, { status: "working" });
+      // Append assistant message to API history
+      patchAgentState(tabId, (prev) => ({
+        ...prev,
+        apiMessages: [...prev.apiMessages, assistantApiMsg],
+      }));
 
-    const turnCardAccumulator = createConversationCardAccumulator(
-      tabId,
-      assistantChatId,
-      parsedToolCalls,
-    );
+      // --- No tool calls → agent is done ---
+      if (parsedToolCalls.length === 0) {
+        patchAgentState(tabId, { status: "idle" });
+        return;
+      }
 
-    const toolResults = await Promise.all(
-      parsedToolCalls.map(async (tc) => {
+      // --- Execute tool calls in parallel ---
+      patchAgentState(tabId, { status: "working" });
+
+      const turnCardAccumulator = createConversationCardAccumulator(
+        tabId,
+        assistantChatId,
+        parsedToolCalls,
+      );
+
+      const toolResults = await Promise.all(
+        parsedToolCalls.map(async (tc) => {
         const tcId = tc.id;
 
         /** Update this specific tool call (by id) regardless of which message hosts it. */
@@ -2909,7 +3349,6 @@ async function agentLoop(
             parentModelId: modelId,
             providers,
             debugEnabled,
-            bubbleGroupId: tcId,
           });
 
           updateToolCallById({
@@ -2976,6 +3415,99 @@ async function agentLoop(
         // ── Pre-validation gate ───────────────────────────────────────────
         const preArgs = parseArgs(tc.function.arguments);
         const preCwd = getAgentState(tabId).config.cwd;
+        const mcpTool = mcpRuntime.toolsByName[tc.function.name];
+        const artifactizeReturnedFiles =
+          jotaiStore.get(mcpSettingsAtom)?.artifactizeReturnedFiles === true;
+
+        if (mcpTool) {
+          updateToolCallById({ status: "awaiting_approval" });
+          const approved = await requestApproval(tabId, tcId);
+          if (!approved) {
+            const reason = consumeApprovalReason(tabId, tcId);
+            updateToolCallById({ status: "denied" });
+            return {
+              tool_call_id: tcId,
+              result: {
+                ok: false as const,
+                error: {
+                  code: "PERMISSION_DENIED" as const,
+                  message: reason ?? "MCP tool call denied by user",
+                },
+              },
+            };
+          }
+
+          updateToolCallById({ status: "running" });
+          try {
+            const rawMcpResult = await callMcpTool(
+              runId,
+              mcpTool.serverId,
+              mcpTool.toolName,
+              preArgs,
+            );
+            const mcpResult = await maybeArtifactizeMcpToolResult(
+              tabId,
+              runId,
+              mcpTool,
+              rawMcpResult,
+              artifactizeReturnedFiles,
+            );
+
+            if (mcpResult.isError) {
+              updateToolCallById({
+                status: "error",
+                result: mcpResult,
+              });
+              return {
+                tool_call_id: tcId,
+                result: {
+                  ok: false as const,
+                  error: {
+                    code: "INTERNAL" as const,
+                    message: extractMcpToolErrorMessage(mcpResult),
+                    details: {
+                      mcp: mcpResult,
+                      serverId: mcpTool.serverId,
+                      serverName: mcpTool.serverName,
+                      toolName: mcpTool.toolName,
+                    },
+                  },
+                },
+              };
+            }
+
+            updateToolCallById({
+              status: "done",
+              result: mcpResult,
+            });
+            return {
+              tool_call_id: tcId,
+              result: { ok: true as const, data: mcpResult },
+            };
+          } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            const toolError = {
+              code: "INTERNAL" as const,
+              message,
+              details: {
+                serverId: mcpTool.serverId,
+                serverName: mcpTool.serverName,
+                toolName: mcpTool.toolName,
+              },
+            };
+            updateToolCallById({
+              status: "error",
+              result: toolError,
+            });
+            return {
+              tool_call_id: tcId,
+              result: {
+                ok: false as const,
+                error: toolError,
+              },
+            };
+          }
+        }
 
         const validationResult = await validateTool(
           tabId,
@@ -3090,36 +3622,43 @@ async function agentLoop(
         });
 
         return { tool_call_id: tcId, result };
-      }),
-    );
-    if (signal.aborted || !isCurrentRunId(tabId, runId)) return;
-    if (toolResults.some(({ result }) => isRunAbortedToolResult(result))) {
-      throw new RunAbortedError();
+        }),
+      );
+      if (signal.aborted || !isCurrentRunId(tabId, runId)) return;
+      if (toolResults.some(({ result }) => isRunAbortedToolResult(result))) {
+        throw new RunAbortedError();
+      }
+
+      // Append tool result messages to API history
+      const toolApiMessages: ApiMessage[] = toolResults.map(
+        ({ tool_call_id, result }) => ({
+          role: "tool" as const,
+          tool_call_id,
+          content: serializeToolResultForModel(
+            tool_call_id,
+            parsedToolCalls,
+            result,
+          ),
+        }),
+      );
+
+      patchAgentState(tabId, (prev) => ({
+        ...prev,
+        apiMessages: [...prev.apiMessages, ...toolApiMessages],
+      }));
+
+      // Loop for another LLM turn
     }
 
-    // Append tool result messages to API history
-    const toolApiMessages: ApiMessage[] = toolResults.map(
-      ({ tool_call_id, result }) => ({
-        role: "tool" as const,
-        tool_call_id,
-        content: serializeToolResultForModel(
-          tool_call_id,
-          parsedToolCalls,
-          result,
-        ),
-      }),
-    );
-
-    patchAgentState(tabId, (prev) => ({
-      ...prev,
-      apiMessages: [...prev.apiMessages, ...toolApiMessages],
-    }));
-
-    // Loop for another LLM turn
+    // Safety: hit iteration cap
+    setAgentErrorState(tabId, "Reached maximum iteration limit (50 turns)");
+  } finally {
+    try {
+      await shutdownMcpRun(runId);
+    } catch (error) {
+      console.error("Failed to shut down MCP run", error);
+    }
   }
-
-  // Safety: hit iteration cap
-  setAgentErrorState(tabId, "Reached maximum iteration limit (50 turns)");
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────

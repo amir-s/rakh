@@ -13,8 +13,8 @@ backend. The UI manages multiple agent tabs. Each workspace tab owns isolated
 Jotai state, its own chat history, and its own agent run loop.
 
 The agent runtime uses the Vercel AI SDK for streaming model output, tool
-calling, subagent delegation, and approval-driven execution against the local
-workspace.
+calling, subagent delegation, MCP-backed dynamic tool registration, and
+approval-driven execution against the local workspace.
 
 ```mermaid
 graph TB
@@ -42,7 +42,8 @@ graph TB
 [`src/App.tsx`](../src/App.tsx) is the bootstrap layer. It:
 
 - loads saved sessions from the Tauri SQLite backend
-- loads configured providers from the Tauri backend (`providers_load`)
+- loads configured providers from IndexedDB
+- loads global MCP server configuration from the Tauri config store
 - hydrates Jotai state before workspace tabs render
 - applies theme mode and theme name to `<html>`
 - auto-saves settled sessions and archives closed workspace tabs
@@ -89,10 +90,8 @@ components subscribe with fine-grained derived atoms from `useAgents.ts`.
 
 ### Model and provider resolution
 
-Provider instances are configured in Settings and persisted to disk via
-[`src/agent/db.ts`](../src/agent/db.ts), which calls the Rust backend commands
-`providers_load` and `providers_save` from
-[`src-tauri/src/db.rs`](../src-tauri/src/db.rs). The model picker is built in
+Provider instances are configured in Settings and stored in IndexedDB via
+[`src/agent/db.ts`](../src/agent/db.ts). The model picker is built in
 [`src/agent/useModels.ts`](../src/agent/useModels.ts):
 
 - OpenAI and Anthropic models come from the static catalog in
@@ -141,13 +140,14 @@ Current tool groups:
 - `workspace_*`: list/stat/read/write/edit/glob/search
 - `exec_run`
 - `git_worktree_init`
+- dynamically discovered `mcp_*` tools prepared per main-agent run
 - `agent_todo_*`
 - `agent_artifact_*`
 - `agent_title_*`
 
 Sensitive actions go through [`src/agent/approvals.ts`](../src/agent/approvals.ts).
 That includes file edits, shell execution, worktree creation, and explicit user
-input requests.
+input requests. MCP tool calls also go through the same approval path.
 
 Review data is captured in two places:
 
@@ -156,49 +156,11 @@ Review data is captured in two places:
 - `AgentState.reviewEdits`: per-file original-to-current diffs shown in the
   review pane
 
-### Project commands and setup scripts
-
-Each workspace project can define a setup command and custom command shortcuts
-via a project-scoped config file. The config lives at
-`<project-root>/.rakh/scripts.json` and is managed through the Project Settings
-modal (gear icon in the workspace header).
-
-[`src/projectScripts.ts`](../src/projectScripts.ts) defines the schema:
-
-```json
-{
-  "setupCommand": "npm install",
-  "commands": [
-    { "id": "build", "label": "Build", "command": "npm run build", "icon": "hammer", "showLabel": true }
-  ]
-}
-```
-
-- `setupCommand`: optional shell command run automatically after git worktree
-  creation for that project
-- `commands`: array of shortcuts displayed in the Project Command Bar
-  (toggle with `Cmd+B`). Each command has an id, label, shell command, optional
-  icon, and showLabel flag.
-
-[`src/projects.ts`](../src/projects.ts) handles resolution:
-
-1. Saved projects (path + name) are stored in localStorage (`rakh-projects`)
-2. On load, `resolveSavedProject()` checks for `.rakh/scripts.json`
-3. If the config file exists, its `setupCommand` and `commands` take precedence
-   over any values in localStorage, and `hasProjectConfigFile` is set to `true`
-4. The Project Settings modal writes directly to `.rakh/scripts.json` when
-   `hasProjectConfigFile` is true, otherwise falls back to localStorage
-
-The Project Command Bar ([`src/components/ProjectCommandBar.tsx`](../src/components/ProjectCommandBar.tsx))
-renders the shortcuts and runs them in the integrated terminal when clicked.
-
 ### Subagents and artifacts
 
 Subagents are registered in
 [`src/agent/subagents/index.ts`](../src/agent/subagents/index.ts) and run in a
-private tool loop inside the main runner. Each subagent invocation owns a
-stable chat bubble/thread in the parent tab so parallel calls to the same
-subagent do not merge their streamed turns together.
+private tool loop inside the main runner.
 
 Artifacts are the durable output channel for plans, reviews, security reports,
 and other structured handoffs. The detailed contracts live in:
@@ -224,6 +186,8 @@ Current backend modules:
 - [`src-tauri/src/pty.rs`](../src-tauri/src/pty.rs): interactive terminal PTY
   lifecycle used by the xterm.js terminal
 - [`src-tauri/src/git.rs`](../src-tauri/src/git.rs): worktree creation command
+- [`src-tauri/src/mcp.rs`](../src-tauri/src/mcp.rs): global MCP config
+  persistence plus per-run MCP transport/session management
 - [`src-tauri/src/whisper.rs`](../src-tauri/src/whisper.rs): local Whisper
   model download/preparation and WAV transcription
 - [`src-tauri/src/shell_env.rs`](../src-tauri/src/shell_env.rs): login-shell
@@ -239,18 +203,16 @@ frontend can refresh the artifact pane without polling.
 
 Rakh persists data in multiple places by design:
 
-- provider instances: `~/.rakh/config/providers.json` (debug: `~/.rakh-dev/config/providers.json`),
-  managed via `providers_load` / `providers_save` Tauri commands
+- provider instances: browser IndexedDB (`rakh-providers`)
 - theme mode, theme name, selected model, and some UI preferences: localStorage
+- global MCP server registry + MCP settings: `~/.rakh/config/mcp_servers.json`
+  or `~/.rakh-dev/config/mcp_servers.json`
 - release sessions and artifact manifests: `~/.rakh/sessions/sessions.db`
 - debug/dev sessions and artifact manifests: `~/.rakh-dev/sessions/sessions.db`
 - release artifact content blobs: `~/.rakh/artifacts/blobs/sha256`
 - debug/dev artifact content blobs: `~/.rakh-dev/artifacts/blobs/sha256`
 - release git worktrees created by the agent: `~/.rakh/worktrees/<owner>/<repo>/<branch>`
 - debug/dev git worktrees created by the agent: `~/.rakh-dev/worktrees/<owner>/<repo>/<branch>`
-- project list (path + name): localStorage (`rakh-projects`)
-- per-project setup commands and shortcuts: `<project-root>/.rakh/scripts.json` (checked
-  on project load, takes precedence over localStorage values)
 
 Session persistence is front-to-back:
 
@@ -270,8 +232,6 @@ Top-level folders worth knowing:
 - `src/`: React UI, agent runtime, tooling wrappers, state, and styles
 - `src/components/`: workspace UI, terminal, settings, artifact pane, and UI primitives
 - `src/agent/`: runner, atoms, persistence, providers, models, tools, subagents
-- `src/projects.ts`: saved project list, project config resolution, localStorage sync
-- `src/projectScripts.ts`: `.rakh/scripts.json` schema, normalization, read/write helpers
 - `src/styles/`: tokens, themes, layout, and component styles
 - `src-tauri/src/`: Rust commands and platform integration
 - `docs/`: architecture, artifact, and subagent documentation

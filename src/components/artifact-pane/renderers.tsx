@@ -6,6 +6,7 @@ import {
   getArtifactPlainTextExcerpt,
   parseArtifactJson,
   parseCopyReviewArtifact,
+  parseMcpAttachmentArtifact,
   parseReviewReportArtifact,
   parseSecurityReportArtifact,
   resolveArtifactRenderKind,
@@ -318,6 +319,47 @@ function PlanRenderer({ artifact, mode }: ArtifactRendererProps) {
   );
 }
 
+function McpAttachmentRenderer({ artifact, mode }: ArtifactRendererProps) {
+  const parsed = parseMcpAttachmentArtifact(artifact.content);
+  if (!parsed.ok) {
+    return <ParseErrorState error={parsed.error} content={artifact.content} mode={mode} />;
+  }
+
+  const { previewUrl, mimeType, filename, prettyJson } = parsed.data;
+
+  if (!previewUrl) {
+    if (mode === "compact") {
+      return <CompactFallbackText content={prettyJson} />;
+    }
+    return <ArtifactRawText content={prettyJson} />;
+  }
+
+  return (
+    <div className="artifact-render-stack">
+      <div
+        className={cn(
+          "artifact-media-frame",
+          mode === "compact" && "artifact-media-frame--compact",
+        )}
+      >
+        <img
+          src={previewUrl}
+          alt={artifact.summary || artifact.artifactId}
+          className={cn(
+            "artifact-media-preview",
+            mode === "compact" && "artifact-media-preview--compact",
+          )}
+        />
+      </div>
+      <div className="artifact-chip-row">
+        {mimeType ? <Badge variant="muted">{mimeType}</Badge> : null}
+        {filename ? <Badge variant="muted">{filename}</Badge> : null}
+      </div>
+      {mode === "detail" ? <ArtifactRawText content={prettyJson} /> : null}
+    </div>
+  );
+}
+
 function JsonRenderer({ artifact, mode }: ArtifactRendererProps) {
   const parsed = parseArtifactJson(artifact.content);
   if (!parsed.ok) {
@@ -368,6 +410,8 @@ export function ArtifactRenderer({ artifact, mode }: ArtifactRendererProps) {
       return <SecurityReportRenderer artifact={artifact} mode={mode} />;
     case "copy-review":
       return <CopyReviewRenderer artifact={artifact} mode={mode} />;
+    case "mcp-attachment":
+      return <McpAttachmentRenderer artifact={artifact} mode={mode} />;
     case "markdown":
       return <MarkdownRenderer artifact={artifact} mode={mode} />;
     case "json":

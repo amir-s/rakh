@@ -16,7 +16,8 @@ export type KnownArtifactType =
   | "plan"
   | "review-report"
   | "security-report"
-  | "copy-review";
+  | "copy-review"
+  | "mcp-attachment";
 
 export type ArtifactRenderKind = KnownArtifactType | ArtifactContentFormat;
 

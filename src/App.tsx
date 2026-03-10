@@ -12,6 +12,12 @@ import {
   agentAtomFamily,
 } from "@/agent/atoms";
 import { loadProviders, providersAtom, loadProfiles, profilesAtom } from "@/agent/db";
+import {
+  loadMcpServers,
+  loadMcpSettings,
+  mcpServersAtom,
+  mcpSettingsAtom,
+} from "@/agent/mcp";
 import { hydratePersistedSession } from "@/agent/sessionRestore";
 import WorkspacePage from "@/WorkspacePage";
 import SettingsPage from "@/components/settings/SettingsPage";
@@ -171,11 +177,19 @@ export default function App() {
     // Prime provider env keys at startup so settings opens without waiting on backend reads.
     void preloadEnvProviderKeys();
 
-    Promise.all([loadSessions(), loadProviders(), loadProfiles()]).then(
-      ([sessions, providers, profiles]) => {
+    Promise.all([
+      loadSessions(),
+      loadProviders(),
+      loadProfiles(),
+      loadMcpServers(),
+      loadMcpSettings(),
+    ]).then(
+      ([sessions, providers, profiles, mcpServers, mcpSettings]) => {
         // Load providers and profiles into global store early
         jotaiStore.set(providersAtom, providers);
         jotaiStore.set(profilesAtom, profiles);
+        jotaiStore.set(mcpServersAtom, mcpServers);
+        jotaiStore.set(mcpSettingsAtom, mcpSettings);
 
         // Hydrate Jotai atoms before first render of agent components
         for (const s of sessions) {

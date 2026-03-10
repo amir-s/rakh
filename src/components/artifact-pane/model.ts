@@ -19,6 +19,7 @@ const KNOWN_RENDER_KINDS = new Set<ArtifactRenderKind>([
   "review-report",
   "security-report",
   "copy-review",
+  "mcp-attachment",
   "text",
   "markdown",
   "unified-diff",
@@ -366,6 +367,135 @@ export function parseCopyReviewArtifact(
       parsed: parsed.data,
     };
   }
+}
+
+export interface McpAttachmentPreviewPayload {
+  mimeType?: string;
+  filename?: string;
+  previewUrl: string | null;
+  prettyJson: string;
+}
+
+function isImageMimeType(value: unknown): value is string {
+  return typeof value === "string" && value.toLowerCase().startsWith("image/");
+}
+
+function buildImageDataUrl(
+  mimeType: string | undefined,
+  encoding: "base64" | "text",
+  payload: string,
+): string | null {
+  if (!isImageMimeType(mimeType) || !payload.trim()) return null;
+  if (encoding === "base64") {
+    return `data:${mimeType};base64,${payload}`;
+  }
+  return `data:${mimeType};charset=utf-8,${encodeURIComponent(payload)}`;
+}
+
+export function parseMcpAttachmentArtifact(
+  content: string | undefined,
+): ParsedArtifactResult<McpAttachmentPreviewPayload> {
+  const parsed = parseArtifactJson(content);
+  if (!parsed.ok) return parsed;
+
+  const prettyJson = safePrettyJson(parsed.data);
+  if (!isRecord(parsed.data)) {
+    return {
+      ok: true,
+      data: {
+        prettyJson,
+        previewUrl: null,
+      },
+    };
+  }
+
+  const filename =
+    typeof parsed.data.filename === "string" && parsed.data.filename.trim()
+      ? parsed.data.filename.trim()
+      : typeof parsed.data.name === "string" && parsed.data.name.trim()
+        ? parsed.data.name.trim()
+        : undefined;
+
+  if (typeof parsed.data.data === "string") {
+    return {
+      ok: true,
+      data: {
+        mimeType:
+          typeof parsed.data.mimeType === "string" ? parsed.data.mimeType : undefined,
+        filename,
+        previewUrl: buildImageDataUrl(
+          typeof parsed.data.mimeType === "string" ? parsed.data.mimeType : undefined,
+          "base64",
+          parsed.data.data,
+        ),
+        prettyJson,
+      },
+    };
+  }
+
+  if (!isRecord(parsed.data.resource)) {
+    return {
+      ok: true,
+      data: {
+        previewUrl: null,
+        prettyJson,
+        filename,
+      },
+    };
+  }
+
+  const resourceMimeType =
+    typeof parsed.data.resource.mimeType === "string"
+      ? parsed.data.resource.mimeType
+      : undefined;
+  const resourceFilename =
+    typeof parsed.data.resource.name === "string" && parsed.data.resource.name.trim()
+      ? parsed.data.resource.name.trim()
+      : typeof parsed.data.resource.uri === "string" && parsed.data.resource.uri.trim()
+        ? parsed.data.resource.uri.trim()
+        : filename;
+
+  if (typeof parsed.data.resource.blob === "string") {
+    return {
+      ok: true,
+      data: {
+        mimeType: resourceMimeType,
+        filename: resourceFilename,
+        previewUrl: buildImageDataUrl(
+          resourceMimeType,
+          "base64",
+          parsed.data.resource.blob,
+        ),
+        prettyJson,
+      },
+    };
+  }
+
+  if (typeof parsed.data.resource.text === "string") {
+    return {
+      ok: true,
+      data: {
+        mimeType: resourceMimeType,
+        filename: resourceFilename,
+        previewUrl: buildImageDataUrl(
+          resourceMimeType,
+          "text",
+          parsed.data.resource.text,
+        ),
+        prettyJson,
+      },
+    };
+  }
+
+  return {
+    ok: true,
+    data: {
+      mimeType: resourceMimeType,
+      filename: resourceFilename,
+      previewUrl: null,
+      prettyJson,
+    },
+  };
 }
 
 export function summarizeSeverityCounts<
