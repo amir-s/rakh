@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.8.0](https://github.com/amir-s/rakh/compare/rakh-v0.7.0...rakh-v0.8.0) (2026-03-10)
+
+
+### Features
+
+* **ui:** change Rakh chat icon to chess_knight ([#114](https://github.com/amir-s/rakh/issues/114)) ([b91e61e](https://github.com/amir-s/rakh/commit/b91e61e8856c2fd42763ea92cc618b2c149dce8b))
+
+
+### Bug Fixes
+
+* **desktop:** add tray status and focus behavior ([#113](https://github.com/amir-s/rakh/issues/113)) ([0875eef](https://github.com/amir-s/rakh/commit/0875eeffa933a4774271c5054e3a3fc22f0378f0))
+
 ## [0.7.0](https://github.com/amir-s/rakh/compare/rakh-v0.6.0...rakh-v0.7.0) (2026-03-10)
 
 
