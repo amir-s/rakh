@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.6.0](https://github.com/amir-s/rakh/compare/rakh-v0.5.0...rakh-v0.6.0) (2026-03-10)
+
+
+### Features
+
+* add communication profiles for steering agent behavior ([#93](https://github.com/amir-s/rakh/issues/93)) ([12007bf](https://github.com/amir-s/rakh/commit/12007bf07707b58d7634c3a18d058737c4cc8298))
+* add project setup config workflows ([#94](https://github.com/amir-s/rakh/issues/94)) ([225fbab](https://github.com/amir-s/rakh/commit/225fbabd68b0cdfeb98cfb976926de5f56813be5))
+* **desktop:** badge app icon for agent attention ([#97](https://github.com/amir-s/rakh/issues/97)) ([1d56d61](https://github.com/amir-s/rakh/commit/1d56d612072d94b6ffa8bcaf968343990448061a))
+* image attachment support in chat ([#87](https://github.com/amir-s/rakh/issues/87)) ([b9bb215](https://github.com/amir-s/rakh/commit/b9bb215c591526a10aac3b33f843a4269fcc90c5))
+* model picker modal for /model command ([#39](https://github.com/amir-s/rakh/issues/39)) ([#91](https://github.com/amir-s/rakh/issues/91)) ([2b46d39](https://github.com/amir-s/rakh/commit/2b46d39de276ea5cbe7b9cce7bd65f441b38e150))
+* replace artifact polling with Tauri push events ([#85](https://github.com/amir-s/rakh/issues/85)) ([edc9043](https://github.com/amir-s/rakh/commit/edc90437575082f7d58b1ef58bdc061e4c045313))
+* **workspace:** add project command shortcuts bar ([#98](https://github.com/amir-s/rakh/issues/98)) ([32f0a20](https://github.com/amir-s/rakh/commit/32f0a20474dfe6a3d13618548b9cb32aee8bec3e))
+
+
+### Bug Fixes
+
+* add busy-state queueing and steering ([#90](https://github.com/amir-s/rakh/issues/90)) ([7a12cfe](https://github.com/amir-s/rakh/commit/7a12cfed1cfe411864a4b2ddae3a4327f6a8af10))
+* **at-mention:** re-focusing the chat input will refresh file list autocomplete for at mentions ([#89](https://github.com/amir-s/rakh/issues/89)) ([c948298](https://github.com/amir-s/rakh/commit/c94829848727be7628771d8b7d6e0180da887662))
+* **runner:** preserve user message in chatMessages during retry ([#88](https://github.com/amir-s/rakh/issues/88)) ([dbe6cff](https://github.com/amir-s/rakh/commit/dbe6cffb5f95faae16304295871e314ecdfe1135))
+
 ## [0.5.0](https://github.com/amir-s/rakh/compare/rakh-v0.4.0...rakh-v0.5.0) (2026-03-09)
 
 
