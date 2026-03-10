@@ -27,6 +27,8 @@ pub struct PersistedSession {
     pub mode: String,
     pub tab_title: String,
     pub cwd: String,
+    pub project_path: String,
+    pub setup_command: String,
     pub model: String,
     pub plan_markdown: String,
     pub plan_version: i64,
@@ -671,6 +673,8 @@ pub fn init_db() -> Result<Connection, String> {
             mode             TEXT    NOT NULL,
             tab_title        TEXT    NOT NULL DEFAULT '',
             cwd              TEXT    NOT NULL DEFAULT '',
+            project_path     TEXT    NOT NULL DEFAULT '',
+            setup_command    TEXT    NOT NULL DEFAULT '',
             model            TEXT    NOT NULL DEFAULT '',
             plan_markdown    TEXT    NOT NULL DEFAULT '',
             plan_version     INTEGER NOT NULL DEFAULT 0,
@@ -695,6 +699,10 @@ pub fn init_db() -> Result<Connection, String> {
         .execute_batch("ALTER TABLE sessions ADD COLUMN review_edits TEXT NOT NULL DEFAULT '[]';");
     let _ = conn
         .execute_batch("ALTER TABLE sessions ADD COLUMN worktree_path TEXT NOT NULL DEFAULT '';");
+    let _ = conn
+        .execute_batch("ALTER TABLE sessions ADD COLUMN project_path TEXT NOT NULL DEFAULT '';");
+    let _ = conn
+        .execute_batch("ALTER TABLE sessions ADD COLUMN setup_command TEXT NOT NULL DEFAULT '';");
     let _ = conn
         .execute_batch("ALTER TABLE sessions ADD COLUMN worktree_branch TEXT NOT NULL DEFAULT '';");
     let _ = conn.execute_batch(
@@ -790,7 +798,7 @@ pub fn db_load_sessions(state: State<'_, AppState>) -> Result<Vec<PersistedSessi
         let db = state.db.lock().unwrap();
         let mut stmt = db
             .prepare(
-                "SELECT id, label, icon, mode, tab_title, cwd, model,
+                "SELECT id, label, icon, mode, tab_title, cwd, project_path, setup_command, model,
                 plan_markdown, plan_version, plan_updated_at,
                 chat_messages, api_messages, todos, review_edits,
                 queued_messages, queue_state,
@@ -812,25 +820,29 @@ pub fn db_load_sessions(state: State<'_, AppState>) -> Result<Vec<PersistedSessi
                     mode: row.get(3)?,
                     tab_title: row.get(4)?,
                     cwd: row.get(5)?,
-                    model: row.get(6)?,
-                    plan_markdown: row.get(7)?,
-                    plan_version: row.get(8)?,
-                    plan_updated_at: row.get(9)?,
-                    chat_messages: row.get(10)?,
-                    api_messages: row.get(11)?,
-                    todos: row.get(12)?,
-                    review_edits: row.get(13)?,
-                    queued_messages: row.get(14)?,
-                    queue_state: row.get(15)?,
-                    archived: row.get::<_, i64>(16)? != 0,
-                    created_at: row.get(17)?,
-                    updated_at: row.get(18)?,
-                    worktree_path: row.get(19)?,
-                    worktree_branch: row.get(20)?,
-                    worktree_declined: row.get::<_, i64>(21)? != 0,
-                    show_debug: row.get::<_, i64>(22)? != 0,
-                    advanced_options: row.get::<_, String>(23).unwrap_or_default(),
-                    communication_profile: row.get::<_, String>(24).unwrap_or_else(|_| "pragmatic".to_string()),
+                    project_path: row.get(6)?,
+                    setup_command: row.get(7)?,
+                    model: row.get(8)?,
+                    plan_markdown: row.get(9)?,
+                    plan_version: row.get(10)?,
+                    plan_updated_at: row.get(11)?,
+                    chat_messages: row.get(12)?,
+                    api_messages: row.get(13)?,
+                    todos: row.get(14)?,
+                    review_edits: row.get(15)?,
+                    queued_messages: row.get(16)?,
+                    queue_state: row.get(17)?,
+                    archived: row.get::<_, i64>(18)? != 0,
+                    created_at: row.get(19)?,
+                    updated_at: row.get(20)?,
+                    worktree_path: row.get(21)?,
+                    worktree_branch: row.get(22)?,
+                    worktree_declined: row.get::<_, i64>(23)? != 0,
+                    show_debug: row.get::<_, i64>(24)? != 0,
+                    advanced_options: row.get::<_, String>(25).unwrap_or_default(),
+                    communication_profile: row
+                        .get::<_, String>(26)
+                        .unwrap_or_else(|_| "pragmatic".to_string()),
                 })
             })
             .map_err(|e| e.to_string())?;
@@ -883,19 +895,21 @@ pub fn db_upsert_session(
         let now = now_ms();
         db.execute(
             "INSERT INTO sessions (
-            id, label, icon, mode, tab_title, cwd, model,
+            id, label, icon, mode, tab_title, cwd, project_path, setup_command, model,
             plan_markdown, plan_version, plan_updated_at,
             chat_messages, api_messages, todos, review_edits,
             queued_messages, queue_state,
             archived, created_at, updated_at,
             worktree_path, worktree_branch, worktree_declined, show_debug, advanced_options, communication_profile
-         ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25)
+         ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25,?26)
          ON CONFLICT(id) DO UPDATE SET
             label             = excluded.label,
             icon              = excluded.icon,
             mode              = excluded.mode,
             tab_title         = excluded.tab_title,
             cwd               = excluded.cwd,
+            project_path      = excluded.project_path,
+            setup_command     = excluded.setup_command,
             model             = excluded.model,
             plan_markdown     = excluded.plan_markdown,
             plan_version      = excluded.plan_version,
@@ -913,7 +927,7 @@ pub fn db_upsert_session(
             show_debug        = excluded.show_debug,
             advanced_options  = excluded.advanced_options,
             communication_profile = excluded.communication_profile,
-            updated_at        = ?19",
+            updated_at        = ?21",
             rusqlite::params![
                 session.id,
                 session.label,
@@ -921,6 +935,8 @@ pub fn db_upsert_session(
                 session.mode,
                 session.tab_title,
                 session.cwd,
+                session.project_path,
+                session.setup_command,
                 session.model,
                 session.plan_markdown,
                 session.plan_version,
@@ -1011,7 +1027,7 @@ pub fn db_load_archived_sessions(
         let db = state.db.lock().unwrap();
         let mut stmt = db
             .prepare(
-                "SELECT id, label, icon, mode, tab_title, cwd, model,
+                "SELECT id, label, icon, mode, tab_title, cwd, project_path, setup_command, model,
                 plan_markdown, plan_version, plan_updated_at,
                 chat_messages, api_messages, todos, review_edits,
                 queued_messages, queue_state,
@@ -1033,25 +1049,29 @@ pub fn db_load_archived_sessions(
                     mode: row.get(3)?,
                     tab_title: row.get(4)?,
                     cwd: row.get(5)?,
-                    model: row.get(6)?,
-                    plan_markdown: row.get(7)?,
-                    plan_version: row.get(8)?,
-                    plan_updated_at: row.get(9)?,
-                    chat_messages: row.get(10)?,
-                    api_messages: row.get(11)?,
-                    todos: row.get(12)?,
-                    review_edits: row.get(13)?,
-                    queued_messages: row.get(14)?,
-                    queue_state: row.get(15)?,
-                    archived: row.get::<_, i64>(16)? != 0,
-                    created_at: row.get(17)?,
-                    updated_at: row.get(18)?,
-                    worktree_path: row.get(19)?,
-                    worktree_branch: row.get(20)?,
-                    worktree_declined: row.get::<_, i64>(21)? != 0,
-                    show_debug: row.get::<_, i64>(22)? != 0,
-                    advanced_options: row.get::<_, String>(23).unwrap_or_default(),
-                    communication_profile: row.get::<_, String>(24).unwrap_or_else(|_| "pragmatic".to_string()),
+                    project_path: row.get(6)?,
+                    setup_command: row.get(7)?,
+                    model: row.get(8)?,
+                    plan_markdown: row.get(9)?,
+                    plan_version: row.get(10)?,
+                    plan_updated_at: row.get(11)?,
+                    chat_messages: row.get(12)?,
+                    api_messages: row.get(13)?,
+                    todos: row.get(14)?,
+                    review_edits: row.get(15)?,
+                    queued_messages: row.get(16)?,
+                    queue_state: row.get(17)?,
+                    archived: row.get::<_, i64>(18)? != 0,
+                    created_at: row.get(19)?,
+                    updated_at: row.get(20)?,
+                    worktree_path: row.get(21)?,
+                    worktree_branch: row.get(22)?,
+                    worktree_declined: row.get::<_, i64>(23)? != 0,
+                    show_debug: row.get::<_, i64>(24)? != 0,
+                    advanced_options: row.get::<_, String>(25).unwrap_or_default(),
+                    communication_profile: row
+                        .get::<_, String>(26)
+                        .unwrap_or_else(|_| "pragmatic".to_string()),
                 })
             })
             .map_err(|e| e.to_string())?;
@@ -1848,6 +1868,8 @@ mod tests {
                 mode             TEXT    NOT NULL,
                 tab_title        TEXT    NOT NULL DEFAULT '',
                 cwd              TEXT    NOT NULL DEFAULT '',
+                project_path     TEXT    NOT NULL DEFAULT '',
+                setup_command    TEXT    NOT NULL DEFAULT '',
                 model            TEXT    NOT NULL DEFAULT '',
                 plan_markdown    TEXT    NOT NULL DEFAULT '',
                 plan_version     INTEGER NOT NULL DEFAULT 0,
@@ -1891,6 +1913,8 @@ mod tests {
             mode: "test-mode".to_string(),
             tab_title: "Tab 1".to_string(),
             cwd: "/tmp".to_string(),
+            project_path: "/tmp".to_string(),
+            setup_command: "npm install".to_string(),
             model: "test-model".to_string(),
             plan_markdown: "".to_string(),
             plan_version: 0,
@@ -1914,13 +1938,13 @@ mod tests {
 
         db.execute(
             "INSERT INTO sessions (
-                id, label, icon, mode, tab_title, cwd, model,
+                id, label, icon, mode, tab_title, cwd, project_path, setup_command, model,
                 plan_markdown, plan_version, plan_updated_at,
                 chat_messages, api_messages, todos, review_edits,
                 queued_messages, queue_state,
                 archived, created_at, updated_at,
                 worktree_path, worktree_branch, worktree_declined, show_debug
-             ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23)",
+             ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25)",
             rusqlite::params![
                 session.id,
                 session.label,
@@ -1928,6 +1952,8 @@ mod tests {
                 session.mode,
                 session.tab_title,
                 session.cwd,
+                session.project_path,
+                session.setup_command,
                 session.model,
                 session.plan_markdown,
                 session.plan_version,

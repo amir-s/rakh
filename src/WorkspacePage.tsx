@@ -25,6 +25,9 @@ import BusyComposerTray from "@/components/BusyComposerTray";
 import ErrorDetailsModal, {
   type ErrorModalState,
 } from "@/components/ErrorDetailsModal";
+import ProjectSettingsModal, {
+  type ProjectSettingsSavePayload,
+} from "@/components/ProjectSettingsModal";
 import ToolCallDetailsModal from "@/components/ToolCallDetailsModal";
 import ModelPickerModal from "@/components/ModelPickerModal";
 import CompactToolCall from "@/components/CompactToolCall";
@@ -55,6 +58,14 @@ import { groupChatMessagesForBubbles } from "@/agent/chatBubbleGroups";
 import { useArtifactContentCache } from "@/components/artifact-pane/useSessionArtifacts";
 import { AnimatePresence, motion } from "framer-motion";
 import type { ToolCallDisplay } from "@/agent/types";
+import {
+  findSavedProject,
+  inferProjectName,
+  resolveSavedProject,
+  upsertSavedProject,
+  type SavedProject,
+} from "@/projects";
+import { writeProjectScriptsConfig } from "@/projectScripts";
 
 /* ─────────────────────────────────────────────────────────────────────────────
    Page
@@ -184,6 +195,8 @@ export default function WorkspacePage() {
   const [toolDetailsModal, setToolDetailsModal] =
     useState<ToolCallDisplay | null>(null);
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
+  const [projectSettingsProject, setProjectSettingsProject] =
+    useState<SavedProject | null>(null);
   const [reasoningExpandedById, setReasoningExpandedById] = useState<
     Record<string, boolean>
   >({});
@@ -351,6 +364,86 @@ export default function WorkspacePage() {
     window.addEventListener("mousemove", handleMouseMove);
     window.addEventListener("mouseup", handleMouseUp);
   }, []);
+
+  const openCurrentProjectSettings = useCallback(() => {
+    const projectPath = agent.config.projectPath?.trim();
+    if (!projectPath) return;
+
+    const savedProject =
+      findSavedProject(projectPath) ?? {
+        path: projectPath,
+        name: inferProjectName(projectPath),
+        ...(agent.config.setupCommand
+          ? { setupCommand: agent.config.setupCommand }
+          : {}),
+      };
+
+    void resolveSavedProject(savedProject).then((resolvedProject) => {
+      setProjectSettingsProject(resolvedProject);
+    });
+  }, [agent.config.projectPath, agent.config.setupCommand]);
+
+  const handleSaveProjectSettings = useCallback(
+    async ({ project, writeProjectConfig }: ProjectSettingsSavePayload) => {
+      const nextProject: SavedProject = {
+        path: project.path,
+        name: project.name,
+        ...(project.setupCommand ? { setupCommand: project.setupCommand } : {}),
+        ...(project.commands?.length ? { commands: project.commands } : {}),
+      };
+
+      if (writeProjectConfig) {
+        await writeProjectScriptsConfig(project.path, {
+          ...(project.setupCommand ? { setupCommand: project.setupCommand } : {}),
+          ...(project.commands?.length ? { commands: project.commands } : {}),
+        });
+      }
+
+      const resolvedProject = await resolveSavedProject(
+        upsertSavedProject(nextProject).find(
+          (entry) => entry.path === nextProject.path,
+        ) ?? nextProject,
+      );
+      agent.setConfig({
+        projectPath: resolvedProject.path,
+        ...(resolvedProject.setupCommand
+          ? { setupCommand: resolvedProject.setupCommand }
+          : { setupCommand: undefined }),
+      });
+      setProjectSettingsProject(null);
+    },
+    [agent],
+  );
+
+  const handleCreateProjectConfig = useCallback(
+    async ({ project }: ProjectSettingsSavePayload) => {
+      const nextProject: SavedProject = {
+        path: project.path,
+        name: project.name,
+        ...(project.setupCommand ? { setupCommand: project.setupCommand } : {}),
+        ...(project.commands?.length ? { commands: project.commands } : {}),
+      };
+
+      await writeProjectScriptsConfig(project.path, {
+        ...(project.setupCommand ? { setupCommand: project.setupCommand } : {}),
+        ...(project.commands?.length ? { commands: project.commands } : {}),
+      });
+
+      const resolvedProject = await resolveSavedProject(
+        upsertSavedProject(nextProject).find(
+          (entry) => entry.path === nextProject.path,
+        ) ?? nextProject,
+      );
+      agent.setConfig({
+        projectPath: resolvedProject.path,
+        ...(resolvedProject.setupCommand
+          ? { setupCommand: resolvedProject.setupCommand }
+          : { setupCommand: undefined }),
+      });
+      setProjectSettingsProject(resolvedProject);
+    },
+    [agent],
+  );
 
   const handleInput = (e: ChangeEvent<HTMLTextAreaElement>) => {
     setInput(e.target.value);
@@ -524,8 +617,24 @@ export default function WorkspacePage() {
   if (isNewSession) {
     return (
       <NewSession
-        onSubmit={(message, cwd, model, contextLength, advancedOptions, communicationProfile) => {
-          agent.setConfig({ cwd, model, contextLength, advancedOptions, communicationProfile });
+        onSubmit={(
+          message,
+          project,
+          model,
+          contextLength,
+          advancedOptions,
+          communicationProfile,
+        ) => {
+          const cwd = project?.path ?? "";
+          agent.setConfig({
+            cwd,
+            model,
+            contextLength,
+            advancedOptions,
+            communicationProfile,
+            projectPath: project?.path,
+            setupCommand: project?.setupCommand,
+          });
           // Rename tab to folder basename
           const folder =
             (cwd.split("/").filter(Boolean).pop() ?? cwd) || "New Tab";
@@ -654,6 +763,9 @@ export default function WorkspacePage() {
                                   <UserInputCard key={tc.id} toolCall={tc} tabId={activeTabId} />
                                 ) : tc.status === "awaiting_approval" ||
                                   tc.status === "awaiting_worktree" ||
+                                  tc.status === "awaiting_setup_action" ||
+                                  (tc.tool === "git_worktree_init" &&
+                                    tc.status === "running") ||
                                   (tc.tool === "exec_run" &&
                                     tc.status === "running") ? (
                                   <ToolCallApproval
@@ -661,6 +773,7 @@ export default function WorkspacePage() {
                                     toolCall={tc}
                                     cwd={agent.config.cwd}
                                     tabId={activeTabId}
+                                    onOpenProjectSettings={openCurrentProjectSettings}
                                   />
                                 ) : (
                                   <CompactToolCall
@@ -950,6 +1063,16 @@ export default function WorkspacePage() {
         <ErrorDetailsModal
           {...errorModal}
           onClose={() => setErrorModal(null)}
+        />
+      )}
+
+      {projectSettingsProject && (
+        <ProjectSettingsModal
+          key={projectSettingsProject.path}
+          project={projectSettingsProject}
+          onClose={() => setProjectSettingsProject(null)}
+          onSave={handleSaveProjectSettings}
+          onCreateProjectConfig={handleCreateProjectConfig}
         />
       )}
 

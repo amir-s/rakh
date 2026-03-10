@@ -37,6 +37,8 @@ function makeSession(
     mode: "workspace",
     tabTitle: "Ship tab restore",
     cwd: "/repo",
+    projectPath: "/repo",
+    setupCommand: "npm install",
     model: "openai/gpt-5.2",
     planMarkdown: "plan",
     planVersion: 2,
@@ -94,6 +96,8 @@ describe("sessionRestore", () => {
     expect(state.tabTitle).toBe(session.tabTitle);
     expect(state.config).toMatchObject({
       cwd: session.cwd,
+      projectPath: session.projectPath,
+      setupCommand: session.setupCommand,
       model: session.model,
       worktreePath: session.worktreePath,
       worktreeBranch: session.worktreeBranch,

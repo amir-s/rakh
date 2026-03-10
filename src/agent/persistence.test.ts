@@ -73,6 +73,8 @@ describe("persistence", () => {
       tabTitle: "Task",
       config: {
         cwd: "/repo",
+        projectPath: undefined,
+        setupCommand: undefined,
         model: "",
         worktreePath: undefined,
         worktreeBranch: undefined,
@@ -97,6 +99,8 @@ describe("persistence", () => {
     expect(session.queueState).toBe("paused");
     expect(session.worktreePath).toBe("");
     expect(session.worktreeBranch).toBe("");
+    expect(session.projectPath).toBe("");
+    expect(session.setupCommand).toBe("");
     expect(session.worktreeDeclined).toBe(false);
     expect(session.showDebug).toBe(false);
   });
@@ -225,6 +229,8 @@ describe("persistence", () => {
       tabTitle: "Title",
       config: {
         cwd: "/repo",
+        projectPath: "/repo",
+        setupCommand: "npm install",
         model: "model-x",
         worktreePath: "/wt",
         worktreeBranch: "codex/branch",
@@ -254,6 +260,8 @@ describe("persistence", () => {
     };
     expect(payload.session.id).toBe("tab-w");
     expect(payload.session.cwd).toBe("/repo");
+    expect(payload.session.projectPath).toBe("/repo");
+    expect(payload.session.setupCommand).toBe("npm install");
     expect(payload.session.worktreePath).toBe("/wt");
     expect(payload.session.worktreeBranch).toBe("codex/branch");
     expect(payload.session.worktreeDeclined).toBe(true);
@@ -332,6 +340,8 @@ describe("persistence", () => {
       archived: true,
       createdAt: 1,
       updatedAt: 1,
+      projectPath: "",
+      setupCommand: "",
       worktreePath: "",
       worktreeBranch: "",
       worktreeDeclined: false,

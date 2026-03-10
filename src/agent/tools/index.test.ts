@@ -354,7 +354,11 @@ describe("tools/index dispatchTool", () => {
   it("passes toolCallId to git_worktree_init", async () => {
     gitWorktreeInitMock.mockResolvedValue({
       ok: true,
-      data: { path: "/tmp/worktree", branch: "codex/feature" },
+      data: {
+        path: "/tmp/worktree",
+        branch: "codex/feature",
+        setup: { status: "not_configured" },
+      },
     });
 
     const result = await dispatchTool(
@@ -370,8 +374,38 @@ describe("tools/index dispatchTool", () => {
       "tool-call-7",
       "/cwd",
       { suggestedBranch: "feature branch" },
+      undefined,
     );
     expect(result).toMatchObject({ ok: true });
+  });
+
+  it("passes onExecOutput callback to git_worktree_init when callbacks provided", async () => {
+    gitWorktreeInitMock.mockResolvedValue({
+      ok: true,
+      data: {
+        path: "/tmp/worktree",
+        branch: "codex/feature",
+        setup: { status: "not_configured" },
+      },
+    });
+
+    const onExecOutput = vi.fn();
+    await dispatchTool(
+      "tab",
+      "/cwd",
+      "git_worktree_init",
+      { suggestedBranch: "feature branch" },
+      "tool-call-7b",
+      { onExecOutput },
+    );
+
+    expect(gitWorktreeInitMock).toHaveBeenCalledWith(
+      "tab",
+      "tool-call-7b",
+      "/cwd",
+      { suggestedBranch: "feature branch" },
+      onExecOutput,
+    );
   });
 
   it("passes toolCallId to exec_run as runId", async () => {

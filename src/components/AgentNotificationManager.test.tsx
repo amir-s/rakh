@@ -46,6 +46,8 @@ function makeSession(id: string, label: string): PersistedSession {
     worktreePath: "",
     worktreeBranch: "",
     worktreeDeclined: false,
+    projectPath: "",
+    setupCommand: "",
     showDebug: false,
     communicationProfile: "pragmatic",
     advancedOptions: "{}",

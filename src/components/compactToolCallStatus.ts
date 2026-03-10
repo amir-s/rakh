@@ -22,6 +22,7 @@ export function getExecCommandBadge(
     tc.status === "pending" ||
     tc.status === "awaiting_approval" ||
     tc.status === "awaiting_worktree" ||
+    tc.status === "awaiting_setup_action" ||
     tc.status === "running" ||
     tc.status === "denied"
   ) {

@@ -182,7 +182,7 @@ export async function dispatchTool(
 
     /* ── git ─────────────────────────────────────────────────────────────────────────── */
     case "git_worktree_init":
-      return gitWorktreeInit(tabId, toolCallId, cwd, a);
+      return gitWorktreeInit(tabId, toolCallId, cwd, a, callbacks?.onExecOutput);
 
     /* ── exec ──────────────────────────────────────────────────────────────────────── */
     case "exec_run":

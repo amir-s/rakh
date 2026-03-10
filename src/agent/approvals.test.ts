@@ -3,9 +3,11 @@ import {
   cancelAllApprovals,
   consumeApprovalReason,
   requestApproval,
+  requestWorktreeSetupAction,
   requestWorktreeApproval,
   requiresApproval,
   resolveApproval,
+  resolveWorktreeSetupAction,
   resolveWorktreeApproval,
   setApprovalReason,
 } from "./approvals";
@@ -144,6 +146,16 @@ describe("approvals - resolver lifecycle", () => {
     });
   });
 
+  it("supports worktree setup actions and cancellation fallback", async () => {
+    const retry = requestWorktreeSetupAction("tabA", "setup-1");
+    resolveWorktreeSetupAction("tabA", "setup-1", "retry");
+    await expect(retry).resolves.toEqual({ action: "retry" });
+
+    const canceled = requestWorktreeSetupAction("tabA", "setup-2");
+    cancelAllApprovals();
+    await expect(canceled).resolves.toEqual({ action: "abort" });
+  });
+
   it("only cancels approvals for the specified tab", async () => {
     const pendingA = requestApproval("tabA", "call-a");
     const pendingB = requestApproval("tabB", "call-b");
@@ -158,4 +170,3 @@ describe("approvals - resolver lifecycle", () => {
     await expect(pendingB).resolves.toBe(true);
   });
 });
-

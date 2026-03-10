@@ -16,7 +16,8 @@ function getAttentionToolCalls(tabId: string): ToolCallDisplay[] {
     .filter(
       (toolCall) =>
         toolCall.status === "awaiting_approval" ||
-        toolCall.status === "awaiting_worktree",
+        toolCall.status === "awaiting_worktree" ||
+        toolCall.status === "awaiting_setup_action",
     );
 }
 

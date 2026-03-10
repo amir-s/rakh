@@ -99,6 +99,7 @@ const STATUS_DOT: Record<string, string> = {
   done: "done",
   error: "error",
   denied: "error",
+  awaiting_setup_action: "error",
 };
 
 function truncateText(value: string, max = 56): string {
@@ -675,6 +676,8 @@ function ExpandedGitWorktree({ tc }: { tc: ToolCallDisplay }) {
   const args = tc.args;
   const suggestedBranch =
     typeof args.suggestedBranch === "string" ? args.suggestedBranch : "";
+  const setupCommand =
+    typeof args.setupCommand === "string" ? args.setupCommand.trim() : "";
 
   const resultRecord =
     tc.result && typeof tc.result === "object"
@@ -687,6 +690,28 @@ function ExpandedGitWorktree({ tc }: { tc: ToolCallDisplay }) {
     typeof resultRecord?.path === "string" ? resultRecord.path : null;
   const alreadyExists = resultRecord?.alreadyExists === true;
   const declined = resultRecord?.declined === true;
+  const setup =
+    resultRecord?.setup && typeof resultRecord.setup === "object"
+      ? (resultRecord.setup as Record<string, unknown>)
+      : resultRecord?.details &&
+          typeof resultRecord.details === "object" &&
+          (resultRecord.details as Record<string, unknown>).setup &&
+          typeof (resultRecord.details as Record<string, unknown>).setup === "object"
+        ? ((resultRecord.details as Record<string, unknown>)
+            .setup as Record<string, unknown>)
+        : null;
+  const setupStatus =
+    typeof setup?.status === "string" ? setup.status : null;
+  const setupStdout =
+    typeof setup?.stdout === "string" ? setup.stdout.trimEnd() : "";
+  const setupStderr =
+    typeof setup?.stderr === "string" ? setup.stderr.trimEnd() : "";
+  const setupErrorMessage =
+    typeof setup?.errorMessage === "string" ? setup.errorMessage : null;
+  const setupAttemptCount =
+    typeof setup?.attemptCount === "number" ? setup.attemptCount : null;
+  const setupExitCode =
+    typeof setup?.exitCode === "number" ? setup.exitCode : null;
 
   const errorMessage =
     tc.status === "error" && typeof resultRecord?.message === "string"
@@ -702,6 +727,11 @@ function ExpandedGitWorktree({ tc }: { tc: ToolCallDisplay }) {
         Suggested branch:{" "}
         <span className="font-mono">{suggestedBranch || "(not provided)"}</span>
       </div>
+      {setupCommand ? (
+        <div className="text-xxs text-muted leading-[1.55] mt-1">
+          Setup: <span className="font-mono">{setupCommand}</span>
+        </div>
+      ) : null}
 
       {tc.status === "running" && (
         <div className="text-xxs text-muted mt-1">Preparing worktree...</div>
@@ -726,11 +756,24 @@ function ExpandedGitWorktree({ tc }: { tc: ToolCallDisplay }) {
               Path: <span className="font-mono break-all">{path}</span>
             </div>
           )}
+          {setupStatus === "not_configured" && <div>Setup: not configured</div>}
+          {setupStatus === "success" && <div>Setup: completed</div>}
+          {setupStatus === "failed_continued" && (
+            <div>Setup: failed, continued anyway</div>
+          )}
+          {setupAttemptCount ? <div>Setup attempts: {setupAttemptCount}</div> : null}
+          {setupExitCode !== null ? <div>Setup exit code: {setupExitCode}</div> : null}
+          {setupErrorMessage ? <div>Setup note: {setupErrorMessage}</div> : null}
           {!declined && !path && !branch && !alreadyExists && (
             <div>No worktree data returned.</div>
           )}
         </div>
       )}
+
+      {setupStdout ? <pre className="cmd-output mt-1">{setupStdout}</pre> : null}
+      {setupStderr ? (
+        <pre className="cmd-output cmd-output--error mt-1">{setupStderr}</pre>
+      ) : null}
     </div>
   );
 }
@@ -1110,11 +1153,13 @@ export default function CompactToolCall({
   const isExpandable =
     tc.status !== "awaiting_approval" &&
     tc.status !== "awaiting_worktree" &&
+    tc.status !== "awaiting_setup_action" &&
     !NON_EXPANDABLE_TOOLS.has(tc.tool);
   const isInspectable =
     showDebug &&
     tc.status !== "awaiting_approval" &&
-    tc.status !== "awaiting_worktree";
+    tc.status !== "awaiting_worktree" &&
+    tc.status !== "awaiting_setup_action";
 
   const icon = TOOL_ICON[tc.tool] ?? "build";
   const label = TOOL_LABEL[tc.tool] ?? tc.tool;
