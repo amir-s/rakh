@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.7.0](https://github.com/amir-s/rakh/compare/rakh-v0.6.0...rakh-v0.7.0) (2026-03-10)
+
+
+### Features
+
+* add MCP settings registry and attachment artifacts ([#112](https://github.com/amir-s/rakh/issues/112)) ([d699000](https://github.com/amir-s/rakh/commit/d6990007be209e8d97209dbecbaa4be94cae3ea8))
+* **workspace:** add editor and shell quick actions ([#102](https://github.com/amir-s/rakh/issues/102)) ([0304c02](https://github.com/amir-s/rakh/commit/0304c024c366659bfca54f9a23781659ef8c57d6)), closes [#99](https://github.com/amir-s/rakh/issues/99)
+
+
+### Bug Fixes
+
+* isolate parallel subagent chat threads ([#111](https://github.com/amir-s/rakh/issues/111)) ([bdd8d9d](https://github.com/amir-s/rakh/commit/bdd8d9df247c3b44aba9d7b6e513cd496d5f865b))
+
 ## [0.6.0](https://github.com/amir-s/rakh/compare/rakh-v0.5.0...rakh-v0.6.0) (2026-03-10)
 
 
