@@ -42,7 +42,7 @@ graph TB
 [`src/App.tsx`](../src/App.tsx) is the bootstrap layer. It:
 
 - loads saved sessions from the Tauri SQLite backend
-- loads configured providers from IndexedDB
+- loads configured providers from the Tauri backend (`providers_load`)
 - hydrates Jotai state before workspace tabs render
 - applies theme mode and theme name to `<html>`
 - auto-saves settled sessions and archives closed workspace tabs
@@ -89,8 +89,10 @@ components subscribe with fine-grained derived atoms from `useAgents.ts`.
 
 ### Model and provider resolution
 
-Provider instances are configured in Settings and stored in IndexedDB via
-[`src/agent/db.ts`](../src/agent/db.ts). The model picker is built in
+Provider instances are configured in Settings and persisted to disk via
+[`src/agent/db.ts`](../src/agent/db.ts), which calls the Rust backend commands
+`providers_load` and `providers_save` from
+[`src-tauri/src/db.rs`](../src-tauri/src/db.rs). The model picker is built in
 [`src/agent/useModels.ts`](../src/agent/useModels.ts):
 
 - OpenAI and Anthropic models come from the static catalog in
@@ -154,6 +156,42 @@ Review data is captured in two places:
 - `AgentState.reviewEdits`: per-file original-to-current diffs shown in the
   review pane
 
+### Project commands and setup scripts
+
+Each workspace project can define a setup command and custom command shortcuts
+via a project-scoped config file. The config lives at
+`<project-root>/.rakh/scripts.json` and is managed through the Project Settings
+modal (gear icon in the workspace header).
+
+[`src/projectScripts.ts`](../src/projectScripts.ts) defines the schema:
+
+```json
+{
+  "setupCommand": "npm install",
+  "commands": [
+    { "id": "build", "label": "Build", "command": "npm run build", "icon": "hammer", "showLabel": true }
+  ]
+}
+```
+
+- `setupCommand`: optional shell command run automatically after git worktree
+  creation for that project
+- `commands`: array of shortcuts displayed in the Project Command Bar
+  (toggle with `Cmd+B`). Each command has an id, label, shell command, optional
+  icon, and showLabel flag.
+
+[`src/projects.ts`](../src/projects.ts) handles resolution:
+
+1. Saved projects (path + name) are stored in localStorage (`rakh-projects`)
+2. On load, `resolveSavedProject()` checks for `.rakh/scripts.json`
+3. If the config file exists, its `setupCommand` and `commands` take precedence
+   over any values in localStorage, and `hasProjectConfigFile` is set to `true`
+4. The Project Settings modal writes directly to `.rakh/scripts.json` when
+   `hasProjectConfigFile` is true, otherwise falls back to localStorage
+
+The Project Command Bar ([`src/components/ProjectCommandBar.tsx`](../src/components/ProjectCommandBar.tsx))
+renders the shortcuts and runs them in the integrated terminal when clicked.
+
 ### Subagents and artifacts
 
 Subagents are registered in
@@ -199,7 +237,8 @@ frontend can refresh the artifact pane without polling.
 
 Rakh persists data in multiple places by design:
 
-- provider instances: browser IndexedDB (`rakh-providers`)
+- provider instances: `~/.rakh/config/providers.json` (debug: `~/.rakh-dev/config/providers.json`),
+  managed via `providers_load` / `providers_save` Tauri commands
 - theme mode, theme name, selected model, and some UI preferences: localStorage
 - release sessions and artifact manifests: `~/.rakh/sessions/sessions.db`
 - debug/dev sessions and artifact manifests: `~/.rakh-dev/sessions/sessions.db`
@@ -207,6 +246,9 @@ Rakh persists data in multiple places by design:
 - debug/dev artifact content blobs: `~/.rakh-dev/artifacts/blobs/sha256`
 - release git worktrees created by the agent: `~/.rakh/worktrees/<owner>/<repo>/<branch>`
 - debug/dev git worktrees created by the agent: `~/.rakh-dev/worktrees/<owner>/<repo>/<branch>`
+- project list (path + name): localStorage (`rakh-projects`)
+- per-project setup commands and shortcuts: `<project-root>/.rakh/scripts.json` (checked
+  on project load, takes precedence over localStorage values)
 
 Session persistence is front-to-back:
 
@@ -226,6 +268,8 @@ Top-level folders worth knowing:
 - `src/`: React UI, agent runtime, tooling wrappers, state, and styles
 - `src/components/`: workspace UI, terminal, settings, artifact pane, and UI primitives
 - `src/agent/`: runner, atoms, persistence, providers, models, tools, subagents
+- `src/projects.ts`: saved project list, project config resolution, localStorage sync
+- `src/projectScripts.ts`: `.rakh/scripts.json` schema, normalization, read/write helpers
 - `src/styles/`: tokens, themes, layout, and component styles
 - `src-tauri/src/`: Rust commands and platform integration
 - `docs/`: architecture, artifact, and subagent documentation
