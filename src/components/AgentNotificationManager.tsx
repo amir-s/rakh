@@ -5,6 +5,7 @@ import {
   jotaiStore,
   notifyOnAttentionAtom,
 } from "@/agent/atoms";
+import { summarizeDesktopAgentState } from "@/agent/desktopStatus";
 import type { AgentStatus, ToolCallDisplay } from "@/agent/types";
 import { useTabs } from "@/contexts/TabsContext";
 import {
@@ -12,18 +13,6 @@ import {
   setAppBadgeCount,
   showNotification,
 } from "@/notifications";
-
-function getAttentionToolCalls(tabId: string): ToolCallDisplay[] {
-  const state = jotaiStore.get(agentAtomFamily(tabId));
-  return state.chatMessages
-    .flatMap((message) => message.toolCalls ?? [])
-    .filter(
-      (toolCall) =>
-        toolCall.status === "awaiting_approval" ||
-        toolCall.status === "awaiting_worktree" ||
-        toolCall.status === "awaiting_setup_action",
-    );
-}
 
 function documentHasFocus(): boolean {
   return typeof document !== "undefined" && document.hasFocus();
@@ -89,21 +78,18 @@ export default function AgentNotificationManager() {
 
   const syncAppBadge = useCallback(() => {
     const isFocused = documentHasFocus();
+    const summary = summarizeDesktopAgentState(tabsRef.current);
 
     if (isFocused) {
       unseenCompletionTabsRef.current.clear();
     }
 
-    const workspaceTabIds = new Set<string>();
-    const attentionTabIds = new Set<string>();
-
-    for (const tab of tabsRef.current) {
-      if (tab.mode !== "workspace") continue;
-      workspaceTabIds.add(tab.id);
-      if (getAttentionToolCalls(tab.id).length > 0) {
-        attentionTabIds.add(tab.id);
-      }
-    }
+    const workspaceTabIds = new Set(summary.tabs.map((tab) => tab.tabId));
+    const attentionTabIds = new Set(
+      summary.tabs
+        .filter((tab) => tab.attentionToolCalls.length > 0)
+        .map((tab) => tab.tabId),
+    );
 
     for (const tabId of Array.from(unseenCompletionTabsRef.current)) {
       if (!workspaceTabIds.has(tabId)) {
@@ -130,11 +116,10 @@ export default function AgentNotificationManager() {
   const scanAttentionStates = useCallback(() => {
     const activeAttentionIds = new Set<string>();
     const isFocused = documentHasFocus();
+    const summary = summarizeDesktopAgentState(tabsRef.current);
 
-    for (const tab of tabsRef.current) {
-      if (tab.mode !== "workspace") continue;
-
-      for (const toolCall of getAttentionToolCalls(tab.id)) {
+    for (const tab of summary.tabs) {
+      for (const toolCall of tab.attentionToolCalls) {
         activeAttentionIds.add(toolCall.id);
 
         if (
@@ -148,10 +133,10 @@ export default function AgentNotificationManager() {
           continue;
         }
 
-        const shouldNotify = !isFocused || tab.id !== activeTabIdRef.current;
+        const shouldNotify = !isFocused || tab.tabId !== activeTabIdRef.current;
         if (!shouldNotify) continue;
 
-        void sendAttentionNotification(tab.id, tab.label, toolCall);
+        void sendAttentionNotification(tab.tabId, tab.tabLabel, toolCall);
       }
     }
 

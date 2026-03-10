@@ -3,6 +3,7 @@ import { Provider, useAtom } from "jotai";
 import { useEffect, useRef, useState } from "react";
 import TopChrome from "@/components/TopChrome";
 import AgentNotificationManager from "@/components/AgentNotificationManager";
+import DesktopTrayManager from "@/components/DesktopTrayManager";
 import { TabsProvider } from "@/contexts/TabsContext";
 import { useTabs } from "@/contexts/TabsContext";
 import {
@@ -233,6 +234,7 @@ export default function App() {
           <ThemeApplier />
           <AutoSaveManager />
           <AgentNotificationManager />
+          <DesktopTrayManager />
           <TopChrome />
           <div className="page-content">
             <ActiveTabContent />
