@@ -1,5 +1,6 @@
 pub mod db;
 pub mod exec;
+pub mod external_tools;
 pub mod fs_ops;
 pub mod git;
 pub mod pty;
@@ -33,6 +34,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             db::load_provider_env_api_keys,
             git::git_worktree_add,
+            external_tools::open_in_editor,
+            external_tools::open_shell,
             fs_ops::list_dir,
             fs_ops::stat_file,
             fs_ops::read_file,

@@ -71,6 +71,9 @@ import {
   type ProjectCommandConfig,
 } from "@/projectScripts";
 
+const OPEN_IN_EDITOR_COMMAND_ID = "__open-in-editor__";
+const OPEN_SHELL_COMMAND_ID = "__open-shell__";
+
 /* ─────────────────────────────────────────────────────────────────────────────
    Page
 ───────────────────────────────────────────────────────────────────────────── */
@@ -211,6 +214,7 @@ export default function WorkspacePage() {
     Record<string, boolean>
   >({});
   const terminalCommandRequestIdRef = useRef(0);
+  const cwd = agent.config.cwd.trim();
 
   // Track unseen updates even when pane is collapsed
   const {
@@ -495,7 +499,35 @@ export default function WorkspacePage() {
   );
 
   const handleRunProjectCommand = useCallback(
-    (command: ProjectCommandConfig) => {
+    async (command: ProjectCommandConfig) => {
+      if (command.id === OPEN_IN_EDITOR_COMMAND_ID) {
+        if (!cwd) return;
+        try {
+          const { invoke: tauriInvoke } = await import("@tauri-apps/api/core");
+          await tauriInvoke("open_in_editor", { cwd });
+        } catch (error) {
+          setErrorModal({
+            title: "Could not open editor",
+            details: error,
+          });
+        }
+        return;
+      }
+
+      if (command.id === OPEN_SHELL_COMMAND_ID) {
+        if (!cwd) return;
+        try {
+          const { invoke: tauriInvoke } = await import("@tauri-apps/api/core");
+          await tauriInvoke("open_shell", { cwd });
+        } catch (error) {
+          setErrorModal({
+            title: "Could not open shell",
+            details: error,
+          });
+        }
+        return;
+      }
+
       const nextId = terminalCommandRequestIdRef.current + 1;
       terminalCommandRequestIdRef.current = nextId;
       openTerminal();
@@ -504,7 +536,53 @@ export default function WorkspacePage() {
         command: command.command,
       });
     },
-    [openTerminal],
+    [cwd, openTerminal],
+  );
+
+  const commandBarCommands = useMemo<ProjectCommandConfig[]>(() => {
+    if (!cwd) return projectCommands;
+
+    return [
+      {
+        id: OPEN_IN_EDITOR_COMMAND_ID,
+        label: "Open in Editor",
+        command: "open_in_editor",
+        icon: "edit_square",
+      },
+      {
+        id: OPEN_SHELL_COMMAND_ID,
+        label: "Open Shell",
+        command: "open_shell",
+        icon: "terminal",
+      },
+      ...projectCommands,
+    ];
+  }, [cwd, projectCommands]);
+
+  const getCommandBarButtonAriaLabel = useCallback(
+    (command: ProjectCommandConfig) => {
+      if (command.id === OPEN_IN_EDITOR_COMMAND_ID) {
+        return "Open in Editor";
+      }
+      if (command.id === OPEN_SHELL_COMMAND_ID) {
+        return "Open Shell";
+      }
+      return `Run ${command.label}`;
+    },
+    [],
+  );
+
+  const getCommandBarButtonTitle = useCallback(
+    (command: ProjectCommandConfig) => {
+      if (command.id === OPEN_IN_EDITOR_COMMAND_ID) {
+        return "Open the current working directory in your editor";
+      }
+      if (command.id === OPEN_SHELL_COMMAND_ID) {
+        return "Open a new shell in the current working directory";
+      }
+      return `${command.label} • ${command.command}`;
+    },
+    [],
   );
 
   const handleInput = (e: ChangeEvent<HTMLTextAreaElement>) => {
@@ -737,8 +815,10 @@ export default function WorkspacePage() {
     <div className="workspace-outer">
       {commandBarOpen ? (
         <ProjectCommandBar
-          commands={projectCommands}
+          commands={commandBarCommands}
           onCommandClick={handleRunProjectCommand}
+          buttonAriaLabel={getCommandBarButtonAriaLabel}
+          buttonTitle={getCommandBarButtonTitle}
           variant="workspace"
           trailingContent={
             <span className="project-command-bar__shortcut-hint">

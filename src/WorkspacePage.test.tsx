@@ -743,6 +743,34 @@ describe("WorkspacePage chat input", () => {
     expect(nextState.showDebug).toBe(true);
   });
 
+  it("renders quick actions for the current cwd and invokes native launch commands", async () => {
+    render(<WorkspacePage />);
+
+    const openInEditorButton = await screen.findByRole("button", {
+      name: "Open in Editor",
+    });
+    const openShellButton = screen.getByRole("button", { name: "Open Shell" });
+    expect(screen.getByText("Open in Editor")).not.toBeNull();
+    expect(screen.getByText("Open Shell")).not.toBeNull();
+
+    workspaceMocks.invokeMock.mockClear();
+    workspaceMocks.invokeMock.mockResolvedValue(undefined);
+
+    fireEvent.click(openInEditorButton);
+    await waitFor(() => {
+      expect(workspaceMocks.invokeMock).toHaveBeenCalledWith("open_in_editor", {
+        cwd: "/repo",
+      });
+    });
+
+    fireEvent.click(openShellButton);
+    await waitFor(() => {
+      expect(workspaceMocks.invokeMock).toHaveBeenCalledWith("open_shell", {
+        cwd: "/repo",
+      });
+    });
+  });
+
   it("renders project commands and opens the terminal when one is executed", async () => {
     workspaceMocks.agentState = {
       ...workspaceMocks.agentState,
