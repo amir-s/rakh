@@ -196,7 +196,9 @@ renders the shortcuts and runs them in the integrated terminal when clicked.
 
 Subagents are registered in
 [`src/agent/subagents/index.ts`](../src/agent/subagents/index.ts) and run in a
-private tool loop inside the main runner.
+private tool loop inside the main runner. Each subagent invocation owns a
+stable chat bubble/thread in the parent tab so parallel calls to the same
+subagent do not merge their streamed turns together.
 
 Artifacts are the durable output channel for plans, reviews, security reports,
 and other structured handoffs. The detailed contracts live in:

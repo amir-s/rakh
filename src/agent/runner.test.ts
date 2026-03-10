@@ -154,8 +154,9 @@ import {
   stopAgent,
   stopRunningExecToolCall,
 } from "./runner";
+import { groupChatMessagesForBubbles } from "./chatBubbleGroups";
 import { registerDynamicModels } from "./modelCatalog";
-import type { AdvancedModelOptions } from "./types";
+import type { AdvancedModelOptions, ChatMessage } from "./types";
 import { DEFAULT_ADVANCED_OPTIONS } from "./types";
 
 function makeState(overrides: Partial<MockAgentState> = {}): MockAgentState {
@@ -252,6 +253,16 @@ async function flushAsyncWork(rounds = 6): Promise<void> {
   for (let index = 0; index < rounds; index += 1) {
     await Promise.resolve();
   }
+}
+
+function createDeferred<T = void>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
 }
 
 describe("runner", () => {
@@ -1838,6 +1849,176 @@ describe("runner", () => {
         },
       });
       expect(streamTextMock).toHaveBeenCalledTimes(4);
+    });
+
+    it("keeps parallel subagent invocations isolated in chat state", async () => {
+      const tabId = "tab-subagent-parallel";
+      setState(tabId);
+
+      const subagentToolCallIds = [
+        "tc-github-1",
+        "tc-github-2",
+        "tc-github-3",
+      ] as const;
+      const subagentOutputs = [
+        {
+          text: "Created issue for the tray request.",
+          reasoning: "Inspect tray-related code paths.",
+        },
+        {
+          text: "Created issue for archived tab grouping.",
+          reasoning: "Inspect archived session persistence.",
+        },
+        {
+          text: "Created issue for approved command allowlists.",
+          reasoning: "Inspect exec approvals and settings state.",
+        },
+      ] as const;
+      const subagentGates = subagentOutputs.map(() => createDeferred<void>());
+      const emptyStream = () => (async function* () {})();
+      let streamCallIndex = 0;
+
+      streamTextMock.mockImplementation(() => {
+        const currentCall = streamCallIndex;
+        streamCallIndex += 1;
+
+        if (currentCall === 0) {
+          return {
+            textStream: emptyStream(),
+            fullStream: emptyStream(),
+            toolCalls: Promise.resolve(
+              subagentToolCallIds.map((toolCallId, index) => ({
+                id: toolCallId,
+                name: "agent_subagent_call",
+                arguments: {
+                  subagentId: "github",
+                  message: `create issue ${index + 1}`,
+                },
+              })),
+            ),
+          };
+        }
+
+        if (currentCall >= 1 && currentCall <= 3) {
+          const output = subagentOutputs[currentCall - 1];
+          const gate = subagentGates[currentCall - 1];
+          return {
+            textStream: emptyStream(),
+            fullStream: (async function* () {
+              await gate.promise;
+              yield {
+                type: "reasoning-start",
+                id: `reasoning-${currentCall}`,
+              };
+              yield {
+                type: "reasoning-delta",
+                id: `reasoning-${currentCall}`,
+                delta: output.reasoning,
+              };
+              await Promise.resolve();
+              yield {
+                type: "text-delta",
+                id: `text-${currentCall}`,
+                delta: output.text,
+              };
+              yield {
+                type: "reasoning-end",
+                id: `reasoning-${currentCall}`,
+              };
+            })(),
+            toolCalls: Promise.resolve([]),
+          };
+        }
+
+        if (currentCall === 4) {
+          return {
+            textStream: (async function* () {
+              yield "All issues created.";
+            })(),
+            fullStream: (async function* () {
+              yield {
+                type: "text-delta",
+                id: "text-main-final",
+                delta: "All issues created.",
+              };
+            })(),
+            toolCalls: Promise.resolve([]),
+          };
+        }
+
+        throw new Error(`Unexpected streamText call index ${currentCall}`);
+      });
+
+      const runPromise = runAgent(tabId, "create three issues");
+      await flushAsyncWork(6);
+
+      expect(streamCallIndex).toBe(4);
+
+      subagentGates[1]?.resolve();
+      await flushAsyncWork(6);
+      subagentGates[0]?.resolve();
+      await flushAsyncWork(6);
+      subagentGates[2]?.resolve();
+
+      await runPromise;
+
+      const state = states[tabId];
+      expect(state.status).toBe("idle");
+
+      const subagentMessages = state.chatMessages.filter(
+        (message) => message.agentName === "GitHub Operator",
+      );
+      expect(subagentMessages).toHaveLength(3);
+      expect(
+        new Set(subagentMessages.map((message) => message.bubbleGroupId)),
+      ).toEqual(new Set(subagentToolCallIds));
+      expect(
+        subagentMessages.every((message) => message.streaming === false),
+      ).toBe(true);
+      expect(
+        subagentMessages.every(
+          (message) => message.reasoningStreaming === undefined,
+        ),
+      ).toBe(true);
+      expect(
+        subagentMessages.every(
+          (message) => typeof message.reasoningDurationMs === "number",
+        ),
+      ).toBe(true);
+
+      const toolCallStatusById = new Map(
+        state.chatMessages
+          .flatMap(
+            (message) =>
+              (message.toolCalls as Array<Record<string, unknown>> | undefined) ??
+              [],
+          )
+          .map((toolCall) => [toolCall.id, toolCall.status]),
+      );
+      for (const toolCallId of subagentToolCallIds) {
+        expect(toolCallStatusById.get(toolCallId)).toBe("done");
+      }
+
+      for (const [index, toolCallId] of subagentToolCallIds.entries()) {
+        expect(parseToolMessageResult(tabId, toolCallId)).toMatchObject({
+          ok: true,
+          data: {
+            subagentId: "github",
+            rawText: subagentOutputs[index]?.text,
+          },
+        });
+      }
+
+      const groupedMessages = groupChatMessagesForBubbles(
+        state.chatMessages as unknown as ChatMessage[],
+      );
+      expect(
+        groupedMessages.filter(
+          (group) =>
+            group.kind === "assistant" &&
+            group.agentName === "GitHub Operator",
+        ),
+      ).toHaveLength(3);
     });
 
     it("rejects invalid reviewer artifacts before persistence and succeeds after retry", async () => {

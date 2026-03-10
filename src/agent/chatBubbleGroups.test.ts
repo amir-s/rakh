@@ -11,12 +11,17 @@ function userMessage(id: string, content: string): ChatMessage {
   };
 }
 
-function assistantMessage(id: string, content: string): ChatMessage {
+function assistantMessage(
+  id: string,
+  content: string,
+  overrides: Partial<ChatMessage> = {},
+): ChatMessage {
   return {
     id,
     role: "assistant",
     content,
     timestamp: 1,
+    ...overrides,
   };
 }
 
@@ -99,5 +104,65 @@ describe("groupChatMessagesForBubbles", () => {
       "a2",
       "a3",
     ]);
+  });
+
+  it("keeps legacy assistant grouping unchanged when bubbleGroupId is absent", () => {
+    const groups = groupChatMessagesForBubbles([
+      assistantMessage("a1", "First", { agentName: "GitHub Operator" }),
+      assistantMessage("a2", "Second", { agentName: "GitHub Operator" }),
+    ]);
+
+    expect(groups).toHaveLength(1);
+    if (groups[0].kind !== "assistant") {
+      throw new Error("Expected assistant group");
+    }
+    expect(groups[0].messages.map((msg) => msg.id)).toEqual(["a1", "a2"]);
+  });
+
+  it("separates same-agent messages when bubbleGroupId differs", () => {
+    const groups = groupChatMessagesForBubbles([
+      assistantMessage("a1", "First", {
+        agentName: "GitHub Operator",
+        bubbleGroupId: "call-1",
+      }),
+      assistantMessage("a2", "Second", {
+        agentName: "GitHub Operator",
+        bubbleGroupId: "call-2",
+      }),
+    ]);
+
+    expect(groups).toHaveLength(2);
+    expect(groups[0]).toMatchObject({
+      kind: "assistant",
+      key: "assistant:GitHub Operator:call-1",
+    });
+    expect(groups[1]).toMatchObject({
+      kind: "assistant",
+      key: "assistant:GitHub Operator:call-2",
+    });
+  });
+
+  it("reuses the original bubble position for later messages in the same threaded group", () => {
+    const groups = groupChatMessagesForBubbles([
+      assistantMessage("a1", "First", {
+        agentName: "GitHub Operator",
+        bubbleGroupId: "call-1",
+      }),
+      assistantMessage("b1", "Other", {
+        agentName: "GitHub Operator",
+        bubbleGroupId: "call-2",
+      }),
+      assistantMessage("a2", "Later", {
+        agentName: "GitHub Operator",
+        bubbleGroupId: "call-1",
+      }),
+    ]);
+
+    expect(groups).toHaveLength(2);
+    if (groups[0].kind !== "assistant" || groups[1].kind !== "assistant") {
+      throw new Error("Expected assistant groups");
+    }
+    expect(groups[0].messages.map((msg) => msg.id)).toEqual(["a1", "a2"]);
+    expect(groups[1].messages.map((msg) => msg.id)).toEqual(["b1"]);
   });
 });

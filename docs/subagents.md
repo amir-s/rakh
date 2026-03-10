@@ -8,6 +8,10 @@ Subagents are specialized agents that the main agent can delegate work to with
 They run their own reasoning/tool loop, but their chat output is displayed in
 the parent tab with the subagent's name and styling.
 
+Each `agent_subagent_call` invocation owns its own chat bubble/thread in the
+parent tab. Later turns from that same invocation stay attached to the original
+bubble even when multiple calls to the same subagent are running in parallel.
+
 Subagent registration lives in
 [`src/agent/subagents/index.ts`](../src/agent/subagents/index.ts).
 
@@ -120,7 +124,9 @@ High-level flow:
 5. Subagent optionally writes durable outputs as artifacts
 6. Subagent may also post user-visible conversation cards with `agent_card_add`
 7. Runner validates produced artifacts against the declared contract
-8. Runner returns the result to the parent as:
+8. Runner keeps that invocation's streamed assistant turns attached to one
+   stable bubble/thread in the parent chat UI
+9. Runner returns the result to the parent as:
    - `rawText`
    - `cards`
    - `artifacts`
@@ -214,7 +220,8 @@ Trigger resolution happens in
 [`findSubagentByTrigger()`](../src/agent/subagents/index.ts).
 
 Direct trigger routing still uses the same artifact contract enforcement as
-parent-initiated delegation.
+parent-initiated delegation and still renders as a single threaded subagent
+bubble in the parent tab.
 
 ## Adding a New Subagent
 

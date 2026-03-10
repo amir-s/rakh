@@ -216,6 +216,11 @@ export interface ChatMessage {
    * Subagent messages carry the subagent's name (e.g. "Planner").
    */
   agentName?: string;
+  /**
+   * Stable bubble/thread identifier for assistant messages that should stay in
+   * the same UI bubble even when other assistant messages interleave.
+   */
+  bubbleGroupId?: string;
   /** Optional streamed reasoning content for this assistant turn. */
   reasoning?: string;
   /** True while reasoning tokens are still streaming for this assistant turn. */
