@@ -16,21 +16,18 @@ import {
   agentTabTitleAtomFamily,
   jotaiStore,
 } from "@/agent/atoms";
+import {
+  resolveWorkspaceDisplayStatus,
+  type WorkspaceDisplayStatus,
+} from "@/agent/desktopStatus";
 import { restoreMostRecentArchivedTab } from "@/agent/sessionRestore";
 import CloseTabModal from "@/components/CloseTabModal";
 import ArchivedTabsMenu from "@/components/ArchivedTabsMenu";
 import { cn } from "@/utils/cn";
 import { shouldShowAppUpdateBadge } from "@/updater";
-import type { AgentStatus, ChatMessage } from "@/agent/types";
 
 /* ── Types ──────────────────────────────────────────────────────────────── */
 type Platform = "mac" | "windows" | "other";
-type TooltipStatusTone = "attention" | "working" | "done";
-
-interface TooltipStatusDisplay {
-  label: string;
-  tone: TooltipStatusTone;
-}
 
 function detectPlatform(): Platform {
   const p = (navigator.platform ?? "").toLowerCase();
@@ -54,37 +51,6 @@ function getWorkspaceName(cwd: string, branch?: string): string {
   return branch ? `${folder} [${branch}]` : folder;
 }
 
-function resolveTooltipStatus(
-  status: AgentStatus,
-  chatMessages: ChatMessage[],
-  tabTitle: string,
-): TooltipStatusDisplay | null {
-  const toolCalls = chatMessages.flatMap((message) => message.toolCalls ?? []);
-  const requiresAttention =
-    status === "error" ||
-    toolCalls.some(
-      (toolCall) =>
-        toolCall.status === "awaiting_worktree" ||
-        toolCall.status === "awaiting_setup_action" ||
-        toolCall.status === "awaiting_approval",
-    );
-  if (requiresAttention) {
-    return { label: "Requires attention", tone: "attention" };
-  }
-
-  if (status === "thinking" || status === "working") {
-    return { label: "Working", tone: "working" };
-  }
-
-  const hasCompletedActivity =
-    chatMessages.length > 0 || tabTitle.trim().length > 0 || status === "done";
-  if (hasCompletedActivity) {
-    return { label: "Done", tone: "done" };
-  }
-
-  return null;
-}
-
 function WorkspaceTabPopoverContent({
   tabId,
   mode,
@@ -102,7 +68,11 @@ function WorkspaceTabPopoverContent({
       ? "New session"
       : getWorkspaceName(config.cwd, config.worktreeBranch);
   const trimmedTitle = tabTitle.trim();
-  const tooltipStatus = resolveTooltipStatus(status, chatMessages, trimmedTitle);
+  const tooltipStatus: WorkspaceDisplayStatus | null = resolveWorkspaceDisplayStatus(
+    status,
+    chatMessages,
+    trimmedTitle,
+  );
 
   return (
     <>

@@ -5,19 +5,30 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const notificationMocks = vi.hoisted(() => ({
   isPermissionGrantedMock: vi.fn(async () => true),
   requestPermissionMock: vi.fn(async () => "granted" as const),
-  sendNotificationMock: vi.fn(),
-  onActionHandler: null as null | ((event: unknown) => void),
-  onActionMock: vi.fn(async (handler: (event: unknown) => void) => {
-    notificationMocks.onActionHandler = handler;
-    return { unregister: vi.fn() };
-  }),
+  isMinimizedMock: vi.fn(async () => true),
+  unminimizeMock: vi.fn(async () => undefined),
+  showMock: vi.fn(async () => undefined),
+  setFocusMock: vi.fn(async () => undefined),
+  instances: [] as Array<{
+    title: string;
+    options?: NotificationOptions;
+    close: ReturnType<typeof vi.fn>;
+    onclick: null | (() => void);
+  }>,
 }));
 
 vi.mock("@tauri-apps/plugin-notification", () => ({
   isPermissionGranted: notificationMocks.isPermissionGrantedMock,
   requestPermission: notificationMocks.requestPermissionMock,
-  sendNotification: notificationMocks.sendNotificationMock,
-  onAction: notificationMocks.onActionMock,
+}));
+
+vi.mock("@tauri-apps/api/window", () => ({
+  getCurrentWindow: () => ({
+    isMinimized: () => notificationMocks.isMinimizedMock(),
+    unminimize: () => notificationMocks.unminimizeMock(),
+    show: () => notificationMocks.showMock(),
+    setFocus: () => notificationMocks.setFocusMock(),
+  }),
 }));
 
 describe("notifications", () => {
@@ -25,17 +36,41 @@ describe("notifications", () => {
     vi.resetModules();
     notificationMocks.isPermissionGrantedMock.mockClear();
     notificationMocks.requestPermissionMock.mockClear();
-    notificationMocks.sendNotificationMock.mockClear();
-    notificationMocks.onActionMock.mockClear();
-    notificationMocks.onActionHandler = null;
+    notificationMocks.isMinimizedMock.mockClear();
+    notificationMocks.unminimizeMock.mockClear();
+    notificationMocks.showMock.mockClear();
+    notificationMocks.setFocusMock.mockClear();
+    notificationMocks.instances = [];
 
     Object.defineProperty(window, "__TAURI_INTERNALS__", {
       configurable: true,
       value: {},
     });
+
+    class MockNotification {
+      static permission: NotificationPermission = "granted";
+      static requestPermission = vi.fn(
+        async () => "granted" as NotificationPermission,
+      );
+      onclick: null | (() => void) = null;
+      close = vi.fn();
+
+      constructor(
+        public title: string,
+        public options?: NotificationOptions,
+      ) {
+        notificationMocks.instances.push(this);
+      }
+    }
+
+    Object.defineProperty(window, "Notification", {
+      configurable: true,
+      writable: true,
+      value: MockNotification,
+    });
   });
 
-  it("defers Tauri click handlers until a notification action event arrives", async () => {
+  it("uses the browser notification API in Tauri and wires click handling directly", async () => {
     const { showNotification } = await import("./notifications");
     const onClick = vi.fn();
 
@@ -46,13 +81,14 @@ describe("notifications", () => {
     });
 
     expect(sent).toBe(true);
-    expect(notificationMocks.sendNotificationMock).toHaveBeenCalledTimes(1);
+    expect(notificationMocks.instances).toHaveLength(1);
     expect(onClick).not.toHaveBeenCalled();
+    expect(notificationMocks.instances[0]?.options?.icon).toBe("icons/icon.png");
 
-    const [{ id }] = notificationMocks.sendNotificationMock.mock.calls[0] ?? [];
-    notificationMocks.onActionHandler?.({ notification: { id } });
+    notificationMocks.instances[0]?.onclick?.();
 
     expect(onClick).toHaveBeenCalledTimes(1);
+    expect(notificationMocks.instances[0]?.close).toHaveBeenCalledTimes(1);
   });
 
   it("can activate a tab without redundantly refocusing the window", async () => {
@@ -68,5 +104,16 @@ describe("notifications", () => {
     expect(windowFocusSpy).not.toHaveBeenCalled();
 
     windowFocusSpy.mockRestore();
+  });
+
+  it("restores and focuses the Tauri window", async () => {
+    const { focusAppWindow } = await import("./notifications");
+
+    await focusAppWindow();
+
+    expect(notificationMocks.isMinimizedMock).toHaveBeenCalledTimes(1);
+    expect(notificationMocks.unminimizeMock).toHaveBeenCalledTimes(1);
+    expect(notificationMocks.showMock).toHaveBeenCalledTimes(1);
+    expect(notificationMocks.setFocusMock).toHaveBeenCalledTimes(1);
   });
 });
