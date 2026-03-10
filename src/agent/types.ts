@@ -11,6 +11,7 @@ export type ToolErrorCode =
   | "CONFLICT"
   | "TOO_LARGE"
   | "TIMEOUT"
+  | "RUN_ABORTED"
   | "INTERNAL";
 
 export interface ToolError {
@@ -146,6 +147,7 @@ export interface ToolCallDisplay {
     | "pending"
     | "awaiting_approval"
     | "awaiting_worktree"
+    | "awaiting_setup_action"
     | "running"
     | "done"
     | "error"
@@ -270,6 +272,10 @@ export interface AgentConfig {
   model: string;
   /** Context window size in tokens, as reported by model catalog for the selected model */
   contextLength?: number;
+  /** Absolute path to the originally selected project root */
+  projectPath?: string;
+  /** Optional project-scoped setup command run after worktree creation */
+  setupCommand?: string;
   /** Absolute path to the git worktree created for this session (set once, never changed) */
   worktreePath?: string;
   /** Git branch name for the worktree */

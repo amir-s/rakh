@@ -65,6 +65,7 @@ function resolveTooltipStatus(
     toolCalls.some(
       (toolCall) =>
         toolCall.status === "awaiting_worktree" ||
+        toolCall.status === "awaiting_setup_action" ||
         toolCall.status === "awaiting_approval",
     );
   if (requiresAttention) {

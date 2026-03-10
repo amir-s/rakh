@@ -233,6 +233,302 @@
   margin-bottom: 2px;
 }
 
+.project-settings-modal {
+  width: min(560px, calc(100vw - 32px));
+}
+
+.project-settings-modal__body {
+  gap: 16px;
+  max-height: min(72vh, 760px);
+  overflow-y: auto;
+}
+
+.project-settings-modal__path {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--color-border-subtle);
+  background: color-mix(in srgb, var(--color-window) 72%, transparent);
+  color: var(--color-text);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  line-height: 1.6;
+  word-break: break-all;
+}
+
+.project-settings-modal__input-wrap {
+  border-color: var(--color-border-mid);
+  background: color-mix(in srgb, var(--color-window) 78%, transparent);
+}
+
+.project-settings-modal__input {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}
+
+.project-settings-modal__hint {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: var(--text-xs);
+  line-height: 1.6;
+}
+
+.project-settings-modal__commands-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.project-settings-modal__bookmark-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  overflow-x: auto;
+  padding: 6px 2px 2px;
+}
+
+.project-settings-modal__command-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--color-window) 76%, transparent);
+}
+
+.project-settings-modal__command-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 72px;
+  gap: 10px;
+  align-items: stretch;
+}
+
+.project-settings-modal__icon-picker {
+  display: flex;
+  min-width: 0;
+}
+
+.project-settings-modal__icon-trigger {
+  width: 100%;
+  min-height: 0;
+  height: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 10px;
+  border: 1px solid var(--color-border-mid);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--color-window) 78%, transparent);
+  color: var(--color-text);
+  line-height: 1;
+  cursor: pointer;
+  transition:
+    border-color var(--t-fast),
+    background var(--t-fast);
+}
+
+.project-settings-modal__icon-trigger:hover,
+.project-settings-modal__icon-trigger:focus-visible {
+  border-color: color-mix(in srgb, var(--color-primary) 38%, transparent);
+  background: color-mix(in srgb, var(--color-window) 86%, transparent);
+  outline: none;
+}
+
+.project-settings-modal__icon-trigger-chevron {
+  color: var(--color-muted);
+}
+
+.project-settings-modal__icon-menu {
+  position: fixed;
+  z-index: 10010;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+  padding: 8px;
+  border-radius: 12px;
+  border: 1px solid var(--color-border-mid);
+  background: color-mix(in srgb, var(--color-surface) 94%, transparent);
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.28);
+}
+
+.project-settings-modal__icon-option {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--color-text);
+  cursor: pointer;
+  transition:
+    border-color var(--t-fast),
+    background var(--t-fast);
+}
+
+.project-settings-modal__icon-option:hover,
+.project-settings-modal__icon-option:focus-visible {
+  border-color: color-mix(in srgb, var(--color-primary) 28%, transparent);
+  background: color-mix(in srgb, var(--color-primary) 10%, transparent);
+  outline: none;
+}
+
+.project-settings-modal__icon-option[aria-selected="true"] {
+  border-color: color-mix(in srgb, var(--color-primary) 38%, transparent);
+  background: color-mix(in srgb, var(--color-primary) 14%, transparent);
+}
+
+.project-settings-modal__icon-placeholder {
+  width: 18px;
+  height: 18px;
+  border: 1.5px dashed color-mix(in srgb, var(--color-muted) 72%, transparent);
+  border-radius: 999px;
+  opacity: 0.85;
+}
+
+.project-settings-modal__command-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.project-settings-modal__show-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-size: var(--text-xs);
+  color: var(--color-text);
+}
+
+.project-settings-modal__bookmark-item {
+  display: inline-flex;
+  align-items: center;
+  min-height: 38px;
+  padding: 0 12px;
+  border-radius: 999px;
+  border: 1px solid var(--color-border-subtle);
+  background: color-mix(in srgb, var(--color-window) 82%, transparent);
+  color: var(--color-text);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  cursor: pointer;
+  transition:
+    background var(--t-fast),
+    border-color var(--t-fast),
+    color var(--t-fast);
+}
+
+.project-settings-modal__bookmark-item:hover,
+.project-settings-modal__bookmark-item:focus-visible {
+  background: color-mix(in srgb, var(--color-primary) 14%, transparent);
+  border-color: color-mix(in srgb, var(--color-primary) 38%, transparent);
+  outline: none;
+}
+
+.project-settings-modal__bookmark-main {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+}
+
+.project-settings-modal__bookmark-label {
+  line-height: 1;
+}
+
+.project-settings-modal__command-editor-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.project-settings-modal__repo-config {
+  gap: 10px;
+}
+
+.project-settings-modal__repo-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 16px;
+}
+
+.project-settings-modal__repo-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.project-settings-modal__repo-actions {
+  display: flex;
+  align-self: stretch;
+}
+
+.project-settings-modal__footer {
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.project-settings-modal__footer-meta {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--text-xxs);
+  color: var(--color-muted);
+}
+
+.project-settings-modal__footer-meta-label {
+  text-transform: lowercase;
+}
+
+.project-settings-modal__footer-path {
+  font-family: var(--font-mono);
+  font-size: var(--text-xxs);
+  color: var(--color-text);
+  line-height: 1.6;
+  word-break: break-all;
+}
+
+.project-settings-modal__footer-actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+@media (max-width: 640px) {
+  .project-settings-modal__commands-header,
+  .project-settings-modal__command-footer {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .project-settings-modal__repo-row {
+    grid-template-columns: 1fr;
+  }
+
+  .project-settings-modal__command-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .project-settings-modal__footer {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .project-settings-modal__footer-actions {
+    width: 100%;
+  }
+}
+
 /* ═════════════════════════════════════════════════════════════════════════════
    ERROR DETAILS MODAL  (ErrorDetailsModal component)
    Full-screen overlay showing raw error JSON for debugging.
@@ -307,7 +603,9 @@
   color: var(--color-muted);
   cursor: pointer;
   flex-shrink: 0;
-  transition: color var(--t-fast), background var(--t-fast);
+  transition:
+    color var(--t-fast),
+    background var(--t-fast);
 }
 .image-preview-close:hover {
   color: var(--color-text);

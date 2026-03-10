@@ -15,7 +15,10 @@ import { cn } from "@/utils/cn";
 import { useTabs } from "@/contexts/TabsContext";
 import NewSessionModelSelector from "@/components/NewSessionModelSelector";
 import ProviderSetupHint from "@/components/ProviderSetupHint";
-import { Button } from "@/components/ui";
+import ProjectSettingsModal, {
+  type ProjectSettingsSavePayload,
+} from "@/components/ProjectSettingsModal";
+import { Button, IconButton } from "@/components/ui";
 import type {
   AdvancedModelOptions,
   LatencyCostProfile,
@@ -23,31 +26,15 @@ import type {
   ReasoningVisibility,
 } from "@/agent/types";
 import { DEFAULT_ADVANCED_OPTIONS } from "@/agent/types";
-
-/* ─────────────────────────────────────────────────────────────────────────────
-   Projects
-───────────────────────────────────────────────────────────────────────────── */
-
-type Project = { path: string; name: string };
-
-const PROJECTS_STORAGE_KEY = "rakh-projects";
-
-function loadProjects(): Project[] {
-  try {
-    const stored = localStorage.getItem(PROJECTS_STORAGE_KEY);
-    return stored ? JSON.parse(stored) : [];
-  } catch {
-    return [];
-  }
-}
-
-function saveProjects(projects: Project[]) {
-  try {
-    localStorage.setItem(PROJECTS_STORAGE_KEY, JSON.stringify(projects));
-  } catch (error) {
-    console.error("Failed to save projects:", error);
-  }
-}
+import {
+  loadSavedProjects,
+  removeSavedProject,
+  resolveSavedProject,
+  resolveSavedProjects,
+  upsertSavedProject,
+  type SavedProject,
+} from "@/projects";
+import { writeProjectScriptsConfig } from "@/projectScripts";
 
 /* ─────────────────────────────────────────────────────────────────────────────
    Advanced options — localStorage helpers
@@ -99,7 +86,7 @@ function saveAdvancedOptions(opts: AdvancedModelOptions) {
 interface NewSessionProps {
   onSubmit: (
     message: string,
-    cwd: string,
+    project: { path: string; setupCommand?: string } | null,
     model: string,
     contextLength?: number,
     advancedOptions?: AdvancedModelOptions,
@@ -109,15 +96,20 @@ interface NewSessionProps {
 
 export default function NewSession({ onSubmit }: NewSessionProps) {
   const [input, setInput] = useState("");
-  const [projects, setProjects] = useState<Project[]>(loadProjects);
-  const [selectedProject, setSelectedProject] = useState<Project | null>(null);
+  const [projects, setProjects] = useState<SavedProject[]>(loadSavedProjects);
+  const [selectedProject, setSelectedProject] = useState<SavedProject | null>(
+    null,
+  );
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [focused, setFocused] = useState(false);
-  const [advancedOptions, setAdvancedOptions] = useState<AdvancedModelOptions>(loadAdvancedOptions);
-  
-  // Note: the global default profile handles the fallback later if not provided, but we map it locally if they change it.
-  const [communicationProfile, setCommunicationProfile] = useState<string>("global");
+  const [advancedOptions, setAdvancedOptions] =
+    useState<AdvancedModelOptions>(loadAdvancedOptions);
+  const [projectSettingsProject, setProjectSettingsProject] =
+    useState<SavedProject | null>(null);
+  // The global default profile handles fallback later if not provided.
+  const [communicationProfile, setCommunicationProfile] =
+    useState<string>("global");
 
   const dropdownRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -139,6 +131,22 @@ export default function NewSession({ onSubmit }: NewSessionProps) {
       setSelectedModel(providerModels[0].id);
     }
   }, [providerModels, selectedModel, setSelectedModel]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    void resolveSavedProjects(loadSavedProjects()).then((resolved) => {
+      if (cancelled) return;
+      setProjects(resolved);
+      setSelectedProject((prev) =>
+        prev ? resolved.find((project) => project.path === prev.path) ?? prev : prev,
+      );
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   /* ── Auto-resize textarea ──────────────────────────────────────────────── */
   const handleChange = (e: ChangeEvent<HTMLTextAreaElement>) => {
@@ -171,37 +179,57 @@ export default function NewSession({ onSubmit }: NewSessionProps) {
       const text = input.trim();
       const ctxLen = selectedModelObj?.context_length;
       if (text) {
-        onSubmit(text, selectedProject?.path ?? "", selectedModelObj.id, ctxLen, advancedOptions, communicationProfile);
+        onSubmit(
+          text,
+          selectedProject
+            ? {
+                path: selectedProject.path,
+                ...(selectedProject.setupCommand
+                  ? { setupCommand: selectedProject.setupCommand }
+                  : {}),
+              }
+            : null,
+          selectedModelObj.id,
+          ctxLen,
+          advancedOptions,
+          communicationProfile,
+        );
       } else {
-        onSubmit("", selectedProject?.path ?? "", selectedModelObj.id, ctxLen, advancedOptions, communicationProfile);
+        onSubmit(
+          "",
+          selectedProject
+            ? {
+                path: selectedProject.path,
+                ...(selectedProject.setupCommand
+                  ? { setupCommand: selectedProject.setupCommand }
+                  : {}),
+              }
+            : null,
+          selectedModelObj.id,
+          ctxLen,
+          advancedOptions,
+          communicationProfile,
+        );
       }
     }
   };
 
-  const selectProject = (p: Project) => {
+  const selectProject = (p: SavedProject) => {
     setSelectedProject(p);
     setDropdownOpen(false);
     textareaRef.current?.focus();
   };
 
-  /* ── Persist projects to localStorage whenever they change ────────────────── */
-  useEffect(() => {
-    saveProjects(projects);
-  }, [projects]);
-
-  const addProject = useCallback((path: string) => {
+  const addProject = useCallback(async (path: string) => {
     const name = path.split("/").filter(Boolean).pop() ?? path;
     const newProject = { path, name };
+    const savedProjects = upsertSavedProject(newProject);
+    const resolvedProjects = await resolveSavedProjects(savedProjects);
+    const resolvedProject =
+      resolvedProjects.find((project) => project.path === path) ?? newProject;
 
-    // Check if project already exists
-    setProjects((prev) => {
-      if (prev.some((p) => p.path === path)) {
-        return prev;
-      }
-      return [...prev, newProject];
-    });
-
-    setSelectedProject(newProject);
+    setProjects(resolvedProjects);
+    setSelectedProject(resolvedProject);
     setDropdownOpen(false);
     textareaRef.current?.focus();
   }, []);
@@ -209,12 +237,72 @@ export default function NewSession({ onSubmit }: NewSessionProps) {
   const removeProject = useCallback(
     (e: React.SyntheticEvent, projectPath: string) => {
       e.stopPropagation();
-      setProjects((prev) => prev.filter((p) => p.path !== projectPath));
+      setProjects(removeSavedProject(projectPath));
       if (selectedProject?.path === projectPath) {
         setSelectedProject(null);
       }
     },
     [selectedProject],
+  );
+
+  const saveProjectSettings = useCallback(
+    async ({ project, writeProjectConfig }: ProjectSettingsSavePayload) => {
+      const nextProject = {
+        path: project.path,
+        name: project.name,
+        ...(project.setupCommand ? { setupCommand: project.setupCommand } : {}),
+        ...(project.commands?.length ? { commands: project.commands } : {}),
+      };
+
+      if (writeProjectConfig) {
+        await writeProjectScriptsConfig(project.path, {
+          ...(project.setupCommand ? { setupCommand: project.setupCommand } : {}),
+          ...(project.commands?.length ? { commands: project.commands } : {}),
+        });
+      }
+
+      const savedProjects = upsertSavedProject(nextProject);
+      const resolvedProjects = await resolveSavedProjects(savedProjects);
+      const resolvedProject =
+        resolvedProjects.find((entry) => entry.path === nextProject.path) ??
+        nextProject;
+
+      setProjects(resolvedProjects);
+      setSelectedProject((prev) =>
+        prev?.path === resolvedProject.path ? resolvedProject : prev,
+      );
+      setProjectSettingsProject(null);
+    },
+    [],
+  );
+
+  const createProjectConfig = useCallback(
+    async ({ project }: ProjectSettingsSavePayload) => {
+      const nextProject = {
+        path: project.path,
+        name: project.name,
+        ...(project.setupCommand ? { setupCommand: project.setupCommand } : {}),
+        ...(project.commands?.length ? { commands: project.commands } : {}),
+      };
+
+      await writeProjectScriptsConfig(project.path, {
+        ...(project.setupCommand ? { setupCommand: project.setupCommand } : {}),
+        ...(project.commands?.length ? { commands: project.commands } : {}),
+      });
+
+      const savedProjects = upsertSavedProject(nextProject);
+      const resolvedProjects = await resolveSavedProjects(savedProjects);
+      const resolvedProject =
+        resolvedProjects.find((entry) => entry.path === nextProject.path) ??
+        nextProject;
+
+      setProjects(resolvedProjects);
+      setSelectedProject((prev) =>
+        prev?.path === resolvedProject.path ? resolvedProject : prev,
+      );
+      setProjectSettingsProject(resolvedProject);
+    },
+    [],
   );
 
   const handleAddExistingFolder = async () => {
@@ -282,28 +370,29 @@ export default function NewSession({ onSubmit }: NewSessionProps) {
         {/* ── Selector row: project + model ────────────────────────────── */}
         <div className="ns-selectors-row">
           {/* Project selector pill */}
-          <div className="ns-project-wrap" ref={dropdownRef}>
-            <Button
-              className="ns-project-btn"
-              variant="secondary"
-              size="sm"
-              onClick={() => setDropdownOpen((v) => !v)}
-            >
-              <span className="material-symbols-outlined text-lg">
-                account_tree
-              </span>
-              <span>
-                {selectedProject ? selectedProject.name : "Select Project"}
-              </span>
-              <span
-                className={cn(
-                  "material-symbols-outlined text-md transition-transform duration-200",
-                  dropdownOpen ? "rotate-180" : "rotate-0",
-                )}
+          <div className="ns-project-control">
+            <div className="ns-project-wrap" ref={dropdownRef}>
+              <Button
+                className="ns-project-btn"
+                variant="secondary"
+                size="sm"
+                onClick={() => setDropdownOpen((v) => !v)}
               >
-                expand_more
-              </span>
-            </Button>
+                <span className="material-symbols-outlined text-lg">
+                  account_tree
+                </span>
+                <span>
+                  {selectedProject ? selectedProject.name : "Select Project"}
+                </span>
+                <span
+                  className={cn(
+                    "material-symbols-outlined text-md transition-transform duration-200",
+                    dropdownOpen ? "rotate-180" : "rotate-0",
+                  )}
+                >
+                  expand_more
+                </span>
+              </Button>
 
             {/* Project dropdown */}
             {dropdownOpen && (
@@ -384,6 +473,17 @@ export default function NewSession({ onSubmit }: NewSessionProps) {
                 </div>
               </div>
             )}
+            </div>
+            {selectedProject ? (
+              <IconButton
+                className="ns-project-settings-btn"
+                onClick={() => setProjectSettingsProject(selectedProject)}
+                title={`Project settings for ${selectedProject.name}`}
+                type="button"
+              >
+                <span className="material-symbols-outlined text-md">tune</span>
+              </IconButton>
+            ) : null}
           </div>
 
           <NewSessionModelSelector
@@ -464,6 +564,15 @@ export default function NewSession({ onSubmit }: NewSessionProps) {
         <span>or Type Command</span>
       </footer>
       */}
+      {projectSettingsProject ? (
+        <ProjectSettingsModal
+          key={projectSettingsProject.path}
+          project={projectSettingsProject}
+          onClose={() => setProjectSettingsProject(null)}
+          onSave={saveProjectSettings}
+          onCreateProjectConfig={createProjectConfig}
+        />
+      ) : null}
     </div>
   );
 }

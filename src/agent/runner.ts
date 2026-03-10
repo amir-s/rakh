@@ -159,6 +159,26 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
+class RunAbortedError extends Error {
+  constructor(message = "Agent run aborted") {
+    super(message);
+    this.name = "RunAbortedError";
+  }
+}
+
+function isRunAbortedToolResult(result: unknown): boolean {
+  return (
+    isRecord(result) &&
+    result.ok === false &&
+    isRecord(result.error) &&
+    result.error.code === "RUN_ABORTED"
+  );
+}
+
+function shouldStreamToolOutput(toolName: string): boolean {
+  return toolName === "exec_run" || toolName === "git_worktree_init";
+}
+
 /* ─────────────────────────────────────────────────────────────────────────────
    buildProviderOptions — maps AdvancedModelOptions to AI SDK providerOptions
 ─────────────────────────────────────────────────────────────────────────── */
@@ -455,7 +475,11 @@ function findRunningExecToolCallIds(tabId: string): string[] {
   const ids: string[] = [];
   for (const msg of state.chatMessages) {
     for (const tc of msg.toolCalls ?? []) {
-      if (tc.tool === "exec_run" && tc.status === "running") {
+      const gitSetupRunning =
+        tc.tool === "git_worktree_init" &&
+        tc.status === "running" &&
+        tc.args.setupPhase === "running_setup";
+      if ((tc.tool === "exec_run" && tc.status === "running") || gitSetupRunning) {
         ids.push(tc.id);
       }
     }
@@ -469,8 +493,10 @@ function hasRunningExecToolCall(tabId: string, toolCallId: string): boolean {
     for (const tc of msg.toolCalls ?? []) {
       if (
         tc.id === toolCallId &&
-        tc.tool === "exec_run" &&
-        tc.status === "running"
+        tc.status === "running" &&
+        (tc.tool === "exec_run" ||
+          (tc.tool === "git_worktree_init" &&
+            tc.args.setupPhase === "running_setup"))
       ) {
         return true;
       }
@@ -614,6 +640,7 @@ function interruptActiveRun(
     status === "pending" ||
     status === "awaiting_approval" ||
     status === "awaiting_worktree" ||
+    status === "awaiting_setup_action" ||
     status === "running";
 
   patchAgentState(tabId, (prev) => ({
@@ -1965,7 +1992,7 @@ async function runSubagentLoop(
         const currentCwd = getAgentState(tabId).config.cwd;
         let streamBuf = "";
         const callbacks: DispatchCallbacks | undefined =
-          tc.function.name === "exec_run"
+          shouldStreamToolOutput(tc.function.name)
             ? {
                 onExecOutput: (_stream, data) => {
                   streamBuf += data;
@@ -2014,6 +2041,9 @@ async function runSubagentLoop(
       const abortError = new Error("Subagent run aborted");
       abortError.name = "AbortError";
       throw abortError;
+    }
+    if (toolResults.some(({ result }) => isRunAbortedToolResult(result))) {
+      throw new RunAbortedError();
     }
 
     // Append tool results to local API history.
@@ -2241,6 +2271,10 @@ async function runAgentTurn(
       }
     } catch (err) {
       if ((err as Error).name === "AbortError") return;
+      if ((err as Error).name === "RunAbortedError") {
+        completedCleanly = true;
+        return;
+      }
       const msg = err instanceof Error ? err.message : String(err);
       setAgentErrorState(tabId, msg, serializeError(err));
       updateLastChatMessage(tabId, (m) =>
@@ -2431,6 +2465,10 @@ async function runAgentTurn(
     completedCleanly = !controller.signal.aborted;
   } catch (err) {
     if ((err as Error).name === "AbortError") return;
+    if ((err as Error).name === "RunAbortedError") {
+      completedCleanly = true;
+      return;
+    }
     const msg = err instanceof Error ? err.message : String(err);
     setAgentErrorState(tabId, msg, serializeError(err));
     updateLastChatMessage(tabId, (m) =>
@@ -2997,7 +3035,7 @@ async function agentLoop(
         // For exec_run, stream output chunks into the tool call display.
         let streamBuf = "";
         const callbacks: DispatchCallbacks | undefined =
-          tc.function.name === "exec_run"
+          shouldStreamToolOutput(tc.function.name)
             ? {
                 onExecOutput: (_stream, data) => {
                   streamBuf += data;
@@ -3026,6 +3064,9 @@ async function agentLoop(
       }),
     );
     if (signal.aborted || !isCurrentRunId(tabId, runId)) return;
+    if (toolResults.some(({ result }) => isRunAbortedToolResult(result))) {
+      throw new RunAbortedError();
+    }
 
     // Append tool result messages to API history
     const toolApiMessages: ApiMessage[] = toolResults.map(

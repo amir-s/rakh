@@ -86,6 +86,8 @@ export function hydratePersistedSession(
     tabTitle: session.tabTitle,
     config: {
       cwd: session.cwd,
+      projectPath: session.projectPath || undefined,
+      setupCommand: session.setupCommand || undefined,
       model: session.model,
       worktreePath: session.worktreePath || undefined,
       worktreeBranch: session.worktreeBranch || undefined,

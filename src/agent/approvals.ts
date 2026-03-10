@@ -220,6 +220,13 @@ export function cancelAllApprovals(tabId?: string): void {
       userInputResolvers.delete(key);
     }
   }
+
+  for (const [key, resolve] of worktreeSetupActionResolvers.entries()) {
+    if (key.startsWith(prefix)) {
+      resolve({ action: "abort" });
+      worktreeSetupActionResolvers.delete(key);
+    }
+  }
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
@@ -300,5 +307,38 @@ export function resolveWorktreeApproval(
   if (resolve) {
     worktreeApprovalResolvers.delete(key);
     resolve({ approved, branchName });
+  }
+}
+
+export type WorktreeSetupAction = "retry" | "continue" | "abort";
+
+export interface WorktreeSetupActionResult {
+  action: WorktreeSetupAction;
+}
+
+const worktreeSetupActionResolvers = new Map<
+  string,
+  (result: WorktreeSetupActionResult) => void
+>();
+
+export function requestWorktreeSetupAction(
+  tabId: string,
+  id: string,
+): Promise<WorktreeSetupActionResult> {
+  return new Promise<WorktreeSetupActionResult>((resolve) => {
+    worktreeSetupActionResolvers.set(`${tabId}:${id}`, resolve);
+  });
+}
+
+export function resolveWorktreeSetupAction(
+  tabId: string,
+  id: string,
+  action: WorktreeSetupAction,
+): void {
+  const key = `${tabId}:${id}`;
+  const resolve = worktreeSetupActionResolvers.get(key);
+  if (resolve) {
+    worktreeSetupActionResolvers.delete(key);
+    resolve({ action });
   }
 }

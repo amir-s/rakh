@@ -54,6 +54,12 @@
   justify-content: center;
 }
 
+.ns-project-control {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 /* ── Project selector pill ────────────────────────────────────────────────── */
 .ns-project-wrap {
   position: relative;
@@ -83,6 +89,25 @@
 .ns-project-btn:hover {
   background: var(--color-subtle);
   border-color: var(--color-primary-border);
+}
+
+.ns-project-settings-btn {
+  width: 38px;
+  height: 38px;
+  border-radius: 9999px;
+  border: 1px solid transparent;
+  background: color-mix(in srgb, var(--color-subtle) 50%, transparent);
+  color: var(--color-muted);
+  transition:
+    background var(--t-base),
+    border-color var(--t-base),
+    color var(--t-base);
+}
+
+.ns-project-settings-btn:hover {
+  background: var(--color-subtle);
+  border-color: var(--color-primary-border);
+  color: var(--color-text);
 }
 
 /* ── Project dropdown ──────────────────────────────────────────────────────── */

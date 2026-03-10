@@ -1,6 +1,7 @@
 import {
   resolveApproval,
   resolveWorktreeApproval,
+  resolveWorktreeSetupAction,
   setApprovalReason,
 } from "@/agent/approvals";
 import { useState, useEffect, useRef } from "react";
@@ -222,10 +223,203 @@ interface ToolCallApprovalProps {
   toolCall: ToolCallDisplay;
   cwd?: string;
   tabId: string;
+  onOpenProjectSettings?: () => void;
 }
 
-/** Special card shown for git_worktree_init (awaiting_worktree status). */
-function WorktreeApprovalCard({ toolCall, tabId }: { toolCall: ToolCallDisplay; tabId: string }) {
+function renderWorktreeSetupOutput(
+  toolCall: ToolCallDisplay,
+  activeSetup: Record<string, unknown> | null,
+) {
+  if (toolCall.streamingOutput) {
+    return <pre className="cmd-output mt-1">{toolCall.streamingOutput}</pre>;
+  }
+
+  const stdout =
+    typeof activeSetup?.stdout === "string" ? activeSetup.stdout.trimEnd() : "";
+  const stderr =
+    typeof activeSetup?.stderr === "string" ? activeSetup.stderr.trimEnd() : "";
+
+  if (!stdout && !stderr) return null;
+
+  return (
+    <>
+      {stdout ? <pre className="cmd-output mt-1">{stdout}</pre> : null}
+      {stderr ? (
+        <pre className="cmd-output cmd-output--error mt-1">{stderr}</pre>
+      ) : null}
+    </>
+  );
+}
+
+function renderWorktreeSetupCommand({
+  activeSetup,
+  isVisible,
+  setupCommand,
+  setupCwd,
+  toolCall,
+}: {
+  activeSetup: Record<string, unknown> | null;
+  isVisible: boolean;
+  setupCommand: string;
+  setupCwd: string | null;
+  toolCall: ToolCallDisplay;
+}) {
+  if (!isVisible) return null;
+  return (
+    <div className="cmd-block border-b border-border-subtle">
+      <div className="cmd-prompt">
+        <span className="cmd-sigil">$</span>
+        <span className="cmd-text">{setupCommand || "(no setup command)"}</span>
+      </div>
+      {setupCwd ? (
+        <div className="cmd-cwd">
+          <span className="material-symbols-outlined text-xs cmd-cwd-icon">
+            folder_open
+          </span>
+          {setupCwd}
+        </div>
+      ) : null}
+      {renderWorktreeSetupOutput(toolCall, activeSetup)}
+    </div>
+  );
+}
+
+function WorktreeSetupFailureCard({
+  activeSetup,
+  configuredBranch,
+  configuredPath,
+  id,
+  onOpenProjectSettings,
+  setupCommand,
+  setupCwd,
+  setupFailureMessage,
+  tabId,
+  toolCall,
+}: {
+  activeSetup: Record<string, unknown> | null;
+  configuredBranch: string;
+  configuredPath: string | null;
+  id: string;
+  onOpenProjectSettings?: () => void;
+  setupCommand: string;
+  setupCwd: string | null;
+  setupFailureMessage: string | null;
+  tabId: string;
+  toolCall: ToolCallDisplay;
+}) {
+  const [countdownPaused, setCountdownPaused] = useState(false);
+  const [countdownSeconds, setCountdownSeconds] = useState(5);
+
+  useEffect(() => {
+    if (countdownPaused) return;
+
+    const startedAt = Date.now();
+    const timer = window.setInterval(() => {
+      const elapsed = Math.floor((Date.now() - startedAt) / 1000);
+      const remaining = Math.max(0, 5 - elapsed);
+      setCountdownSeconds(remaining);
+      if (remaining === 0) {
+        window.clearInterval(timer);
+        resolveWorktreeSetupAction(tabId, id, "continue");
+      }
+    }, 200);
+
+    return () => window.clearInterval(timer);
+  }, [countdownPaused, id, tabId]);
+
+  return (
+    <div className="msg-card animate-fade-up mt-1.5">
+      <div className="msg-card-head">
+        <div className="msg-card-label">
+          <span className="material-symbols-outlined text-base text-warning">
+            warning
+          </span>
+          SETUP FAILED
+        </div>
+        <div className="text-xxs text-muted font-mono opacity-60">
+          git_worktree_init
+        </div>
+      </div>
+
+      <div className="px-3 py-2.5 border-b border-border-subtle">
+        <div className="text-xs text-text leading-[1.6]">
+          Branch <span className="font-mono">{configuredBranch || "(pending)"}</span>
+          {configuredPath ? (
+            <>
+              {" "}
+              is ready at <span className="font-mono break-all">{configuredPath}</span>.
+            </>
+          ) : (
+            "."
+          )}
+        </div>
+        {setupFailureMessage ? (
+          <div className="text-xxs text-error mt-1">{setupFailureMessage}</div>
+        ) : null}
+      </div>
+
+      {renderWorktreeSetupCommand({
+        activeSetup,
+        isVisible: true,
+        setupCommand,
+        setupCwd,
+        toolCall,
+      })}
+
+      <div className="px-3 py-2 border-b border-border-subtle text-xxs text-muted">
+        {countdownPaused
+          ? "Auto-continue paused while editing the setup command."
+          : `Continuing without setup in ${countdownSeconds}s unless you choose an action.`}
+      </div>
+
+      <div className="msg-card-footer">
+        <Button
+          variant="secondary"
+          size="xxs"
+          onClick={() => resolveWorktreeSetupAction(tabId, id, "retry")}
+        >
+          RETRY
+        </Button>
+        {onOpenProjectSettings ? (
+          <Button
+            variant="ghost"
+            size="xxs"
+            onClick={() => {
+              setCountdownPaused(true);
+              onOpenProjectSettings();
+            }}
+          >
+            EDIT COMMAND
+          </Button>
+        ) : null}
+        <Button
+          variant="ghost"
+          size="xxs"
+          onClick={() => resolveWorktreeSetupAction(tabId, id, "continue")}
+        >
+          CONTINUE
+        </Button>
+        <Button
+          variant="danger"
+          size="xxs"
+          onClick={() => resolveWorktreeSetupAction(tabId, id, "abort")}
+        >
+          ABORT
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function WorktreeToolCard({
+  toolCall,
+  tabId,
+  onOpenProjectSettings,
+}: {
+  toolCall: ToolCallDisplay;
+  tabId: string;
+  onOpenProjectSettings?: () => void;
+}) {
   const { id, args } = toolCall;
   const suggested =
     typeof args.suggestedBranch === "string" ? args.suggestedBranch : "";
@@ -233,63 +427,207 @@ function WorktreeApprovalCard({ toolCall, tabId }: { toolCall: ToolCallDisplay; 
     typeof args.repoSlug === "string" && args.repoSlug.trim()
       ? args.repoSlug.replace(/^\/+|\/+$/g, "")
       : "repo";
+  const setupCommand =
+    typeof args.setupCommand === "string" ? args.setupCommand.trim() : "";
+  const setupPhase =
+    typeof args.setupPhase === "string" ? args.setupPhase : "approval";
+  const configuredBranch =
+    typeof args.branch === "string" && args.branch.trim()
+      ? args.branch
+      : suggested;
+  const configuredPath =
+    typeof args.worktreePath === "string" && args.worktreePath.trim()
+      ? args.worktreePath
+      : null;
   const [branch, setBranch] = useState(suggested);
+  const stopAgent = useStopAgent();
+  const stopRunningExecToolCall = useStopRunningExecToolCall();
+
+  const resultRecord =
+    toolCall.result && typeof toolCall.result === "object"
+      ? (toolCall.result as Record<string, unknown>)
+      : null;
+  const setupRecord =
+    resultRecord?.setup && typeof resultRecord.setup === "object"
+      ? (resultRecord.setup as Record<string, unknown>)
+      : null;
+  const setupErrorRecord =
+    resultRecord?.details &&
+    typeof resultRecord.details === "object" &&
+    (resultRecord.details as Record<string, unknown>).setup &&
+    typeof (resultRecord.details as Record<string, unknown>).setup === "object"
+      ? ((resultRecord.details as Record<string, unknown>)
+          .setup as Record<string, unknown>)
+      : null;
+  const activeSetup = setupRecord ?? setupErrorRecord;
+  const setupStatus =
+    typeof activeSetup?.status === "string" ? activeSetup.status : null;
+  const setupCwd =
+    typeof activeSetup?.cwd === "string"
+      ? activeSetup.cwd
+      : configuredPath;
+  const setupFailureMessage =
+    typeof activeSetup?.errorMessage === "string"
+      ? activeSetup.errorMessage
+      : null;
+  const isAwaitingSetupAction = toolCall.status === "awaiting_setup_action";
+  const isSetupRunning = setupPhase === "running_setup";
+  const isSetupPhaseVisible = setupCommand.length > 0 || isSetupRunning;
+
+  if (toolCall.status === "awaiting_worktree") {
+    return (
+      <div className="msg-card animate-fade-up mt-1.5">
+        <div className="msg-card-head">
+          <div className="msg-card-label">
+            <span className="material-symbols-outlined text-base">
+              account_tree
+            </span>
+            CREATE ISOLATED BRANCH
+          </div>
+          <div className="text-xxs text-muted font-mono opacity-60">
+            git_worktree_init
+          </div>
+        </div>
+
+        <div className="px-3 py-2.5 border-b border-border-subtle">
+          <div className="text-xs text-muted font-mono mb-1.5">Branch name</div>
+          <TextField
+            type="text"
+            value={branch}
+            onChange={(e) => setBranch(e.target.value)}
+            className="w-full bg-inset py-1.25 px-2 text-xs font-mono"
+            wrapClassName="border border-border-mid rounded"
+            placeholder="feat/my-branch"
+            autoFocus
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                resolveWorktreeApproval(
+                  tabId,
+                  id,
+                  true,
+                  branch.trim() || suggested,
+                );
+              }
+            }}
+          />
+          <div className="text-xxs text-muted font-mono mt-1.25 opacity-60">
+            A worktree will be created under worktrees/{repoSlug}/
+            {branch.trim() || suggested || "branch"}
+          </div>
+          {setupCommand ? (
+            <div className="text-xxs text-muted font-mono mt-1.5 opacity-75">
+              Setup command: <span className="text-text">{setupCommand}</span>
+            </div>
+          ) : null}
+        </div>
+
+        <div className="msg-card-footer">
+          <Button
+            variant="ghost"
+            size="xxs"
+            onClick={() => resolveWorktreeApproval(tabId, id, false, "")}
+          >
+            WORK IN MAIN REPO
+          </Button>
+          <Button
+            variant="primary"
+            size="xxs"
+            onClick={() =>
+              resolveWorktreeApproval(tabId, id, true, branch.trim() || suggested)
+            }
+          >
+            CREATE BRANCH
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  if (isAwaitingSetupAction) {
+    return (
+      <WorktreeSetupFailureCard
+        key={`${id}:${String(args.setupAttemptCount ?? 0)}`}
+        activeSetup={activeSetup}
+        configuredBranch={configuredBranch}
+        configuredPath={configuredPath}
+        id={id}
+        onOpenProjectSettings={onOpenProjectSettings}
+        setupCommand={setupCommand}
+        setupCwd={setupCwd}
+        setupFailureMessage={setupFailureMessage}
+        tabId={tabId}
+        toolCall={toolCall}
+      />
+    );
+  }
 
   return (
     <div className="msg-card animate-fade-up mt-1.5">
-      {/* Header */}
       <div className="msg-card-head">
         <div className="msg-card-label">
           <span className="material-symbols-outlined text-base">
             account_tree
           </span>
-          CREATE ISOLATED BRANCH
+          PREPARE WORKTREE
         </div>
         <div className="text-xxs text-muted font-mono opacity-60">
           git_worktree_init
         </div>
       </div>
 
-      {/* Branch name input */}
       <div className="px-3 py-2.5 border-b border-border-subtle">
-        <div className="text-xs text-muted font-mono mb-1.5">Branch name</div>
-        <TextField
-          type="text"
-          value={branch}
-          onChange={(e) => setBranch(e.target.value)}
-          className="w-full bg-inset py-1.25 px-2 text-xs font-mono"
-          wrapClassName="border border-border-mid rounded"
-          placeholder="feat/my-branch"
-          autoFocus
-          onKeyDown={(e) => {
-            if (e.key === "Enter")
-              resolveWorktreeApproval(tabId, id, true, branch.trim() || suggested);
-          }}
-        />
-        <div className="text-xxs text-muted font-mono mt-1.25 opacity-60">
-          A worktree will be created under worktrees/{repoSlug}/
-          {branch.trim() || suggested || "branch"}
+        <div className="text-xs text-muted font-mono">Branch</div>
+        <div className="text-xs text-text mt-1">
+          <span className="font-mono">{configuredBranch || "(pending)"}</span>
+        </div>
+        {configuredPath ? (
+          <div className="text-xxs text-muted font-mono mt-1 opacity-70 break-all">
+            {configuredPath}
+          </div>
+        ) : null}
+        <div className="text-xxs text-muted mt-1.5">
+          {isSetupRunning ? "Running project setup..." : "Creating worktree..."}
         </div>
       </div>
 
-      {/* Footer */}
+      {renderWorktreeSetupCommand({
+        activeSetup,
+        isVisible: isSetupPhaseVisible,
+        setupCommand,
+        setupCwd,
+        toolCall,
+      })}
+
       <div className="msg-card-footer">
-        <Button
-          variant="ghost"
-          size="xxs"
-          onClick={() => resolveWorktreeApproval(tabId, id, false, "")}
-        >
-          WORK IN MAIN REPO
-        </Button>
-        <Button
-          variant="primary"
-          size="xxs"
-          onClick={() =>
-            resolveWorktreeApproval(tabId, id, true, branch.trim() || suggested)
-          }
-        >
-          CREATE BRANCH
-        </Button>
+        {isSetupRunning ? (
+          <>
+            <Button
+              className="tool-approval-stop-btn"
+              variant="secondary"
+              size="xxs"
+              onClick={() => {
+                void stopRunningExecToolCall(tabId, id);
+              }}
+            >
+              STOP
+            </Button>
+            <Button variant="danger" size="xxs" onClick={() => stopAgent(tabId)}>
+              ABORT
+            </Button>
+            <Button variant="primary" size="xxs" loading disabled>
+              RUNNING
+            </Button>
+          </>
+        ) : (
+          <>
+            <Button variant="danger" size="xxs" onClick={() => stopAgent(tabId)}>
+              ABORT
+            </Button>
+            <Button variant="primary" size="xxs" loading disabled>
+              PREPARING
+            </Button>
+          </>
+        )}
       </div>
     </div>
   );
@@ -299,6 +637,7 @@ export default function ToolCallApproval({
   toolCall,
   cwd,
   tabId,
+  onOpenProjectSettings,
 }: ToolCallApprovalProps) {
   const { id, tool, args } = toolCall;
   const stopAgent = useStopAgent();
@@ -317,8 +656,14 @@ export default function ToolCallApproval({
   }, [isExecRunning, toolCall.streamingOutput]);
 
   // Render the dedicated worktree card for git_worktree_init
-  if (toolCall.status === "awaiting_worktree" || tool === "git_worktree_init") {
-    return <WorktreeApprovalCard toolCall={toolCall} tabId={tabId} />;
+  if (tool === "git_worktree_init") {
+    return (
+      <WorktreeToolCard
+        toolCall={toolCall}
+        tabId={tabId}
+        onOpenProjectSettings={onOpenProjectSettings}
+      />
+    );
   }
 
   const icon = TOOL_ICON[tool] ?? "build";

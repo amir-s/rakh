@@ -36,6 +36,8 @@ export interface PersistedSession {
   mode: string;
   tabTitle: string;
   cwd: string;
+  projectPath: string;
+  setupCommand: string;
   model: string;
   planMarkdown: string;
   planVersion: number;
@@ -112,6 +114,8 @@ export function buildPersistedSession(
     mode: tab.mode,
     tabTitle: state.tabTitle,
     cwd: state.config.cwd,
+    projectPath: state.config.projectPath ?? "",
+    setupCommand: state.config.setupCommand ?? "",
     model: state.config.model || DEFAULT_MODEL,
     planMarkdown: state.plan.markdown,
     planVersion: state.plan.version,
