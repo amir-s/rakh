@@ -204,6 +204,22 @@ export async function showNotification(
   return true;
 }
 
+export async function setAppBadgeCount(count: number | null): Promise<void> {
+  if (typeof window === "undefined" || !isTauri()) return;
+
+  try {
+    const { getCurrentWindow } = await import("@tauri-apps/api/window");
+    const win = getCurrentWindow();
+    if (count === null || count <= 0) {
+      await win.setBadgeCount();
+      return;
+    }
+    await win.setBadgeCount(Math.max(1, Math.trunc(count)));
+  } catch (err) {
+    console.error("Failed to update app badge count:", err);
+  }
+}
+
 export async function focusAppWindow(): Promise<void> {
   if (typeof window === "undefined") return;
   try {

@@ -5,9 +5,13 @@ import {
   jotaiStore,
   notifyOnAttentionAtom,
 } from "@/agent/atoms";
-import type { ToolCallDisplay } from "@/agent/types";
+import type { AgentStatus, ToolCallDisplay } from "@/agent/types";
 import { useTabs } from "@/contexts/TabsContext";
-import { focusTab, showNotification } from "@/notifications";
+import {
+  focusTab,
+  setAppBadgeCount,
+  showNotification,
+} from "@/notifications";
 
 function getAttentionToolCalls(tabId: string): ToolCallDisplay[] {
   const state = jotaiStore.get(agentAtomFamily(tabId));
@@ -25,6 +29,14 @@ function documentHasFocus(): boolean {
   return typeof document !== "undefined" && document.hasFocus();
 }
 
+function isBusyStatus(status: AgentStatus): boolean {
+  return status === "thinking" || status === "working";
+}
+
+function isSettledStatus(status: AgentStatus): boolean {
+  return status === "idle" || status === "done" || status === "error";
+}
+
 export default function AgentNotificationManager() {
   const { tabs, activeTabId, setActiveTab } = useTabs();
   const [notifyOnAttention] = useAtom(notifyOnAttentionAtom);
@@ -32,6 +44,9 @@ export default function AgentNotificationManager() {
   const activeTabIdRef = useRef(activeTabId);
   const notifiedToolCallsRef = useRef<Set<string>>(new Set());
   const pendingToolCallsRef = useRef<Set<string>>(new Set());
+  const lastStatusByTabRef = useRef<Map<string, AgentStatus>>(new Map());
+  const unseenCompletionTabsRef = useRef<Set<string>>(new Set());
+  const appliedBadgeCountRef = useRef<number | null>(null);
 
   tabsRef.current = tabs;
   activeTabIdRef.current = activeTabId;
@@ -72,9 +87,47 @@ export default function AgentNotificationManager() {
     [setActiveTab],
   );
 
-  const scanAttentionStates = useCallback(() => {
-    if (!notifyOnAttention) return;
+  const syncAppBadge = useCallback(() => {
+    const isFocused = documentHasFocus();
 
+    if (isFocused) {
+      unseenCompletionTabsRef.current.clear();
+    }
+
+    const workspaceTabIds = new Set<string>();
+    const attentionTabIds = new Set<string>();
+
+    for (const tab of tabsRef.current) {
+      if (tab.mode !== "workspace") continue;
+      workspaceTabIds.add(tab.id);
+      if (getAttentionToolCalls(tab.id).length > 0) {
+        attentionTabIds.add(tab.id);
+      }
+    }
+
+    for (const tabId of Array.from(unseenCompletionTabsRef.current)) {
+      if (!workspaceTabIds.has(tabId)) {
+        unseenCompletionTabsRef.current.delete(tabId);
+      }
+    }
+
+    const nextBadgeCount =
+      !isFocused
+        ? new Set([
+            ...attentionTabIds,
+            ...unseenCompletionTabsRef.current,
+          ]).size || null
+        : null;
+
+    if (appliedBadgeCountRef.current === nextBadgeCount) {
+      return;
+    }
+
+    appliedBadgeCountRef.current = nextBadgeCount;
+    void setAppBadgeCount(nextBadgeCount);
+  }, []);
+
+  const scanAttentionStates = useCallback(() => {
     const activeAttentionIds = new Set<string>();
     const isFocused = documentHasFocus();
 
@@ -88,6 +141,10 @@ export default function AgentNotificationManager() {
           notifiedToolCallsRef.current.has(toolCall.id) ||
           pendingToolCallsRef.current.has(toolCall.id)
         ) {
+          continue;
+        }
+
+        if (!notifyOnAttention) {
           continue;
         }
 
@@ -109,21 +166,61 @@ export default function AgentNotificationManager() {
         pendingToolCallsRef.current.delete(toolCallId);
       }
     }
-  }, [notifyOnAttention, sendAttentionNotification]);
+
+    syncAppBadge();
+  }, [notifyOnAttention, sendAttentionNotification, syncAppBadge]);
 
   useEffect(() => {
     if (!notifyOnAttention) {
       notifiedToolCallsRef.current.clear();
       pendingToolCallsRef.current.clear();
-      return;
     }
 
     scanAttentionStates();
 
     const unsubs: Array<() => void> = [];
+    const workspaceTabIds = new Set<string>();
+
     for (const tab of tabs) {
       if (tab.mode !== "workspace") continue;
-      unsubs.push(jotaiStore.sub(agentAtomFamily(tab.id), scanAttentionStates));
+      workspaceTabIds.add(tab.id);
+
+      const tabAtom = agentAtomFamily(tab.id);
+      if (!lastStatusByTabRef.current.has(tab.id)) {
+        lastStatusByTabRef.current.set(tab.id, jotaiStore.get(tabAtom).status);
+      }
+
+      unsubs.push(
+        jotaiStore.sub(tabAtom, () => {
+          const nextStatus = jotaiStore.get(tabAtom).status;
+          const previousStatus =
+            lastStatusByTabRef.current.get(tab.id) ?? nextStatus;
+
+          if (
+            previousStatus !== nextStatus &&
+            isBusyStatus(previousStatus) &&
+            isSettledStatus(nextStatus) &&
+            !documentHasFocus()
+          ) {
+            unseenCompletionTabsRef.current.add(tab.id);
+          }
+
+          lastStatusByTabRef.current.set(tab.id, nextStatus);
+          scanAttentionStates();
+        }),
+      );
+    }
+
+    for (const tabId of Array.from(lastStatusByTabRef.current.keys())) {
+      if (!workspaceTabIds.has(tabId)) {
+        lastStatusByTabRef.current.delete(tabId);
+      }
+    }
+
+    for (const tabId of Array.from(unseenCompletionTabsRef.current)) {
+      if (!workspaceTabIds.has(tabId)) {
+        unseenCompletionTabsRef.current.delete(tabId);
+      }
     }
 
     return () => unsubs.forEach((fn) => fn());

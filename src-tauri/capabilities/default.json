@@ -16,6 +16,7 @@
     "core:window:allow-is-maximized",
     "core:window:allow-is-focused",
     "core:window:allow-is-fullscreen",
+    "core:window:allow-set-badge-count",
     "dialog:allow-open",
     "dialog:default",
     "notification:default",
