@@ -36,7 +36,7 @@ interface AgentMessageProps {
 
 export default function AgentMessage({
   name = "Rakh",
-  icon = "smart_toy",
+  icon = "chess_knight",
   time,
   badge,
   accentColor,
