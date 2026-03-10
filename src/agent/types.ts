@@ -263,6 +263,7 @@ export const DEFAULT_ADVANCED_OPTIONS: AdvancedModelOptions = {
    Per-agent configuration (each tab has its own)
 ─────────────────────────────────────────────────────────────────────────── */
 
+export type CommunicationProfileId = "pragmatic" | "friendly" | "kevin" | string;
 export interface AgentConfig {
   /** Absolute path to the workspace root */
   cwd: string;
@@ -277,6 +278,8 @@ export interface AgentConfig {
   worktreeDeclined?: boolean;
   /** Provider-level advanced options chosen at session creation time. */
   advancedOptions?: AdvancedModelOptions;
+  /** Chosen communication profile. If omitted or "global", falls back to global setting. */
+  communicationProfile?: string;
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────

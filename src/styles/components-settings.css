@@ -624,6 +624,12 @@
   gap: 14px;
 }
 
+.settings-profile-form__grid {
+  display: grid;
+  grid-template-columns: 1fr 3fr;
+  gap: 14px;
+}
+
 .settings-provider-form__select {
   min-height: 38px;
 }
@@ -739,7 +745,8 @@
     max-height: 240px;
   }
 
-  .settings-provider-form__grid {
+  .settings-provider-form__grid,
+  .settings-profile-form__grid {
     grid-template-columns: 1fr;
   }
 }

@@ -524,8 +524,8 @@ export default function WorkspacePage() {
   if (isNewSession) {
     return (
       <NewSession
-        onSubmit={(message, cwd, model, contextLength, advancedOptions) => {
-          agent.setConfig({ cwd, model, contextLength, advancedOptions });
+        onSubmit={(message, cwd, model, contextLength, advancedOptions, communicationProfile) => {
+          agent.setConfig({ cwd, model, contextLength, advancedOptions, communicationProfile });
           // Rename tab to folder basename
           const folder =
             (cwd.split("/").filter(Boolean).pop() ?? cwd) || "New Tab";
@@ -961,14 +961,14 @@ export default function WorkspacePage() {
         />
       )}
 
-      {/* Model picker modal */}
       {modelPickerOpen && (
         <ModelPickerModal
           models={models}
           currentModelId={agent.config.model ?? ""}
-          onSelect={(id) => {
+          currentProfile={agent.config.communicationProfile}
+          onSelect={(id, profile) => {
             if (!isAgentBusy) {
-              agent.setConfig({ model: id });
+              agent.setConfig({ model: id, communicationProfile: profile });
             }
             setModelPickerOpen(false);
           }}

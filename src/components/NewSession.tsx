@@ -103,6 +103,7 @@ interface NewSessionProps {
     model: string,
     contextLength?: number,
     advancedOptions?: AdvancedModelOptions,
+    communicationProfile?: string,
   ) => void;
 }
 
@@ -114,6 +115,9 @@ export default function NewSession({ onSubmit }: NewSessionProps) {
   const [isDragging, setIsDragging] = useState(false);
   const [focused, setFocused] = useState(false);
   const [advancedOptions, setAdvancedOptions] = useState<AdvancedModelOptions>(loadAdvancedOptions);
+  
+  // Note: the global default profile handles the fallback later if not provided, but we map it locally if they change it.
+  const [communicationProfile, setCommunicationProfile] = useState<string>("global");
 
   const dropdownRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -167,9 +171,9 @@ export default function NewSession({ onSubmit }: NewSessionProps) {
       const text = input.trim();
       const ctxLen = selectedModelObj?.context_length;
       if (text) {
-        onSubmit(text, selectedProject?.path ?? "", selectedModelObj.id, ctxLen, advancedOptions);
+        onSubmit(text, selectedProject?.path ?? "", selectedModelObj.id, ctxLen, advancedOptions, communicationProfile);
       } else {
-        onSubmit("", selectedProject?.path ?? "", selectedModelObj.id, ctxLen, advancedOptions);
+        onSubmit("", selectedProject?.path ?? "", selectedModelObj.id, ctxLen, advancedOptions, communicationProfile);
       }
     }
   };
@@ -392,6 +396,8 @@ export default function NewSession({ onSubmit }: NewSessionProps) {
             hasAnyProviderKey={hasAnyProviderKey}
             advancedOptions={advancedOptions}
             onAdvancedOptionsChange={updateAdvancedOptions}
+            communicationProfile={communicationProfile}
+            onCommunicationProfileChange={setCommunicationProfile}
           />
         </div>
         {/* end ns-selectors-row */}

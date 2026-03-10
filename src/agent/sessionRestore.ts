@@ -91,6 +91,7 @@ export function hydratePersistedSession(
       worktreeBranch: session.worktreeBranch || undefined,
       worktreeDeclined: session.worktreeDeclined || undefined,
       advancedOptions: parseAdvancedOptions(session.advancedOptions),
+      communicationProfile: session.communicationProfile === "global" ? undefined : session.communicationProfile,
     },
     plan: {
       markdown: session.planMarkdown,

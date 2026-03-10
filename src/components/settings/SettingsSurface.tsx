@@ -16,6 +16,7 @@ import {
   deleteProvider,
   saveProvider,
   type ProviderInstance,
+  type CommunicationProfileRecord,
 } from "@/agent/db";
 import { cn } from "@/utils/cn";
 import {
@@ -30,6 +31,7 @@ import {
   Panel,
   SelectField,
   TextField,
+  TextareaField,
   ToggleSwitch,
 } from "@/components/ui";
 import {
@@ -306,10 +308,11 @@ function AppearanceSection({
   controller: SettingsControllerValue;
 }) {
   return (
-    <SectionCard
-      title="Theme & Mode"
-      description="Choose the visual theme and whether the UI uses dark or light mode."
-    >
+    <div className="settings-page__section-stack">
+      <SectionCard
+        title="Theme & Mode"
+        description="Choose the visual theme and whether the UI uses dark or light mode."
+      >
       <div className="settings-row">
         <div className="settings-row-info">
           <span className="settings-row-label">Theme</span>
@@ -353,7 +356,192 @@ function AppearanceSection({
           <span>{controller.themeMode === "dark" ? "Light" : "Dark"}</span>
         </Button>
       </div>
-    </SectionCard>
+      </SectionCard>
+
+      <SectionCard
+        title="Communication Profile"
+        description="Choose the agent's default conversational style and personality."
+        actions={
+          <Button
+            type="button"
+            size="xs"
+            onClick={() => {
+              controller.setIsAddingProfile(true);
+              controller.setEditingProfileId(null);
+            }}
+            className="text-nowrap"
+          >
+            Add Custom Profile
+          </Button>
+        }
+      >
+
+
+        <div className="settings-provider-list mt-8">
+          {controller.customProfiles.length === 0 && !controller.isAddingProfile ? (
+            <Panel variant="inset" className="settings-empty-panel">
+              <span className="material-symbols-outlined settings-empty-panel__icon">
+                forum
+              </span>
+              <div className="settings-empty-panel__copy">
+                <span className="settings-empty-panel__title">
+                  No custom profiles
+                </span>
+                <span className="settings-empty-panel__description">
+                  Add a custom profile to tailor the agent to your needs.
+                </span>
+              </div>
+            </Panel>
+          ) : null}
+
+          {controller.customProfiles.map((profile) => {
+            return controller.editingProfileId === profile.id ? (
+              <ProfileConfigurator
+                key={profile.id}
+                profile={profile}
+                onSave={async (p) => {
+                  await controller.saveProfile(p);
+                  controller.setIsAddingProfile(false);
+                  controller.setEditingProfileId(null);
+                }}
+                onCancel={() => controller.setEditingProfileId(null)}
+              />
+            ) : (
+              <Panel
+                key={profile.id}
+                className={cn(
+                  "settings-provider-card cursor-pointer transition-colors relative border",
+                  controller.globalCommunicationProfile === profile.id
+                    ? "border-primary bg-primary/5"
+                    : "border-transparent hover:border-primary/50"
+                )}
+                onClick={() => controller.setGlobalCommunicationProfile(profile.id)}
+              >
+                {controller.globalCommunicationProfile === profile.id && (
+                  <div className="absolute top-0 left-0 w-1 h-full bg-primary rounded-l-md" />
+                )}
+                <div className="flex flex-row items-center gap-3 min-w-0 flex-1 pl-2">
+                  <span className="settings-provider-card__title shrink-0">
+                    {profile.name}
+                  </span>
+                  <span className="settings-provider-card__meta text-ellipsis overflow-hidden whitespace-nowrap" title={profile.promptSnippet}>
+                    {profile.promptSnippet}
+                  </span>
+                </div>
+                <div className="settings-provider-card__actions">
+                  <IconButton
+                    className="settings-provider-card__icon-btn"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      controller.setEditingProfileId(profile.id);
+                    }}
+                    title={`Edit ${profile.name}`}
+                    aria-label={`Edit ${profile.name}`}
+                  >
+                    <span className="material-symbols-outlined text-sm">
+                      edit
+                    </span>
+                  </IconButton>
+                  <IconButton
+                    className="settings-provider-card__icon-btn settings-provider-card__icon-btn--danger"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      void controller.deleteProfile(profile.id);
+                    }}
+                    title={`Delete ${profile.name}`}
+                    aria-label={`Delete ${profile.name}`}
+                  >
+                    <span className="material-symbols-outlined text-sm">
+                      delete
+                    </span>
+                  </IconButton>
+                </div>
+              </Panel>
+            );
+          })}
+
+          {controller.isAddingProfile ? (
+            <ProfileConfigurator
+              onSave={async (p) => {
+                await controller.saveProfile(p);
+                controller.setIsAddingProfile(false);
+                controller.setEditingProfileId(null);
+              }}
+              onCancel={() => controller.setIsAddingProfile(false)}
+            />
+          ) : null}
+        </div>
+      </SectionCard>
+    </div>
+  );
+}
+
+function ProfileConfigurator({
+  profile,
+  onSave,
+  onCancel,
+}: {
+  profile?: CommunicationProfileRecord;
+  onSave: (profile: CommunicationProfileRecord) => void;
+  onCancel: () => void;
+}) {
+  const [name, setName] = useState(profile?.name ?? "");
+  const [promptSnippet, setPromptSnippet] = useState(profile?.promptSnippet ?? "");
+
+  const handleSaveClick = () => {
+    if (!name.trim() || !promptSnippet.trim()) return;
+    onSave({
+      id: profile?.id ?? uuidv4(),
+      name: name.trim(),
+      promptSnippet: promptSnippet.trim(),
+    });
+  };
+
+  return (
+    <Panel className="settings-provider-form">
+      <div className="settings-profile-form__grid">
+        <div className="settings-field">
+          <label className="settings-field-label">Profile Name</label>
+          <TextField
+            autoFocus
+            type="text"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="e.g. Code Reviewer"
+            wrapClassName="settings-input-wrap"
+          />
+        </div>
+
+        <div className="settings-field">
+          <label className="settings-field-label">Prompt Snippet</label>
+          <TextareaField
+            value={promptSnippet}
+            onChange={(e) => setPromptSnippet(e.target.value)}
+            placeholder="You are an expert software engineer reviewing code..."
+            wrapClassName="settings-input-wrap"
+            rows={4}
+          />
+        </div>
+      </div>
+
+      <div className="settings-provider-form__footer">
+        <div className="settings-provider-form__status" aria-live="polite"></div>
+
+        <div className="settings-provider-form__actions">
+          <Button type="button" variant="ghost" size="xs" onClick={onCancel}>
+            Cancel
+          </Button>
+          <Button
+            type="button"
+            size="xs"
+            onClick={handleSaveClick}
+            disabled={!name.trim() || !promptSnippet.trim()}
+          >
+            Save Profile
+          </Button>
+        </div>
+      </div>
+    </Panel>
   );
 }
 

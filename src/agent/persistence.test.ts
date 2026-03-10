@@ -336,6 +336,7 @@ describe("persistence", () => {
       worktreeBranch: "",
       worktreeDeclined: false,
       showDebug: false,
+      communicationProfile: "pragmatic",
       advancedOptions: "{}",
     });
     await deleteSession("s-del");

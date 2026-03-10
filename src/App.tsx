@@ -11,7 +11,7 @@ import {
   themeNameAtom,
   agentAtomFamily,
 } from "@/agent/atoms";
-import { loadProviders, providersAtom } from "@/agent/db";
+import { loadProviders, providersAtom, loadProfiles, profilesAtom } from "@/agent/db";
 import { hydratePersistedSession } from "@/agent/sessionRestore";
 import WorkspacePage from "@/WorkspacePage";
 import SettingsPage from "@/components/settings/SettingsPage";
@@ -171,10 +171,11 @@ export default function App() {
     // Prime provider env keys at startup so settings opens without waiting on backend reads.
     void preloadEnvProviderKeys();
 
-    Promise.all([loadSessions(), loadProviders()]).then(
-      ([sessions, providers]) => {
-        // Load providers into global store early so useModels works instantly on mount
+    Promise.all([loadSessions(), loadProviders(), loadProfiles()]).then(
+      ([sessions, providers, profiles]) => {
+        // Load providers and profiles into global store early
         jotaiStore.set(providersAtom, providers);
+        jotaiStore.set(profilesAtom, profiles);
 
         // Hydrate Jotai atoms before first render of agent components
         for (const s of sessions) {

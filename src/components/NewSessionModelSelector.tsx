@@ -20,6 +20,8 @@ interface NewSessionModelSelectorProps {
   hasAnyProviderKey: boolean;
   advancedOptions?: AdvancedModelOptions;
   onAdvancedOptionsChange?: (opts: AdvancedModelOptions) => void;
+  communicationProfile?: string;
+  onCommunicationProfileChange?: (profile: string) => void;
 }
 
 type ProviderBadgeProps = {
@@ -68,6 +70,8 @@ export default function NewSessionModelSelector({
   hasAnyProviderKey,
   advancedOptions,
   onAdvancedOptionsChange,
+  communicationProfile,
+  onCommunicationProfileChange,
 }: NewSessionModelSelectorProps) {
   const [modelDropdownOpen, setModelDropdownOpen] = useState(false);
   const [modelSearch, setModelSearch] = useState("");
@@ -114,6 +118,8 @@ export default function NewSessionModelSelector({
     document.addEventListener("mousedown", onDown);
     return () => document.removeEventListener("mousedown", onDown);
   }, [modelDropdownOpen]);
+
+
 
   useEffect(() => {
     if (!modelDropdownOpen) return;
@@ -309,11 +315,14 @@ export default function NewSessionModelSelector({
           </div>
         )}
       </div>
+
       {advancedOptions && onAdvancedOptionsChange && (
         <AdvancedModelOptionsButton
           provider={selectedProvider}
           value={advancedOptions}
           onChange={onAdvancedOptionsChange}
+          communicationProfile={communicationProfile}
+          onCommunicationProfileChange={onCommunicationProfileChange}
         />
       )}
     </div>
