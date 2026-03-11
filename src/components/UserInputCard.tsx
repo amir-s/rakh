@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { ToolCallDisplay } from "@/agent/types";
 import { resolveUserInput, cancelUserInput } from "@/agent/approvals";
+import { getChatAttentionTargetProps } from "@/components/autoScrollAttention";
 import { Button, TextField } from "@/components/ui";
 
 /* ─────────────────────────────────────────────────────────────────────────────
@@ -37,7 +38,10 @@ export default function UserInputCard({ toolCall, tabId }: UserInputCardProps) {
   const skip = () => cancelUserInput(tabId, id);
 
   return (
-    <div className="msg-card animate-fade-up mt-1.5">
+    <div
+      className="msg-card animate-fade-up mt-1.5"
+      {...getChatAttentionTargetProps("approval")}
+    >
       {/* ── Header ─────────────────────────────────────────────────────── */}
       <div className="msg-card-head">
         <div className="msg-card-label">

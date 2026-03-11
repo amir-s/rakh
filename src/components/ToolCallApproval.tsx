@@ -15,6 +15,10 @@ import {
 import type { EditFileChange } from "@/agent/tools/workspace";
 import type { DiffFile } from "@/components/DiffViewer";
 import { deserializeDiff } from "@/components/diffSerialization";
+import {
+  getChatAttentionTargetProps,
+  getToolCallAttentionTargetKind,
+} from "@/components/autoScrollAttention";
 import { Badge, Button, TextField } from "@/components/ui";
 import { getToolCallIcon, getToolCallLabel } from "@/components/toolDisplay";
 
@@ -282,6 +286,9 @@ function WorktreeSetupFailureCard({
 }) {
   const [countdownPaused, setCountdownPaused] = useState(false);
   const [countdownSeconds, setCountdownSeconds] = useState(5);
+  const attentionTargetProps = getChatAttentionTargetProps(
+    getToolCallAttentionTargetKind(toolCall),
+  );
 
   useEffect(() => {
     if (countdownPaused) return;
@@ -301,7 +308,7 @@ function WorktreeSetupFailureCard({
   }, [countdownPaused, id, tabId]);
 
   return (
-    <div className="msg-card animate-fade-up mt-1.5">
+    <div className="msg-card animate-fade-up mt-1.5" {...attentionTargetProps}>
       <div className="msg-card-head">
         <div className="msg-card-label">
           <span className="material-symbols-outlined text-base text-warning">
@@ -446,10 +453,13 @@ function WorktreeToolCard({
   const isAwaitingSetupAction = toolCall.status === "awaiting_setup_action";
   const isSetupRunning = setupPhase === "running_setup";
   const isSetupPhaseVisible = setupCommand.length > 0 || isSetupRunning;
+  const attentionTargetProps = getChatAttentionTargetProps(
+    getToolCallAttentionTargetKind(toolCall),
+  );
 
   if (toolCall.status === "awaiting_worktree") {
     return (
-      <div className="msg-card animate-fade-up mt-1.5">
+      <div className="msg-card animate-fade-up mt-1.5" {...attentionTargetProps}>
         <div className="msg-card-head">
           <div className="msg-card-label">
             <span className="material-symbols-outlined text-base">
@@ -535,7 +545,7 @@ function WorktreeToolCard({
   }
 
   return (
-    <div className="msg-card animate-fade-up mt-1.5">
+    <div className="msg-card animate-fade-up mt-1.5" {...attentionTargetProps}>
       <div className="msg-card-head">
         <div className="msg-card-label">
           <span className="material-symbols-outlined text-base">
@@ -620,6 +630,9 @@ export default function ToolCallApproval({
   const [isStopping, setIsStopping] = useState(false);
   const isExecRunning = tool === "exec_run" && toolCall.status === "running";
   const showAllowSpinner = isApproving;
+  const attentionTargetProps = getChatAttentionTargetProps(
+    getToolCallAttentionTargetKind(toolCall),
+  );
 
   const streamingRef = useRef<HTMLPreElement>(null);
   useEffect(() => {
@@ -645,7 +658,7 @@ export default function ToolCallApproval({
   const argEntries = Object.entries(args);
 
   return (
-    <div className="msg-card animate-fade-up mt-1.5">
+    <div className="msg-card animate-fade-up mt-1.5" {...attentionTargetProps}>
       {/* ── Card header ───────────────────────────────────────────────── */}
       <div className="msg-card-head">
         <div className="msg-card-label">

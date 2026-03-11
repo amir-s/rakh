@@ -78,6 +78,12 @@ describe("ConversationCards", () => {
     const artifact = makeArtifact();
     const { onExecutePlan } = renderConversationCards(artifact);
 
+    expect(
+      screen.getByText("Implementation plan").closest(".conversation-card")?.getAttribute(
+        "data-chat-attention-target",
+      ),
+    ).toBe("cta");
+
     fireEvent.click(screen.getByRole("button", { name: "Execute the plan" }));
 
     expect(onExecutePlan).toHaveBeenCalledWith(
@@ -112,5 +118,8 @@ describe("ConversationCards", () => {
     fireEvent.click(button);
 
     expect(onExecutePlan).not.toHaveBeenCalled();
+    expect(
+      button.closest(".conversation-card")?.hasAttribute("data-chat-attention-target"),
+    ).toBe(false);
   });
 });

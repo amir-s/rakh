@@ -149,5 +149,11 @@ describe("ToolCallApproval", () => {
     );
 
     expect(screen.getByText("MCP / Filesystem / Read File")).not.toBeNull();
+    expect(
+      screen
+        .getByText("MCP / Filesystem / Read File")
+        .closest(".msg-card")
+        ?.getAttribute("data-chat-attention-target"),
+    ).toBe("approval");
   });
 });
