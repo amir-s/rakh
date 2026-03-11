@@ -3,12 +3,14 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const {
   invokeMock,
   getAgentStateMock,
+  patchSessionPersistenceStateMock,
   defaultModel,
   stateByTab,
   consoleErrorSpy,
 } = vi.hoisted(() => ({
   invokeMock: vi.fn(),
   getAgentStateMock: vi.fn(),
+  patchSessionPersistenceStateMock: vi.fn(),
   defaultModel: "openai/gpt-5.2",
   stateByTab: {} as Record<string, unknown>,
   consoleErrorSpy: vi.spyOn(console, "error").mockImplementation(() => {}),
@@ -20,6 +22,8 @@ vi.mock("@tauri-apps/api/core", () => ({
 
 vi.mock("./atoms", () => ({
   getAgentState: (...args: unknown[]) => getAgentStateMock(...args),
+  patchSessionPersistenceState: (...args: unknown[]) =>
+    patchSessionPersistenceStateMock(...args),
   DEFAULT_MODEL: defaultModel,
 }));
 
@@ -51,6 +55,7 @@ describe("persistence", () => {
   beforeEach(() => {
     invokeMock.mockReset();
     getAgentStateMock.mockReset();
+    patchSessionPersistenceStateMock.mockReset();
     consoleErrorSpy.mockClear();
     for (const key of Object.keys(stateByTab)) {
       delete stateByTab[key];

@@ -1,8 +1,12 @@
 import { useMemo, useState, type ReactNode } from "react";
 import { useAtomValue } from "jotai";
-import { agentAtomFamily } from "@/agent/atoms";
+import {
+  agentAtomFamily,
+  agentSessionPersistenceAtomFamily,
+} from "@/agent/atoms";
 import { getModelCatalogEntry } from "@/agent/modelCatalog";
 import { getAllSubagents } from "@/agent/subagents";
+import { buildSessionPersistenceSignature } from "@/agent/persistence";
 import CycleOptionSwitch from "@/components/CycleOptionSwitch";
 import { Button } from "@/components/ui";
 import { useTabs } from "@/contexts/TabsContext";
@@ -52,6 +56,20 @@ function estimateContextWindowPct(
 
   const estimatedTokens = Math.ceil(totalChars / 4);
   return Math.min(100, (estimatedTokens / contextLength) * 100);
+}
+
+function formatSavedAt(ms: number | null): string | null {
+  if (ms == null) return null;
+
+  try {
+    return new Date(ms).toLocaleTimeString([], {
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+    });
+  } catch {
+    return null;
+  }
 }
 
 function safeJsonStringify(value: unknown): string {
@@ -218,6 +236,7 @@ async function copyToClipboard(text: string): Promise<boolean> {
 export default function DebugPane({ tabId }: { tabId: string }) {
   const { tabs, activeTabId } = useTabs();
   const state = useAtomValue(agentAtomFamily(tabId));
+  const persistenceState = useAtomValue(agentSessionPersistenceAtomFamily(tabId));
   const [shrinkLongMessages, setShrinkLongMessages] = useState(true);
   const [copyStatus, setCopyStatus] = useState<
     "idle" | "copying" | "copied" | "failed"
@@ -225,12 +244,14 @@ export default function DebugPane({ tabId }: { tabId: string }) {
 
   const tabMeta = useMemo(() => {
     const activeTab = tabs.find((tab) => tab.id === activeTabId);
+    const currentTab = tabs.find((tab) => tab.id === tabId);
     return {
       activeTabId,
       activeTab: activeTab ?? null,
+      currentTab: currentTab ?? null,
       tabs,
     };
-  }, [activeTabId, tabs]);
+  }, [activeTabId, tabId, tabs]);
 
   const modelEntry = useMemo(
     () => getModelCatalogEntry(state.config.model),
@@ -243,11 +264,54 @@ export default function DebugPane({ tabId }: { tabId: string }) {
     [state.apiMessages, state.config.contextLength],
   );
 
+  const isTauri =
+    typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+
+  const currentPersistenceSignature = useMemo(
+    () =>
+      tabMeta.currentTab
+        ? buildSessionPersistenceSignature(tabMeta.currentTab, state)
+        : null,
+    [state, tabMeta.currentTab],
+  );
+
+  const hasUnsavedChanges =
+    currentPersistenceSignature !== null &&
+    currentPersistenceSignature !== persistenceState.lastSavedSignature;
+
+  const sessionSaveStatusLabel = useMemo(() => {
+    if (!isTauri) return "not persisted (web runtime)";
+    if (!tabMeta.currentTab || tabMeta.currentTab.mode !== "workspace") {
+      return "not persisted (non-workspace tab)";
+    }
+    if (persistenceState.phase === "saving") return "saving…";
+    if (persistenceState.phase === "error") {
+      return persistenceState.lastSaveError
+        ? `save failed (${persistenceState.lastSaveError})`
+        : "save failed";
+    }
+
+    const savedAt = formatSavedAt(persistenceState.lastSavedAtMs);
+    if (!hasUnsavedChanges && persistenceState.phase === "saved") {
+      return savedAt ? `saved @ ${savedAt}` : "saved";
+    }
+
+    if (hasUnsavedChanges) {
+      return savedAt ? `unsaved changes · last save @ ${savedAt}` : "unsaved changes";
+    }
+
+    return "unsaved changes";
+  }, [
+    hasUnsavedChanges,
+    isTauri,
+    persistenceState.lastSaveError,
+    persistenceState.lastSavedAtMs,
+    persistenceState.phase,
+    tabMeta.currentTab,
+  ]);
+
   const handleCopy = async () => {
     setCopyStatus("copying");
-
-    const isTauri =
-      typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
     const openAiKeyLength = (() => {
       try {
@@ -315,6 +379,12 @@ export default function DebugPane({ tabId }: { tabId: string }) {
         errorDetails: state.errorDetails,
         modelCatalogEntry: modelEntry,
         estimatedContextWindowPct: contextUsagePct,
+        sessionPersistence: {
+          phase: persistenceState.phase,
+          lastSavedAtMs: persistenceState.lastSavedAtMs,
+          lastSaveError: persistenceState.lastSaveError,
+          hasUnsavedChanges,
+        },
         plan: state.plan,
         todos: state.todos,
         reviewEdits: state.reviewEdits,
@@ -401,6 +471,10 @@ export default function DebugPane({ tabId }: { tabId: string }) {
           <div className="space-y-1 font-mono text-[11px] break-all">
             <div>
               <span className="text-muted">status</span>: {state.status}
+            </div>
+            <div>
+              <span className="text-muted">session save</span>:{" "}
+              {sessionSaveStatusLabel}
             </div>
             <div>
               <span className="text-muted">model</span>: {state.config.model}

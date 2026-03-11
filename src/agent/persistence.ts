@@ -21,8 +21,11 @@
 
 import type { Tab } from "@/contexts/TabsContext";
 import type { AgentQueueState, AgentState } from "./types";
-import { getAgentState } from "./atoms";
-import { DEFAULT_MODEL } from "./atoms";
+import {
+  DEFAULT_MODEL,
+  getAgentState,
+  patchSessionPersistenceState,
+} from "./atoms";
 
 /* ─────────────────────────────────────────────────────────────────────────────
    Shared type (mirrors the Rust PersistedSession struct)
@@ -84,6 +87,56 @@ async function invoke<T>(
 ): Promise<T> {
   const { invoke: tauriInvoke } = await import("@tauri-apps/api/core");
   return tauriInvoke<T>(cmd, args);
+}
+
+function getPersistedSessionComparableValue(session: PersistedSession) {
+  return {
+    id: session.id,
+    label: session.label,
+    icon: session.icon,
+    mode: session.mode,
+    tabTitle: session.tabTitle,
+    cwd: session.cwd,
+    projectPath: session.projectPath,
+    setupCommand: session.setupCommand,
+    model: session.model,
+    planMarkdown: session.planMarkdown,
+    planVersion: session.planVersion,
+    planUpdatedAt: session.planUpdatedAt,
+    chatMessages: session.chatMessages,
+    apiMessages: session.apiMessages,
+    todos: session.todos,
+    reviewEdits: session.reviewEdits,
+    queuedMessages: session.queuedMessages,
+    queueState: session.queueState,
+    worktreePath: session.worktreePath,
+    worktreeBranch: session.worktreeBranch,
+    worktreeDeclined: session.worktreeDeclined,
+    showDebug: session.showDebug,
+    advancedOptions: session.advancedOptions,
+    communicationProfile: session.communicationProfile,
+  };
+}
+
+export function getPersistedSessionSignature(session: PersistedSession): string {
+  return JSON.stringify(getPersistedSessionComparableValue(session));
+}
+
+export function buildSessionPersistenceSignature(
+  tab: Tab,
+  state: AgentState,
+): string | null {
+  if (tab.mode !== "workspace") return null;
+  return getPersistedSessionSignature(buildPersistedSession(tab, state));
+}
+
+export function markSessionAsPersisted(session: PersistedSession): void {
+  patchSessionPersistenceState(session.id, {
+    phase: "saved",
+    lastSavedAtMs: session.updatedAt,
+    lastSavedSignature: getPersistedSessionSignature(session),
+    lastSaveError: null,
+  });
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
@@ -164,12 +217,23 @@ export function isSessionEmpty(state: AgentState): boolean {
 export async function upsertSession(tab: Tab): Promise<void> {
   if (!isTauri()) return;
   if (tab.mode !== "workspace") return;
+
+  patchSessionPersistenceState(tab.id, {
+    phase: "saving",
+    lastSaveError: null,
+  });
+
   const state = getAgentState(tab.id);
   const session = buildPersistedSession(tab, state);
   try {
     await invoke("db_upsert_session", { session });
+    markSessionAsPersisted(session);
   } catch (e) {
     console.error("rakh: failed to upsert session:", e);
+    patchSessionPersistenceState(tab.id, {
+      phase: "error",
+      lastSaveError: e instanceof Error ? e.message : String(e),
+    });
   }
 }
 
@@ -206,6 +270,7 @@ export async function restoreSession(session: PersistedSession): Promise<void> {
     await invoke("db_upsert_session", {
       session: { ...session, archived: false },
     });
+    markSessionAsPersisted({ ...session, archived: false });
   } catch (e) {
     console.error("rakh: failed to restore session:", e);
   }

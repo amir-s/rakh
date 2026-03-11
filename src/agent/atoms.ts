@@ -109,6 +109,26 @@ export const defaultAppUpdaterState: AppUpdaterState = {
   contentLength: null,
 };
 
+export type SessionPersistencePhase =
+  | "never_saved"
+  | "saving"
+  | "saved"
+  | "error";
+
+export interface SessionPersistenceState {
+  phase: SessionPersistencePhase;
+  lastSavedAtMs: number | null;
+  lastSavedSignature: string | null;
+  lastSaveError: string | null;
+}
+
+export const defaultSessionPersistenceState: SessionPersistenceState = {
+  phase: "never_saved",
+  lastSavedAtMs: null,
+  lastSavedSignature: null,
+  lastSaveError: null,
+};
+
 /** Ephemeral updater state for signed desktop app updates. */
 export const appUpdaterStateAtom = atom<AppUpdaterState>({
   ...defaultAppUpdaterState,
@@ -262,6 +282,11 @@ export const agentShowDebugAtomFamily = atomFamily((tabId: string) =>
   atom((get) => get(agentAtomFamily(tabId)).showDebug ?? false),
 );
 
+/** Frontend-only persistence status for a tab's saved session snapshot */
+export const agentSessionPersistenceAtomFamily = atomFamily((_tabId: string) =>
+  atom<SessionPersistenceState>({ ...defaultSessionPersistenceState }),
+);
+
 /* ─────────────────────────────────────────────────────────────────────────────
    Helpers for the runner to patch state immutably
 ───────────────────────────────────────────────────────────────────────────── */
@@ -280,4 +305,22 @@ export function patchAgentState(
 
 export function getAgentState(tabId: string): AgentState {
   return jotaiStore.get(agentAtomFamily(tabId));
+}
+
+export function patchSessionPersistenceState(
+  tabId: string,
+  patch:
+    | Partial<SessionPersistenceState>
+    | ((prev: SessionPersistenceState) => SessionPersistenceState),
+): void {
+  const atom = agentSessionPersistenceAtomFamily(tabId);
+  if (typeof patch === "function") {
+    jotaiStore.set(atom, patch(jotaiStore.get(atom)));
+  } else {
+    jotaiStore.set(atom, { ...jotaiStore.get(atom), ...patch });
+  }
+}
+
+export function getSessionPersistenceState(tabId: string): SessionPersistenceState {
+  return jotaiStore.get(agentSessionPersistenceAtomFamily(tabId));
 }

@@ -9,7 +9,13 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { Provider, createStore } from "jotai";
-import { agentAtomFamily } from "@/agent/atoms";
+import {
+  agentAtomFamily,
+  agentSessionPersistenceAtomFamily,
+  defaultSessionPersistenceState,
+  type SessionPersistenceState,
+} from "@/agent/atoms";
+import { buildSessionPersistenceSignature } from "@/agent/persistence";
 import type { AgentState } from "@/agent/types";
 import DebugPane from "./DebugPane";
 
@@ -163,9 +169,16 @@ function buildFixture() {
   };
 }
 
-function renderDebugPane(state: AgentState) {
+function renderDebugPane(
+  state: AgentState,
+  persistenceState?: Partial<SessionPersistenceState>,
+) {
   const store = createStore();
   store.set(agentAtomFamily("tab-1"), state);
+  store.set(agentSessionPersistenceAtomFamily("tab-1"), {
+    ...defaultSessionPersistenceState,
+    ...persistenceState,
+  });
 
   return render(
     <Provider store={store}>
@@ -180,6 +193,10 @@ describe("DebugPane copy bundle", () => {
     localStorage.clear();
     clipboardMock.writeText.mockReset();
     clipboardMock.writeText.mockResolvedValue(undefined);
+    Object.defineProperty(window, "__TAURI_INTERNALS__", {
+      configurable: true,
+      value: {},
+    });
     Object.defineProperty(navigator, "clipboard", {
       configurable: true,
       value: {
@@ -313,5 +330,51 @@ describe("DebugPane copy bundle", () => {
     if (apiUserMsgFull.role !== "user")
       throw new Error("Expected user api message");
     expect(apiUserMsgFull.attachments?.[0]?.previewUrl).toBe(FAKE_PREVIEW_URL);
+  });
+
+  it("shows whether the current session snapshot is saved or has unsaved changes", () => {
+    const { state } = buildFixture();
+    const workspaceTab = tabsContextMock.value.tabs[0];
+    const savedSignature = buildSessionPersistenceSignature(workspaceTab, state);
+
+    if (!savedSignature) {
+      throw new Error("Expected a workspace persistence signature");
+    }
+
+    const { unmount } = renderDebugPane(state, {
+      phase: "saved",
+      lastSavedAtMs: 1_710_000_000_000,
+      lastSavedSignature: savedSignature,
+      lastSaveError: null,
+    });
+
+    expect(
+      screen.getAllByText(
+        (_content, node) =>
+          node?.textContent?.includes("session save: saved @") ?? false,
+      ),
+    ).not.toHaveLength(0);
+
+    unmount();
+
+    renderDebugPane(
+      {
+        ...state,
+        tabTitle: "Changed after last save",
+      },
+      {
+        phase: "saved",
+        lastSavedAtMs: 1_710_000_000_000,
+        lastSavedSignature: savedSignature,
+        lastSaveError: null,
+      },
+    );
+
+    expect(
+      screen.getAllByText(
+        (_content, node) =>
+          node?.textContent?.includes("session save: unsaved changes") ?? false,
+      ),
+    ).not.toHaveLength(0);
   });
 });
