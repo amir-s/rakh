@@ -1,5 +1,6 @@
 pub mod db;
 pub mod exec;
+pub mod external_tools;
 pub mod fs_ops;
 pub mod git;
 pub mod mcp;
@@ -50,6 +51,8 @@ pub fn run() {
             exec::exec_run,
             exec::exec_abort,
             exec::exec_stop,
+            external_tools::open_in_editor,
+            external_tools::open_shell,
             pty::spawn_pty,
             pty::write_pty,
             pty::resize_pty,
