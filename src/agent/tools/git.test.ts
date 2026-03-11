@@ -22,6 +22,7 @@ type MockAgentState = {
         | "pending"
         | "awaiting_approval"
         | "awaiting_worktree"
+        | "awaiting_branch_release"
         | "awaiting_setup_action"
         | "running"
         | "done"
@@ -349,6 +350,60 @@ describe("gitWorktreeInit", () => {
     expect(states.tab.config.cwd).toBe(
       "/custom/root/worktrees/owner/repo/feature",
     );
+  });
+
+  it("re-prompts for a different branch when the requested branch already exists", async () => {
+    setState("tab");
+
+    invokeMock
+      .mockResolvedValueOnce({
+        exitCode: 0,
+        stdout: "/tmp/repo\n",
+        stderr: "",
+      })
+      .mockResolvedValueOnce({
+        exitCode: 0,
+        stdout: "git@github.com:owner/repo.git\n",
+        stderr: "",
+      })
+      .mockRejectedValueOnce(
+        new Error("fatal: a branch named 'feature' already exists"),
+      )
+      .mockResolvedValueOnce({
+        path: "/backend/worktrees/owner/repo/feature-2",
+        branch: "feature-2",
+      });
+
+    requestWorktreeApprovalMock
+      .mockResolvedValueOnce({
+        approved: true,
+        branchName: "feature",
+      })
+      .mockResolvedValueOnce({
+        approved: true,
+        branchName: "feature-2",
+      });
+
+    const result = await gitWorktreeInit("tab", "tc-1", "/repo", {
+      suggestedBranch: "feature",
+    });
+
+    expect(requestWorktreeApprovalMock).toHaveBeenCalledTimes(2);
+    expect(states.tab.chatMessages[0].toolCalls?.[0]).toMatchObject({
+      args: {
+        suggestedBranch: "feature",
+        branch: "feature-2",
+        branchError: "",
+      },
+    });
+    expect(result).toEqual({
+      ok: true,
+      data: {
+        path: "/backend/worktrees/owner/repo/feature-2",
+        branch: "feature-2",
+        setup: { status: "not_configured" },
+      },
+    });
   });
 
   it("runs the saved setup command inside the new worktree and returns success metadata", async () => {

@@ -24,6 +24,8 @@ type MockAgentState = {
     cwd: string;
     model: string;
     advancedOptions?: Record<string, unknown>;
+    worktreePath?: string;
+    worktreeBranch?: string;
   };
   chatMessages: Array<Record<string, unknown>>;
   apiMessages: Array<Record<string, unknown>>;
@@ -53,6 +55,7 @@ const {
   validateToolMock,
   requiresApprovalMock,
   requestApprovalMock,
+  requestBranchReleaseActionMock,
   cancelAllApprovalsMock,
   consumeApprovalReasonMock,
   turns,
@@ -66,6 +69,7 @@ const {
   callMcpToolMock,
   shutdownMcpRunMock,
   artifactCreateMock,
+  switchToGitBranchMock,
 } = vi.hoisted(() => ({
   states: {} as Record<string, MockAgentState>,
   providersAtomMock: { kind: "providers-atom" },
@@ -80,6 +84,7 @@ const {
   validateToolMock: vi.fn(),
   requiresApprovalMock: vi.fn(),
   requestApprovalMock: vi.fn(),
+  requestBranchReleaseActionMock: vi.fn(),
   cancelAllApprovalsMock: vi.fn(),
   consumeApprovalReasonMock: vi.fn(),
   turns: [] as MockTurn[],
@@ -88,6 +93,7 @@ const {
   createAnthropicMock: vi.fn(),
   execAbortMock: vi.fn(),
   execStopMock: vi.fn(),
+  switchToGitBranchMock: vi.fn(),
   createOpenAICompatibleMock: vi.fn(),
   prepareMcpRunMock: vi.fn(),
   callMcpToolMock: vi.fn(),
@@ -131,9 +137,20 @@ vi.mock("./tools", () => ({
 vi.mock("./approvals", () => ({
   requiresApproval: (...args: unknown[]) => requiresApprovalMock(...args),
   requestApproval: (...args: unknown[]) => requestApprovalMock(...args),
+  requestBranchReleaseAction: (...args: unknown[]) =>
+    requestBranchReleaseActionMock(...args),
   cancelAllApprovals: (...args: unknown[]) => cancelAllApprovalsMock(...args),
   consumeApprovalReason: (...args: unknown[]) =>
     consumeApprovalReasonMock(...args),
+}));
+
+vi.mock("./tools/git", () => ({
+  getBranchReleaseInstructions: (branch: string, blockingPath?: string) => [
+    blockingPath
+      ? `Release ${branch} at ${blockingPath}`
+      : `Release ${branch}`,
+  ],
+  switchToGitBranch: (...args: unknown[]) => switchToGitBranchMock(...args),
 }));
 
 vi.mock("ai", () => ({
@@ -378,6 +395,7 @@ describe("runner", () => {
     validateToolMock.mockReset();
     requiresApprovalMock.mockReset();
     requestApprovalMock.mockReset();
+    requestBranchReleaseActionMock.mockReset();
     cancelAllApprovalsMock.mockReset();
     consumeApprovalReasonMock.mockReset();
     streamTextMock.mockReset();
@@ -389,6 +407,7 @@ describe("runner", () => {
     callMcpToolMock.mockReset();
     shutdownMcpRunMock.mockReset();
     artifactCreateMock.mockReset();
+    switchToGitBranchMock.mockReset();
     jotaiStoreMock.get.mockReset();
 
     jotaiStoreMock.get.mockImplementation((atom: unknown) => {
@@ -428,6 +447,12 @@ describe("runner", () => {
         return "global-test-profile";
       }
       return undefined;
+    });
+
+    requestBranchReleaseActionMock.mockResolvedValue({ action: "retry" });
+    switchToGitBranchMock.mockResolvedValue({
+      ok: true,
+      data: { branch: "feat/test" },
     });
 
     requiresApprovalMock.mockReturnValue(false);

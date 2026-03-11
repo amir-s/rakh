@@ -6,8 +6,9 @@ import {
   useMemo,
   type SetStateAction,
   type ChangeEvent,
-  type KeyboardEvent,
+  type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
+import { createPortal } from "react-dom";
 import type { AttachedImage } from "@/agent/types";
 import { useAtomValue } from "jotai";
 import ArtifactPane, { useArtifactUpdates } from "@/components/ArtifactPane";
@@ -16,6 +17,7 @@ import Terminal from "@/components/Terminal";
 import UserMessage from "@/components/UserMessage";
 import AgentMessage from "@/components/AgentMessage";
 import ToolCallApproval from "@/components/ToolCallApproval";
+import CopyableCodePill from "@/components/CopyableCodePill";
 import UserInputCard from "@/components/UserInputCard";
 import Markdown from "@/components/Markdown";
 import NewSession from "@/components/NewSession";
@@ -37,7 +39,7 @@ import {
   MentionTextarea,
   type MentionTextareaHandle,
 } from "@/components/MentionTextarea";
-import { Button } from "@/components/ui";
+import { Button, ModalShell, TextField } from "@/components/ui";
 import {
   VoiceInputRecordingRow,
   VoiceInputStateProvider,
@@ -70,9 +72,183 @@ import {
   writeProjectScriptsConfig,
   type ProjectCommandConfig,
 } from "@/projectScripts";
+import { execRun } from "@/agent/tools/exec";
+import {
+  detachGitHead,
+  readGitHeadState,
+  stageAllGitChanges,
+  switchToGitBranch,
+} from "@/agent/tools/git";
+import { upsertSession } from "@/agent/persistence";
+import { cn } from "@/utils/cn";
 
 const OPEN_IN_EDITOR_COMMAND_ID = "__open-in-editor__";
 const OPEN_SHELL_COMMAND_ID = "__open-shell__";
+const DEFAULT_HANDOFF_COMMIT_MESSAGE = "changes from rakh";
+
+interface WorktreeHandoffState {
+  loading: boolean;
+  branchHeld: boolean;
+  hasChanges: boolean;
+  error: string | null;
+}
+
+const IDLE_WORKTREE_HANDOFF_STATE: WorktreeHandoffState = {
+  loading: false,
+  branchHeld: false,
+  hasChanges: false,
+  error: null,
+};
+
+interface WorktreeHandoffModalProps {
+  branch: string;
+  commitMessage: string;
+  status: { type: "idle" | "running" | "error"; message?: string };
+  onChangeCommitMessage: (value: string) => void;
+  onClose: () => void;
+  onConfirm: () => void;
+}
+
+function WorktreeHandoffModal({
+  branch,
+  commitMessage,
+  status,
+  onChangeCommitMessage,
+  onClose,
+  onConfirm,
+}: WorktreeHandoffModalProps) {
+  useEffect(() => {
+    const handler = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape" && status.type !== "running") {
+        onClose();
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [onClose, status.type]);
+
+  return createPortal(
+    <div
+      className="error-modal-backdrop"
+      onClick={status.type === "running" ? undefined : onClose}
+      role="dialog"
+      aria-modal
+      aria-label="Handoff session branch"
+    >
+      <ModalShell
+        className="error-modal tool-modal"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="error-modal-header">
+          <span className="error-modal-title tool-modal-title">
+            <span className="material-symbols-outlined text-muted shrink-0 text-md">
+              move_item
+            </span>
+            Handoff
+            <span className="text-xxs font-normal tracking-[0.04em] text-muted normal-case opacity-70">
+              {branch}
+            </span>
+          </span>
+          <Button
+            className="error-modal-close"
+            onClick={onClose}
+            title="Close (Esc)"
+            variant="ghost"
+            size="xxs"
+            disabled={status.type === "running"}
+          >
+            <span className="material-symbols-outlined text-lg">close</span>
+          </Button>
+        </div>
+
+        <div className="error-modal-body flex flex-col gap-4">
+          <div className="tool-modal-section">
+            <div className="tool-modal-section-label">Session branch</div>
+            <CopyableCodePill value={branch} label="session branch" />
+          </div>
+          <div className="tool-modal-section">
+            <div className="tool-modal-section-label">Commit message</div>
+            <TextField
+              autoFocus
+              value={commitMessage}
+              onChange={(event) => onChangeCommitMessage(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" && !event.shiftKey) {
+                  event.preventDefault();
+                  if (status.type !== "running" && commitMessage.trim()) {
+                    onConfirm();
+                  }
+                }
+              }}
+              placeholder={DEFAULT_HANDOFF_COMMIT_MESSAGE}
+            />
+          </div>
+          {status.type === "error" ? (
+            <div className="text-xxs text-error whitespace-pre-wrap break-words">
+              {status.message}
+            </div>
+          ) : null}
+        </div>
+
+        <div className="error-modal-footer">
+          <Button
+            onClick={onClose}
+            variant="ghost"
+            size="xxs"
+            disabled={status.type === "running"}
+          >
+            CANCEL
+          </Button>
+          <Button
+            onClick={onConfirm}
+            variant="primary"
+            size="xxs"
+            loading={status.type === "running"}
+            disabled={!commitMessage.trim()}
+          >
+            COMMIT
+          </Button>
+        </div>
+      </ModalShell>
+    </div>,
+    document.body,
+  );
+}
+
+async function readWorktreeHandoffState(
+  gitPath: string,
+  sessionBranch: string,
+): Promise<WorktreeHandoffState> {
+  const [headResult, statusResult] = await Promise.all([
+    readGitHeadState(gitPath),
+    execRun(gitPath, {
+      command: "git",
+      args: ["status", "--porcelain"],
+      timeoutMs: 10_000,
+      maxStdoutBytes: 12_000,
+      maxStderrBytes: 12_000,
+    }),
+  ]);
+
+  const branchHeld =
+    headResult.ok &&
+    headResult.data.mode === "branch" &&
+    headResult.data.branch === sessionBranch;
+  const hasChanges =
+    statusResult.ok && statusResult.data.stdout.trim().length > 0;
+  const error = !headResult.ok
+    ? headResult.error.message
+    : !statusResult.ok
+      ? statusResult.error.message
+      : null;
+
+  return {
+    loading: false,
+    branchHeld,
+    hasChanges,
+    error,
+  };
+}
 
 /* ─────────────────────────────────────────────────────────────────────────────
    Page
@@ -211,11 +387,25 @@ export default function WorkspacePage() {
     id: number;
     command: string;
   } | null>(null);
+  const [handoffModalOpen, setHandoffModalOpen] = useState(false);
+  const [handoffCommitMessage, setHandoffCommitMessage] = useState(
+    DEFAULT_HANDOFF_COMMIT_MESSAGE,
+  );
+  const [handoffStatus, setHandoffStatus] = useState<{
+    type: "idle" | "running" | "error";
+    message?: string;
+  }>({ type: "idle" });
+  const [handoffState, setHandoffState] = useState<WorktreeHandoffState>(
+    IDLE_WORKTREE_HANDOFF_STATE,
+  );
   const [reasoningExpandedById, setReasoningExpandedById] = useState<
     Record<string, boolean>
   >({});
   const terminalCommandRequestIdRef = useRef(0);
   const cwd = agent.config.cwd.trim();
+  const worktreePath = agent.config.worktreePath?.trim() ?? "";
+  const worktreeBranch = agent.config.worktreeBranch?.trim() ?? "";
+  const hasManagedWorktree = worktreePath.length > 0 && worktreeBranch.length > 0;
 
   // Track unseen updates even when pane is collapsed
   const {
@@ -234,6 +424,14 @@ export default function WorkspacePage() {
   const artifactHasUpdates = unseenTabs.size > 0;
   const { getEntry: getArtifactContentEntry, ensureArtifactContent } =
     useArtifactContentCache(activeTabId);
+  const worktreeToolCallStatusKey = useMemo(
+    () =>
+      agent.chatMessages
+        .flatMap((message) => message.toolCalls ?? [])
+        .map((toolCall) => `${toolCall.id}:${toolCall.status}`)
+        .join("|"),
+    [agent.chatMessages],
+  );
 
   // Chat controls state
   const contextWindowPct = agent.contextWindowPct;
@@ -338,6 +536,42 @@ export default function WorkspacePage() {
     }));
   }, []);
 
+  const refreshWorktreeHandoffState = useCallback(async () => {
+    if (!hasManagedWorktree) {
+      setHandoffState(IDLE_WORKTREE_HANDOFF_STATE);
+      return;
+    }
+
+    setHandoffState((prev) => ({ ...prev, loading: true, error: null }));
+    const nextState = await readWorktreeHandoffState(worktreePath, worktreeBranch);
+    setHandoffState(nextState);
+  }, [hasManagedWorktree, worktreeBranch, worktreePath]);
+
+  useEffect(() => {
+    void refreshWorktreeHandoffState();
+  }, [
+    activeTabId,
+    agent.status,
+    hasManagedWorktree,
+    refreshWorktreeHandoffState,
+    worktreeToolCallStatusKey,
+  ]);
+
+  useEffect(() => {
+    if (!hasManagedWorktree) {
+      setHandoffModalOpen(false);
+      setHandoffCommitMessage(DEFAULT_HANDOFF_COMMIT_MESSAGE);
+      setHandoffStatus({ type: "idle" });
+      return;
+    }
+
+    const handleFocus = () => {
+      void refreshWorktreeHandoffState();
+    };
+    window.addEventListener("focus", handleFocus);
+    return () => window.removeEventListener("focus", handleFocus);
+  }, [hasManagedWorktree, refreshWorktreeHandoffState]);
+
   const appendTranscriptToInput = useCallback(
     (transcript: string) => {
       let nextValue = transcript;
@@ -434,6 +668,83 @@ export default function WorkspacePage() {
       setProjectSettingsProject(resolvedProject);
     });
   }, [agent.config.projectPath, agent.config.setupCommand]);
+
+  const openHandoffModal = useCallback(() => {
+    setHandoffCommitMessage(DEFAULT_HANDOFF_COMMIT_MESSAGE);
+    setHandoffStatus({ type: "idle" });
+    setHandoffModalOpen(true);
+  }, []);
+
+  const closeHandoffModal = useCallback(() => {
+    if (handoffStatus.type === "running") return;
+    setHandoffModalOpen(false);
+    setHandoffStatus({ type: "idle" });
+  }, [handoffStatus.type]);
+
+  const handleConfirmHandoff = useCallback(async () => {
+    if (
+      !hasManagedWorktree ||
+      !handoffCommitMessage.trim() ||
+      activeTab?.mode !== "workspace"
+    ) {
+      return;
+    }
+
+    setHandoffStatus({ type: "running" });
+
+    const stageResult = await stageAllGitChanges(worktreePath);
+    if (!stageResult.ok) {
+      setHandoffStatus({ type: "error", message: stageResult.error.message });
+      await refreshWorktreeHandoffState();
+      return;
+    }
+
+    const holdResult = await switchToGitBranch(worktreePath, worktreeBranch);
+    if (!holdResult.ok) {
+      setHandoffStatus({ type: "error", message: holdResult.error.message });
+      await refreshWorktreeHandoffState();
+      return;
+    }
+
+    const commitResult = await execRun(worktreePath, {
+      command: "git",
+      args: ["commit", "-m", handoffCommitMessage.trim()],
+      timeoutMs: 30_000,
+      maxStdoutBytes: 40_000,
+      maxStderrBytes: 40_000,
+      reason: `Commit handoff changes to ${worktreeBranch}.`,
+    });
+    if (!commitResult.ok || commitResult.data.exitCode !== 0) {
+      const message = !commitResult.ok
+        ? commitResult.error.message
+        : commitResult.data.stderr.trim() ||
+          commitResult.data.stdout.trim() ||
+          `git commit exited with code ${commitResult.data.exitCode}.`;
+      setHandoffStatus({ type: "error", message });
+      await refreshWorktreeHandoffState();
+      return;
+    }
+
+    const detachResult = await detachGitHead(worktreePath);
+    if (!detachResult.ok) {
+      setHandoffStatus({ type: "error", message: detachResult.error.message });
+      await refreshWorktreeHandoffState();
+      return;
+    }
+
+    await upsertSession(activeTab);
+    setHandoffModalOpen(false);
+    setHandoffCommitMessage(DEFAULT_HANDOFF_COMMIT_MESSAGE);
+    setHandoffStatus({ type: "idle" });
+    await refreshWorktreeHandoffState();
+  }, [
+    activeTab,
+    handoffCommitMessage,
+    hasManagedWorktree,
+    refreshWorktreeHandoffState,
+    worktreeBranch,
+    worktreePath,
+  ]);
 
   const handleSaveProjectSettings = useCallback(
     async ({ project, writeProjectConfig }: ProjectSettingsSavePayload) => {
@@ -716,7 +1027,7 @@ export default function WorkspacePage() {
   ]);
 
   const handleKeyDown = useCallback(
-    (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    (e: ReactKeyboardEvent<HTMLTextAreaElement>) => {
       if (e.key === "Enter" && !e.shiftKey) {
         e.preventDefault();
         void handleSubmit();
@@ -812,6 +1123,21 @@ export default function WorkspacePage() {
       navigator.userAgent.toLowerCase().includes("mac os"))
       ? ["⌘", "B"]
       : ["Ctrl", "B"];
+  const handoffButtonDisabled =
+    !hasManagedWorktree ||
+    handoffState.loading ||
+    handoffStatus.type === "running" ||
+    !handoffState.branchHeld ||
+    !handoffState.hasChanges;
+  const handoffButtonTitle = !hasManagedWorktree
+    ? "Handoff is only available in managed worktrees."
+    : handoffState.loading
+      ? "Checking worktree handoff state…"
+      : !handoffState.branchHeld
+        ? `Handoff is available once this worktree holds ${worktreeBranch}.`
+        : !handoffState.hasChanges
+          ? "No changes to hand off."
+          : `Commit changes to ${worktreeBranch} and release the branch.`;
 
   return (
     <div className="workspace-outer">
@@ -823,19 +1149,45 @@ export default function WorkspacePage() {
           buttonTitle={getCommandBarButtonTitle}
           variant="workspace"
           trailingContent={
-            <span className="project-command-bar__shortcut-hint">
-              <span className="project-command-bar__shortcut-label">Toggle</span>
-              <span className="project-command-bar__shortcut-keys" aria-hidden="true">
-                {commandBarShortcutKeys.map((key) => (
-                  <kbd
-                    key={key}
-                    className="project-command-bar__shortcut-key"
+            <div className="flex items-center gap-2">
+              {hasManagedWorktree ? (
+                <button
+                  type="button"
+                  className={cn(
+                    "project-command-button",
+                    handoffButtonDisabled && "project-command-button--disabled",
+                  )}
+                  title={handoffButtonTitle}
+                  aria-label="Handoff"
+                  disabled={handoffButtonDisabled}
+                  onClick={openHandoffModal}
+                >
+                  <span
+                    className="material-symbols-outlined text-base"
+                    aria-hidden="true"
                   >
-                    {key}
-                  </kbd>
-                ))}
+                    move_item
+                  </span>
+                  <span className="project-command-button__label">Handoff</span>
+                </button>
+              ) : null}
+              <span className="project-command-bar__shortcut-hint">
+                <span className="project-command-bar__shortcut-label">Toggle</span>
+                <span
+                  className="project-command-bar__shortcut-keys"
+                  aria-hidden="true"
+                >
+                  {commandBarShortcutKeys.map((key) => (
+                    <kbd
+                      key={key}
+                      className="project-command-bar__shortcut-key"
+                    >
+                      {key}
+                    </kbd>
+                  ))}
+                </span>
               </span>
-            </span>
+            </div>
           }
         />
       ) : null}
@@ -943,6 +1295,7 @@ export default function WorkspacePage() {
                                   <UserInputCard key={tc.id} toolCall={tc} tabId={activeTabId} />
                                 ) : tc.status === "awaiting_approval" ||
                                   tc.status === "awaiting_worktree" ||
+                                  tc.status === "awaiting_branch_release" ||
                                   tc.status === "awaiting_setup_action" ||
                                   (tc.tool === "git_worktree_init" &&
                                     tc.status === "running") ||
@@ -1287,6 +1640,18 @@ export default function WorkspacePage() {
           onClose={() => setToolDetailsModal(null)}
         />
       )}
+      {handoffModalOpen && hasManagedWorktree ? (
+        <WorktreeHandoffModal
+          branch={worktreeBranch}
+          commitMessage={handoffCommitMessage}
+          status={handoffStatus}
+          onChangeCommitMessage={setHandoffCommitMessage}
+          onClose={closeHandoffModal}
+          onConfirm={() => {
+            void handleConfirmHandoff();
+          }}
+        />
+      ) : null}
 
       {modelPickerOpen && (
         <ModelPickerModal

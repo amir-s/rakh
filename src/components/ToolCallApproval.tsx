@@ -1,12 +1,15 @@
 import {
   resolveApproval,
+  resolveBranchReleaseAction,
   resolveWorktreeApproval,
   resolveWorktreeSetupAction,
   setApprovalReason,
 } from "@/agent/approvals";
 import { useState, useEffect, useRef } from "react";
+import { execRun } from "@/agent/tools/exec";
 import { useStopAgent, useStopRunningExecToolCall } from "@/agent/useAgents";
 import PatchPreview from "@/components/PatchPreview";
+import CopyableCodePill from "@/components/CopyableCodePill";
 import type { ToolCallDisplay } from "@/agent/types";
 import {
   buildEditFileDiffFiles,
@@ -17,6 +20,7 @@ import type { DiffFile } from "@/components/DiffViewer";
 import { deserializeDiff } from "@/components/diffSerialization";
 import { Badge, Button, TextField } from "@/components/ui";
 import { getToolCallIcon, getToolCallLabel } from "@/components/toolDisplay";
+import { cn } from "@/utils/cn";
 
 /* ─────────────────────────────────────────────────────────────────────────────
    ToolCallApproval — rendered when a tool call is in "awaiting_approval" state.
@@ -316,11 +320,13 @@ function WorktreeSetupFailureCard({
 
       <div className="px-3 py-2.5 border-b border-border-subtle">
         <div className="text-xs text-text leading-[1.6]">
-          Branch <span className="font-mono">{configuredBranch || "(pending)"}</span>
+          Branch{" "}
+          <span className="font-mono">{configuredBranch || "(pending)"}</span>
           {configuredPath ? (
             <>
               {" "}
-              is ready at <span className="font-mono break-all">{configuredPath}</span>.
+              is ready at{" "}
+              <span className="font-mono break-all">{configuredPath}</span>.
             </>
           ) : (
             "."
@@ -404,6 +410,8 @@ function WorktreeToolCard({
     typeof args.setupCommand === "string" ? args.setupCommand.trim() : "";
   const setupPhase =
     typeof args.setupPhase === "string" ? args.setupPhase : "approval";
+  const branchError =
+    typeof args.branchError === "string" ? args.branchError.trim() : "";
   const configuredBranch =
     typeof args.branch === "string" && args.branch.trim()
       ? args.branch
@@ -415,6 +423,10 @@ function WorktreeToolCard({
   const [branch, setBranch] = useState(suggested);
   const stopAgent = useStopAgent();
   const stopRunningExecToolCall = useStopRunningExecToolCall();
+
+  useEffect(() => {
+    setBranch(suggested);
+  }, [suggested]);
 
   const resultRecord =
     toolCall.result && typeof toolCall.result === "object"
@@ -429,16 +441,16 @@ function WorktreeToolCard({
     typeof resultRecord.details === "object" &&
     (resultRecord.details as Record<string, unknown>).setup &&
     typeof (resultRecord.details as Record<string, unknown>).setup === "object"
-      ? ((resultRecord.details as Record<string, unknown>)
-          .setup as Record<string, unknown>)
+      ? ((resultRecord.details as Record<string, unknown>).setup as Record<
+          string,
+          unknown
+        >)
       : null;
   const activeSetup = setupRecord ?? setupErrorRecord;
   const setupStatus =
     typeof activeSetup?.status === "string" ? activeSetup.status : null;
   const setupCwd =
-    typeof activeSetup?.cwd === "string"
-      ? activeSetup.cwd
-      : configuredPath;
+    typeof activeSetup?.cwd === "string" ? activeSetup.cwd : configuredPath;
   const setupFailureMessage =
     typeof activeSetup?.errorMessage === "string"
       ? activeSetup.errorMessage
@@ -487,6 +499,15 @@ function WorktreeToolCard({
             A worktree will be created under worktrees/{repoSlug}/
             {branch.trim() || suggested || "branch"}
           </div>
+          <div className="text-xxs text-muted font-mono mt-1 opacity-60">
+            The worktree starts detached and will only hold this branch when the
+            agent needs to write or hand off changes.
+          </div>
+          {branchError ? (
+            <div className="text-xxs text-error font-mono mt-1.5">
+              {branchError}
+            </div>
+          ) : null}
           {setupCommand ? (
             <div className="text-xxs text-muted font-mono mt-1.5 opacity-75">
               Setup command: <span className="text-text">{setupCommand}</span>
@@ -506,7 +527,12 @@ function WorktreeToolCard({
             variant="primary"
             size="xxs"
             onClick={() =>
-              resolveWorktreeApproval(tabId, id, true, branch.trim() || suggested)
+              resolveWorktreeApproval(
+                tabId,
+                id,
+                true,
+                branch.trim() || suggested,
+              )
             }
           >
             CREATE BRANCH
@@ -584,7 +610,11 @@ function WorktreeToolCard({
             >
               STOP
             </Button>
-            <Button variant="danger" size="xxs" onClick={() => stopAgent(tabId)}>
+            <Button
+              variant="danger"
+              size="xxs"
+              onClick={() => stopAgent(tabId)}
+            >
               ABORT
             </Button>
             <Button variant="primary" size="xxs" loading disabled>
@@ -593,7 +623,11 @@ function WorktreeToolCard({
           </>
         ) : (
           <>
-            <Button variant="danger" size="xxs" onClick={() => stopAgent(tabId)}>
+            <Button
+              variant="danger"
+              size="xxs"
+              onClick={() => stopAgent(tabId)}
+            >
               ABORT
             </Button>
             <Button variant="primary" size="xxs" loading disabled>
@@ -601,6 +635,270 @@ function WorktreeToolCard({
             </Button>
           </>
         )}
+      </div>
+    </div>
+  );
+}
+
+function BranchReleaseCommandRow({
+  command,
+  buttonLabel,
+  running,
+  disabled,
+  onRun,
+}: {
+  command: string;
+  buttonLabel: string;
+  running: boolean;
+  disabled?: boolean;
+  onRun: () => void;
+}) {
+  return (
+    <div className="inline-flex max-w-full self-start items-center gap-2 rounded-md border border-border-subtle bg-subtle/40 px-2 py-1.5">
+      <div className="min-w-0 break-all font-mono text-[11px] text-text">
+        <span className="text-muted">$ </span>
+        {command}
+      </div>
+      <Button
+        leftIcon={
+          <span
+            aria-hidden="true"
+            className="material-symbols-outlined text-base"
+          >
+            terminal_2
+          </span>
+        }
+        variant="secondary"
+        size="xxs"
+        loading={running}
+        disabled={disabled}
+        onClick={onRun}
+      >
+        {buttonLabel}
+      </Button>
+    </div>
+  );
+}
+
+function BranchReleaseCard({
+  toolCall,
+  tabId,
+}: {
+  toolCall: ToolCallDisplay;
+  tabId: string;
+}) {
+  const [defaultBranch, setDefaultBranch] = useState("main");
+  const [activeCommand, setActiveCommand] = useState<
+    "detach" | "switch" | null
+  >(null);
+  const [commandError, setCommandError] = useState<string | null>(null);
+  const resultRecord =
+    toolCall.result && typeof toolCall.result === "object"
+      ? (toolCall.result as Record<string, unknown>)
+      : null;
+  const branch =
+    typeof resultRecord?.branch === "string" ? resultRecord.branch : "";
+  const worktreePath =
+    typeof resultRecord?.path === "string" ? resultRecord.path : "";
+  const blockingPath =
+    typeof resultRecord?.blockingPath === "string"
+      ? resultRecord.blockingPath
+      : "";
+  const branchLookupPath = blockingPath || worktreePath;
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadDefaultBranch() {
+      if (!branchLookupPath) {
+        setDefaultBranch("main");
+        return;
+      }
+
+      const originHead = await execRun(branchLookupPath, {
+        command: "git",
+        args: [
+          "symbolic-ref",
+          "--quiet",
+          "--short",
+          "refs/remotes/origin/HEAD",
+        ],
+        timeoutMs: 10_000,
+        maxStdoutBytes: 4_096,
+        maxStderrBytes: 4_096,
+      });
+      if (cancelled) return;
+
+      if (originHead.ok && originHead.data.exitCode === 0) {
+        const resolved = originHead.data.stdout.trim().replace(/^origin\//, "");
+        if (resolved) {
+          setDefaultBranch(resolved);
+          return;
+        }
+      }
+
+      const remoteShow = await execRun(branchLookupPath, {
+        command: "git",
+        args: ["remote", "show", "origin"],
+        timeoutMs: 10_000,
+        maxStdoutBytes: 12_000,
+        maxStderrBytes: 12_000,
+      });
+      if (cancelled) return;
+
+      if (remoteShow.ok && remoteShow.data.exitCode === 0) {
+        const output = `${remoteShow.data.stdout}\n${remoteShow.data.stderr}`;
+        const match = output.match(/HEAD branch:\s+(.+)/);
+        const resolved = match?.[1]?.trim();
+        if (resolved) {
+          setDefaultBranch(resolved);
+          return;
+        }
+      }
+
+      setDefaultBranch("main");
+    }
+
+    void loadDefaultBranch();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [branchLookupPath]);
+
+  async function runReleaseCommand(
+    commandId: "detach" | "switch",
+    args: string[],
+  ) {
+    if (!blockingPath) return;
+
+    setActiveCommand(commandId);
+    setCommandError(null);
+
+    const result = await execRun(blockingPath, {
+      command: "git",
+      args,
+      timeoutMs: 30_000,
+      maxStdoutBytes: 16_000,
+      maxStderrBytes: 16_000,
+      reason: `Release session branch ${branch || "session branch"} from the conflicting checkout.`,
+    });
+
+    if (!result.ok) {
+      setCommandError(result.error.message);
+      setActiveCommand(null);
+      return;
+    }
+
+    if (result.data.exitCode !== 0) {
+      const output =
+        result.data.stderr.trim() ||
+        result.data.stdout.trim() ||
+        `git ${args.join(" ")} exited with code ${result.data.exitCode}.`;
+      setCommandError(output);
+      setActiveCommand(null);
+      return;
+    }
+
+    resolveBranchReleaseAction(tabId, toolCall.id, "retry");
+  }
+
+  return (
+    <div className="msg-card animate-fade-up mt-1.5">
+      <div className="msg-card-head">
+        <div className="msg-card-label">
+          <span className="material-symbols-outlined text-base">
+            account_tree
+          </span>
+          RELEASE SESSION BRANCH
+        </div>
+        <div className="text-xxs text-muted font-mono opacity-60">
+          {toolCall.tool}
+        </div>
+      </div>
+
+      <div className="px-3 py-2.5 border-b border-border-subtle">
+        <div className="text-xs text-text">
+          Release this branch so the agent can continue writing.
+        </div>
+        <div className="mt-3 flex flex-col md:flex-row gap-2">
+          <div className="flex flex-col gap-1 flex-1">
+            <div className="text-xxs font-bold tracking-widest uppercase text-muted">
+              Session Branch
+            </div>
+            <CopyableCodePill
+              value={branch || "(unknown branch)"}
+              label="session branch"
+            />
+          </div>
+          {blockingPath ? (
+            <div className="flex flex-col gap-1 flex-1">
+              <div className="text-xxs font-bold tracking-widest uppercase text-muted">
+                Conflicting Checkout
+              </div>
+              <CopyableCodePill
+                value={blockingPath}
+                label="conflicting checkout path"
+              />
+            </div>
+          ) : null}
+        </div>
+        <div className="mt-4 text-xs text-text">
+          Run one of these in the conflicting checkout.
+        </div>
+        <div className="mt-4 flex flex-row gap-4 items-center">
+          <BranchReleaseCommandRow
+            command="git switch --detach"
+            buttonLabel="DETACH"
+            running={activeCommand === "detach"}
+            disabled={!blockingPath || activeCommand === "switch"}
+            onRun={() => {
+              void runReleaseCommand("detach", ["switch", "--detach"]);
+            }}
+          />
+          <div className="text-muted"> or </div>
+          <BranchReleaseCommandRow
+            command={`git switch ${defaultBranch}`}
+            buttonLabel="SWITCH"
+            running={activeCommand === "switch"}
+            disabled={!blockingPath || activeCommand === "detach"}
+            onRun={() => {
+              void runReleaseCommand("switch", ["switch", defaultBranch]);
+            }}
+          />
+        </div>
+        {commandError ? (
+          <div className="mt-2 text-xxs text-danger whitespace-pre-wrap break-words">
+            {commandError}
+          </div>
+        ) : null}
+        {!blockingPath ? (
+          <div className="mt-2 text-xxs text-warning">
+            Release the branch in the other checkout, then retry.
+          </div>
+        ) : null}
+      </div>
+
+      <div className="msg-card-footer">
+        <Button
+          variant="danger"
+          size="xxs"
+          onClick={() =>
+            resolveBranchReleaseAction(tabId, toolCall.id, "abort")
+          }
+        >
+          ABORT
+        </Button>
+        <Button
+          variant="secondary"
+          size="xxs"
+          disabled={activeCommand !== null}
+          onClick={() =>
+            resolveBranchReleaseAction(tabId, toolCall.id, "retry")
+          }
+        >
+          RETRY
+        </Button>
       </div>
     </div>
   );
@@ -627,6 +925,10 @@ export default function ToolCallApproval({
       streamingRef.current.scrollTop = streamingRef.current.scrollHeight;
     }
   }, [isExecRunning, toolCall.streamingOutput]);
+
+  if (toolCall.status === "awaiting_branch_release") {
+    return <BranchReleaseCard toolCall={toolCall} tabId={tabId} />;
+  }
 
   // Render the dedicated worktree card for git_worktree_init
   if (tool === "git_worktree_init") {

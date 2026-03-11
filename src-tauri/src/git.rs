@@ -100,7 +100,7 @@ pub fn git_worktree_add(
                 .map_err(|e| format!("Cannot create worktree parent dir: {}", e))?;
         }
 
-        let output = std::process::Command::new("git")
+        let add_output = std::process::Command::new("git")
             .args([
                 "-C",
                 &repo_path,
@@ -113,14 +113,24 @@ pub fn git_worktree_add(
             .output()
             .map_err(|e| format!("Failed to run git: {}", e))?;
 
-        if output.status.success() {
-            Ok(json!({
-                "path": worktree_path_str,
-                "branch": branch
-            }))
-        } else {
-            let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+        if !add_output.status.success() {
+            let stderr = String::from_utf8_lossy(&add_output.stderr).to_string();
             Err(format!("git worktree add failed: {}", stderr.trim()))
+        } else {
+            let detach_output = std::process::Command::new("git")
+                .args(["-C", &worktree_path_str, "switch", "--detach"])
+                .output()
+                .map_err(|e| format!("Failed to run git detach: {}", e))?;
+
+            if detach_output.status.success() {
+                Ok(json!({
+                    "path": worktree_path_str,
+                    "branch": branch
+                }))
+            } else {
+                let stderr = String::from_utf8_lossy(&detach_output.stderr).to_string();
+                Err(format!("git worktree detach failed: {}", stderr.trim()))
+            }
         }
     })();
 

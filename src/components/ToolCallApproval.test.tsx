@@ -1,6 +1,12 @@
 // @vitest-environment jsdom
 
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+} from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ToolCallDisplay } from "@/agent/types";
 import ToolCallApproval from "./ToolCallApproval";
@@ -8,6 +14,7 @@ import ToolCallApproval from "./ToolCallApproval";
 const approvalMocks = vi.hoisted(() => ({
   resolveWorktreeApprovalMock: vi.fn(),
   resolveWorktreeSetupActionMock: vi.fn(),
+  resolveBranchReleaseActionMock: vi.fn(),
   resolveApprovalMock: vi.fn(),
   setApprovalReasonMock: vi.fn(),
 }));
@@ -17,8 +24,18 @@ const useAgentsMocks = vi.hoisted(() => ({
   stopRunningExecToolCallMock: vi.fn(async () => true),
 }));
 
+const execMocks = vi.hoisted(() => ({
+  execRunMock: vi.fn(),
+}));
+
+const clipboardMock = vi.hoisted(() => ({
+  writeText: vi.fn(),
+}));
+
 vi.mock("@/agent/approvals", () => ({
   resolveApproval: (...args: unknown[]) => approvalMocks.resolveApprovalMock(...args),
+  resolveBranchReleaseAction: (...args: unknown[]) =>
+    approvalMocks.resolveBranchReleaseActionMock(...args),
   resolveWorktreeApproval: (...args: unknown[]) =>
     approvalMocks.resolveWorktreeApprovalMock(...args),
   resolveWorktreeSetupAction: (...args: unknown[]) =>
@@ -30,6 +47,33 @@ vi.mock("@/agent/useAgents", () => ({
   useStopAgent: () => useAgentsMocks.stopAgentMock,
   useStopRunningExecToolCall: () => useAgentsMocks.stopRunningExecToolCallMock,
 }));
+
+vi.mock("@/agent/tools/exec", () => ({
+  execRun: (...args: unknown[]) => execMocks.execRunMock(...args),
+}));
+
+function makeExecRunResult(
+  overrides: Partial<{
+    exitCode: number;
+    stdout: string;
+    stderr: string;
+  }> = {},
+) {
+  return {
+    ok: true as const,
+    data: {
+      command: "git",
+      args: [],
+      cwd: "/tmp/worktree",
+      exitCode: overrides.exitCode ?? 0,
+      durationMs: 12,
+      stdout: overrides.stdout ?? "",
+      stderr: overrides.stderr ?? "",
+      truncatedStdout: false,
+      truncatedStderr: false,
+    },
+  };
+}
 
 function makeWorktreeToolCall(
   overrides: Partial<ToolCallDisplay> = {},
@@ -65,12 +109,23 @@ describe("ToolCallApproval", () => {
   beforeEach(() => {
     vi.useFakeTimers();
     approvalMocks.resolveApprovalMock.mockReset();
+    approvalMocks.resolveBranchReleaseActionMock.mockReset();
     approvalMocks.resolveWorktreeApprovalMock.mockReset();
     approvalMocks.resolveWorktreeSetupActionMock.mockReset();
     approvalMocks.setApprovalReasonMock.mockReset();
     useAgentsMocks.stopAgentMock.mockReset();
     useAgentsMocks.stopRunningExecToolCallMock.mockReset();
     useAgentsMocks.stopRunningExecToolCallMock.mockResolvedValue(true);
+    execMocks.execRunMock.mockReset();
+    execMocks.execRunMock.mockResolvedValue(
+      makeExecRunResult({ stdout: "origin/main\n" }),
+    );
+    clipboardMock.writeText.mockReset();
+    clipboardMock.writeText.mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText: clipboardMock.writeText },
+    });
   });
 
   afterEach(() => {
@@ -149,5 +204,96 @@ describe("ToolCallApproval", () => {
     );
 
     expect(screen.getByText("MCP / Filesystem / Read File")).not.toBeNull();
+  });
+
+  it("copies the branch and conflicting checkout from the branch release card", async () => {
+    render(
+      <ToolCallApproval
+        toolCall={{
+          id: "tc-lease",
+          tool: "workspace_writeFile",
+          args: { path: "src/app.ts" },
+          result: {
+            branch: "feat/handoff",
+            path: "/tmp/worktree",
+            blockingPath: "/Users/amir/code/rakh",
+            message:
+              "fatal: 'feat/handoff' is already checked out at '/Users/amir/code/rakh'",
+            instructions: [
+              "Release `feat/handoff` in `/Users/amir/code/rakh` with `git switch --detach` or `git switch <other-branch>`.",
+              "Then retry once the branch is no longer checked out elsewhere.",
+            ],
+          },
+          status: "awaiting_branch_release",
+        }}
+        tabId="tab-1"
+      />,
+    );
+
+    expect(screen.getByText("RELEASE SESSION BRANCH")).not.toBeNull();
+    expect(screen.queryByText(/fatal:/)).toBeNull();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Copy session branch" }));
+      fireEvent.click(
+        screen.getByRole("button", { name: "Copy conflicting checkout path" }),
+      );
+      await Promise.resolve();
+    });
+
+    expect(clipboardMock.writeText).toHaveBeenNthCalledWith(1, "feat/handoff");
+    expect(clipboardMock.writeText).toHaveBeenNthCalledWith(
+      2,
+      "/Users/amir/code/rakh",
+    );
+  });
+
+  it("runs an inline release command and retries automatically on success", async () => {
+    execMocks.execRunMock
+      .mockResolvedValueOnce(makeExecRunResult({ stdout: "origin/trunk\n" }))
+      .mockResolvedValueOnce(makeExecRunResult());
+
+    render(
+      <ToolCallApproval
+        toolCall={{
+          id: "tc-lease",
+          tool: "workspace_writeFile",
+          args: { path: "src/app.ts" },
+          result: {
+            branch: "feat/handoff",
+            path: "/tmp/worktree",
+            blockingPath: "/Users/amir/code/rakh",
+          },
+          status: "awaiting_branch_release",
+        }}
+        tabId="tab-1"
+      />,
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(screen.getByText("git switch trunk")).not.toBeNull();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "SWITCH" }));
+      await Promise.resolve();
+    });
+
+    expect(execMocks.execRunMock).toHaveBeenNthCalledWith(
+      2,
+      "/Users/amir/code/rakh",
+      expect.objectContaining({
+        command: "git",
+        args: ["switch", "trunk"],
+      }),
+    );
+    expect(approvalMocks.resolveBranchReleaseActionMock).toHaveBeenCalledWith(
+      "tab-1",
+      "tc-lease",
+      "retry",
+    );
   });
 });

@@ -227,6 +227,13 @@ export function cancelAllApprovals(tabId?: string): void {
       worktreeSetupActionResolvers.delete(key);
     }
   }
+
+  for (const [key, resolve] of branchReleaseActionResolvers.entries()) {
+    if (key.startsWith(prefix)) {
+      resolve({ action: "abort" });
+      branchReleaseActionResolvers.delete(key);
+    }
+  }
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
@@ -339,6 +346,39 @@ export function resolveWorktreeSetupAction(
   const resolve = worktreeSetupActionResolvers.get(key);
   if (resolve) {
     worktreeSetupActionResolvers.delete(key);
+    resolve({ action });
+  }
+}
+
+export type BranchReleaseAction = "retry" | "abort";
+
+export interface BranchReleaseActionResult {
+  action: BranchReleaseAction;
+}
+
+const branchReleaseActionResolvers = new Map<
+  string,
+  (result: BranchReleaseActionResult) => void
+>();
+
+export function requestBranchReleaseAction(
+  tabId: string,
+  id: string,
+): Promise<BranchReleaseActionResult> {
+  return new Promise<BranchReleaseActionResult>((resolve) => {
+    branchReleaseActionResolvers.set(`${tabId}:${id}`, resolve);
+  });
+}
+
+export function resolveBranchReleaseAction(
+  tabId: string,
+  id: string,
+  action: BranchReleaseAction,
+): void {
+  const key = `${tabId}:${id}`;
+  const resolve = branchReleaseActionResolvers.get(key);
+  if (resolve) {
+    branchReleaseActionResolvers.delete(key);
     resolve({ action });
   }
 }

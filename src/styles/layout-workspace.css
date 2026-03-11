@@ -89,6 +89,22 @@
   outline: none;
 }
 
+.project-command-button:disabled,
+.project-command-button--disabled {
+  opacity: 0.45;
+  color: var(--color-muted);
+  cursor: default;
+}
+
+.project-command-button:disabled:hover,
+.project-command-button:disabled:focus-visible,
+.project-command-button--disabled:hover,
+.project-command-button--disabled:focus-visible {
+  background: color-mix(in srgb, var(--color-inset) 82%, transparent);
+  border-color: color-mix(in srgb, var(--color-border-mid) 72%, transparent);
+  color: var(--color-muted);
+}
+
 .project-command-button:active {
   transform: translateY(1px);
 }
