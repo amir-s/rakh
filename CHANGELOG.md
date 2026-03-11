@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.10.0](https://github.com/amir-s/rakh/compare/rakh-v0.9.0...rakh-v0.10.0) (2026-03-11)
+
+
+### Features
+
+* **chrome:** group and search archived tabs ([813220b](https://github.com/amir-s/rakh/commit/813220b7d20c63f4e30aa9b387140b7739e7c9e6))
+
+
+### Bug Fixes
+
+* **approvals:** add command allow and deny lists ([#131](https://github.com/amir-s/rakh/issues/131)) ([b6d3069](https://github.com/amir-s/rakh/commit/b6d30699631437d5562906234fae51240f60a1bb))
+* **exec:** sanitize ANSI control sequences in command output ([#124](https://github.com/amir-s/rakh/issues/124)) ([218045a](https://github.com/amir-s/rakh/commit/218045ac40ab8944defe4235c672cc6bdda83b7f))
+* **storage:** repair session saves and surface save status ([ff909df](https://github.com/amir-s/rakh/commit/ff909dfdf7e92767af338f3fdedeb4d7b4834e3d))
+* **tauri:** register external tool commands ([#125](https://github.com/amir-s/rakh/issues/125)) ([daca921](https://github.com/amir-s/rakh/commit/daca9219bb965d7866bd052ae9d9421812609a03))
+
 ## [0.9.0](https://github.com/amir-s/rakh/compare/rakh-v0.8.0...rakh-v0.9.0) (2026-03-11)
 
 
