@@ -1,6 +1,7 @@
 import { useState, useCallback, useMemo } from "react";
 import { useAtomValue } from "jotai";
 import { providersAtom } from "./db";
+import { rankFuzzyItems } from "@/utils/fuzzySearch";
 import {
   STATIC_MODEL_CATALOG,
   DEFAULT_SELECTED_MODEL,
@@ -29,60 +30,6 @@ export function fmtPrice(pricing?: { prompt: string }): string {
   return `$${perM < 1 ? perM.toFixed(3) : perM.toFixed(2)}/M`;
 }
 
-function normalizeSearchValue(value: string): string {
-  return value
-    .toLowerCase()
-    .replace(/[./:_-]+/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function scoreSubsequence(field: string, token: string): number {
-  let tokenIdx = 0;
-  let firstMatch = -1;
-  let gapCount = 0;
-
-  for (let fieldIdx = 0; fieldIdx < field.length; fieldIdx += 1) {
-    if (tokenIdx >= token.length) break;
-
-    if (field[fieldIdx] === token[tokenIdx]) {
-      if (firstMatch === -1) firstMatch = fieldIdx;
-      tokenIdx += 1;
-      continue;
-    }
-
-    if (tokenIdx > 0) {
-      gapCount += 1;
-    }
-  }
-
-  if (tokenIdx !== token.length || firstMatch === -1) {
-    return 0;
-  }
-
-  const proximityBonus = Math.max(0, 20 - firstMatch);
-  const gapPenalty = Math.min(28, gapCount);
-  return Math.max(1, 42 + proximityBonus - gapPenalty);
-}
-
-function scoreTokenInField(field: string, token: string): number {
-  if (!field || !token) return 0;
-
-  if (field === token) return 220;
-  if (field.startsWith(token)) return 170;
-
-  const words = field.split(" ");
-  if (words.some((word) => word.startsWith(token))) return 145;
-
-  const containsIndex = field.indexOf(token);
-  if (containsIndex >= 0) {
-    return Math.max(90, 130 - containsIndex);
-  }
-
-  if (token.length < 2) return 0;
-  return scoreSubsequence(field, token);
-}
-
 function getModelSearchFields(model: GatewayModel): string[] {
   const providerAliases =
     model.owned_by === "openai-compatible"
@@ -95,9 +42,7 @@ function getModelSearchFields(model: GatewayModel): string[] {
     model.providerId,
     model.tags.join(" "),
     providerAliases,
-  ]
-    .map(normalizeSearchValue)
-    .filter(Boolean);
+  ];
 }
 
 export function filterModelsForQuery(
@@ -105,53 +50,9 @@ export function filterModelsForQuery(
   query: string,
   limit = 80,
 ): GatewayModel[] {
-  const normalizedQuery = normalizeSearchValue(query);
-  if (!normalizedQuery) return models.slice(0, limit);
-
-  const tokens = normalizedQuery.split(" ").filter(Boolean);
-  if (tokens.length === 0) return models.slice(0, limit);
-
-  return models
-    .map((model, index) => {
-      const fields = getModelSearchFields(model);
-      let score = 0;
-
-      for (const token of tokens) {
-        let bestTokenScore = 0;
-        for (const field of fields) {
-          const tokenScore = scoreTokenInField(field, token);
-          if (tokenScore > bestTokenScore) {
-            bestTokenScore = tokenScore;
-          }
-        }
-
-        if (bestTokenScore === 0) {
-          return null;
-        }
-
-        score += bestTokenScore;
-      }
-
-      for (const field of fields) {
-        if (field === normalizedQuery) {
-          score += 140;
-          continue;
-        }
-        if (field.startsWith(normalizedQuery)) {
-          score += 90;
-          continue;
-        }
-        if (field.includes(normalizedQuery)) {
-          score += 55;
-        }
-      }
-
-      return { model, index, score };
-    })
-    .filter((entry): entry is { model: GatewayModel; index: number; score: number } => entry !== null)
-    .sort((a, b) => b.score - a.score || a.index - b.index)
+  return rankFuzzyItems(models, query, getModelSearchFields)
     .slice(0, limit)
-    .map((entry) => entry.model);
+    .map((entry) => entry.item);
 }
 
 /**
