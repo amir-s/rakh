@@ -19,6 +19,7 @@ const workspaceMocks = vi.hoisted(() => ({
   resumeQueueMock: vi.fn(),
   removeQueuedMessageMock: vi.fn<(messageId: string) => void>(),
   clearQueuedMessagesMock: vi.fn(),
+  stopAgentMock: vi.fn<(tabId: string) => void>(),
   stopMock: vi.fn(),
   setConfigMock: vi.fn(),
   setAutoApproveEditsMock: vi.fn(),
@@ -133,6 +134,7 @@ vi.mock("@/projects", () => ({
 
 vi.mock("@/agent/useAgents", () => ({
   useAgent: () => workspaceMocks.agentState,
+  useStopAgent: () => workspaceMocks.stopAgentMock,
 }));
 
 vi.mock("@/agent/useModels", () => ({
@@ -462,6 +464,7 @@ describe("WorkspacePage chat input", () => {
     workspaceMocks.resumeQueueMock.mockReset();
     workspaceMocks.removeQueuedMessageMock.mockReset();
     workspaceMocks.clearQueuedMessagesMock.mockReset();
+    workspaceMocks.stopAgentMock.mockReset();
     workspaceMocks.stopMock.mockReset();
     workspaceMocks.setConfigMock.mockReset();
     workspaceMocks.setAutoApproveEditsMock.mockReset();
@@ -593,6 +596,45 @@ describe("WorkspacePage chat input", () => {
       expect(textbox.textContent).toBe("@README.md ");
     });
     expect(workspaceMocks.sendMessageMock).not.toHaveBeenCalled();
+  });
+
+  it("shows a stop button while busy when the composer is empty", () => {
+    workspaceMocks.agentState.status = "thinking";
+
+    render(<WorkspacePage />);
+
+    expect(screen.queryByRole("button", { name: "Send" })).toBeNull();
+
+    act(() => {
+      fireEvent.click(screen.getByRole("button", { name: "Stop agent" }));
+    });
+
+    expect(workspaceMocks.stopAgentMock).toHaveBeenCalledWith("tab-1");
+  });
+
+  it("keeps the send button available while busy when text is queued", async () => {
+    workspaceMocks.agentState.status = "working";
+
+    render(<WorkspacePage />);
+
+    const textbox = screen.getByRole("textbox");
+    setTextboxRect(textbox);
+
+    emitTranscript("follow up");
+
+    await waitFor(() => {
+      expect(textbox.textContent).toBe("follow up");
+    });
+
+    expect(screen.queryByRole("button", { name: "Stop agent" })).toBeNull();
+
+    act(() => {
+      fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    });
+
+    expect(workspaceMocks.queueMessageMock).toHaveBeenCalledWith("follow up");
+    expect(workspaceMocks.sendMessageMock).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Stop agent" })).not.toBeNull();
   });
 
   it("keeps focus and the caret at the end after voice transcript append and refine edit", async () => {

@@ -46,7 +46,7 @@ import {
 } from "@/components/voice-input/VoiceInputUi";
 import { useVoiceInputController } from "@/components/voice-input/useVoiceInputController";
 import { useTabs } from "@/contexts/TabsContext";
-import { useAgent } from "@/agent/useAgents";
+import { useAgent, useStopAgent } from "@/agent/useAgents";
 import { useModels } from "@/agent/useModels";
 import { patchAgentState, voiceInputEnabledAtom } from "@/agent/atoms";
 import {
@@ -87,6 +87,7 @@ export default function WorkspacePage() {
 
   // Agent state — always called (hooks must not be conditional)
   const agent = useAgent(activeTabId);
+  const stopAgent = useStopAgent();
   const isAgentBusy = agent.status === "thinking" || agent.status === "working";
   const { models } = useModels();
 
@@ -797,6 +798,7 @@ export default function WorkspacePage() {
 
   const hasSendableText = input.trim().length > 0;
   const canSend = hasSendableText || attachedImages.length > 0;
+  const showStopButton = isAgentBusy && !hasSendableText;
   const voiceBusy = voiceInput.busy;
   const showBusyComposerTray = agent.queuedMessages.length > 0;
   const sendTitle = voiceInput.isPreparingModel
@@ -1059,9 +1061,7 @@ export default function WorkspacePage() {
               contextMaxKb={contextWindowKb?.maxKb ?? null}
             />
             <VoiceInputStateProvider value={voiceInput}>
-              <div
-                className={`chat-input-shell${isAgentBusy ? " chat-input-shell--busy" : ""}`}
-              >
+              <div className="chat-input-shell">
                 {isChatDropActive && (
                   <div className="chat-drop-overlay" aria-hidden="true">
                     <span className="material-symbols-outlined">upload_file</span>
@@ -1109,22 +1109,47 @@ export default function WorkspacePage() {
                 />
                 <div className="chat-input-actions">
                   <VoiceInputToggleButton />
-                  {isAgentBusy ? null : (
-                    <button
-                      title={sendTitle}
-                      aria-label="Send"
-                      onClick={() => void handleSubmit()}
-                      disabled={voiceBusy || !canSend}
-                    >
-                      <span className="material-symbols-outlined text-lg">
-                        {voiceInput.isPreparingModel
-                          ? "download"
-                          : voiceInput.isTranscribing
-                            ? "hourglass_top"
-                            : "arrow_upward"}
-                      </span>
-                    </button>
-                  )}
+                  <AnimatePresence initial={false} mode="wait">
+                    {showStopButton ? (
+                      <motion.button
+                        key="stop"
+                        type="button"
+                        className="chat-input-action-btn chat-input-action-btn--stop"
+                        title="Stop current run"
+                        aria-label="Stop agent"
+                        onClick={() => stopAgent(activeTabId)}
+                        initial={{ opacity: 0, scale: 0.92 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        exit={{ opacity: 0, scale: 0.92 }}
+                        transition={{ duration: 0.14, ease: "easeOut" }}
+                      >
+                        <span className="material-symbols-outlined text-lg">
+                          stop_circle
+                        </span>
+                      </motion.button>
+                    ) : (
+                      <motion.button
+                        key="send"
+                        type="button"
+                        title={sendTitle}
+                        aria-label="Send"
+                        onClick={() => void handleSubmit()}
+                        disabled={voiceBusy || !canSend}
+                        initial={{ opacity: 0, scale: 0.92 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        exit={{ opacity: 0, scale: 0.92 }}
+                        transition={{ duration: 0.14, ease: "easeOut" }}
+                      >
+                        <span className="material-symbols-outlined text-lg">
+                          {voiceInput.isPreparingModel
+                            ? "download"
+                            : voiceInput.isTranscribing
+                              ? "hourglass_top"
+                              : "arrow_upward"}
+                        </span>
+                      </motion.button>
+                    )}
+                  </AnimatePresence>
                 </div>
               </div>
             </VoiceInputStateProvider>
