@@ -8,6 +8,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter};
+use vte::{Parser, Perform};
 
 pub type SharedExecChild = Arc<Mutex<std::process::Child>>;
 
@@ -25,6 +26,82 @@ pub fn aborted_exec_runs() -> &'static Mutex<HashSet<String>> {
 
 pub fn stopped_exec_runs() -> &'static Mutex<HashSet<String>> {
     STOPPED_EXEC_RUNS.get_or_init(|| Mutex::new(HashSet::new()))
+}
+
+#[derive(Default)]
+struct PlainTextExecOutput {
+    bytes: Vec<u8>,
+    pending_carriage_return: bool,
+}
+
+impl PlainTextExecOutput {
+    fn flush_pending_carriage_return(&mut self) {
+        if self.pending_carriage_return {
+            self.bytes.push(b'\n');
+            self.pending_carriage_return = false;
+        }
+    }
+
+    fn take_bytes(&mut self) -> Vec<u8> {
+        std::mem::take(&mut self.bytes)
+    }
+
+    fn finish(mut self) -> Vec<u8> {
+        self.flush_pending_carriage_return();
+        self.bytes
+    }
+}
+
+impl Perform for PlainTextExecOutput {
+    fn print(&mut self, c: char) {
+        self.flush_pending_carriage_return();
+        let mut utf8 = [0u8; 4];
+        self.bytes
+            .extend_from_slice(c.encode_utf8(&mut utf8).as_bytes());
+    }
+
+    fn execute(&mut self, byte: u8) {
+        match byte {
+            b'\n' => {
+                self.pending_carriage_return = false;
+                self.bytes.push(b'\n');
+            }
+            b'\r' => {
+                self.pending_carriage_return = true;
+            }
+            b'\t' => {
+                self.flush_pending_carriage_return();
+                self.bytes.push(b'\t');
+            }
+            _ => {
+                self.flush_pending_carriage_return();
+            }
+        }
+    }
+}
+
+#[derive(Default)]
+struct ExecOutputSanitizer {
+    parser: Parser,
+    plain_text: PlainTextExecOutput,
+}
+
+impl ExecOutputSanitizer {
+    fn push(&mut self, bytes: &[u8]) -> Vec<u8> {
+        self.parser.advance(&mut self.plain_text, bytes);
+        self.plain_text.take_bytes()
+    }
+
+    fn finish(self) -> Vec<u8> {
+        self.plain_text.finish()
+    }
+}
+
+fn sanitize_exec_output_bytes(bytes: &[u8]) -> Vec<u8> {
+    let mut sanitizer = ExecOutputSanitizer::default();
+    let mut output = sanitizer.push(bytes);
+    output.extend(sanitizer.finish());
+    output
 }
 
 fn command_uses_explicit_path(command: &str) -> bool {
@@ -229,6 +306,7 @@ pub async fn exec_run_inner(
         let run_id_out = run_id.clone();
         let stdout_reader = std::thread::spawn(move || -> Vec<u8> {
             let mut full_buf = Vec::new();
+            let mut sanitizer = ExecOutputSanitizer::default();
             if let Some(mut out) = stdout_pipe {
                 let mut chunk = [0u8; 4096];
                 loop {
@@ -238,19 +316,36 @@ pub async fn exec_run_inner(
                             let data = &chunk[..n];
                             full_buf.extend_from_slice(data);
                             if let (Some(ref app_h), Some(ref id)) = (&app_out, &run_id_out) {
-                                let s = String::from_utf8_lossy(data);
-                                let _ = app_h.emit(
-                                    "exec_output",
-                                    json!({
-                                        "runId": id,
-                                        "stream": "stdout",
-                                        "data": s.as_ref(),
-                                    }),
-                                );
+                                let sanitized = sanitizer.push(data);
+                                if !sanitized.is_empty() {
+                                    let s = String::from_utf8_lossy(&sanitized);
+                                    let _ = app_h.emit(
+                                        "exec_output",
+                                        json!({
+                                            "runId": id,
+                                            "stream": "stdout",
+                                            "data": s.as_ref(),
+                                        }),
+                                    );
+                                }
                             }
                         }
                         Err(_) => break,
                     }
+                }
+            }
+            if let (Some(ref app_h), Some(ref id)) = (&app_out, &run_id_out) {
+                let tail = sanitizer.finish();
+                if !tail.is_empty() {
+                    let s = String::from_utf8_lossy(&tail);
+                    let _ = app_h.emit(
+                        "exec_output",
+                        json!({
+                            "runId": id,
+                            "stream": "stdout",
+                            "data": s.as_ref(),
+                        }),
+                    );
                 }
             }
             full_buf
@@ -260,6 +355,7 @@ pub async fn exec_run_inner(
         let run_id_err = run_id.clone();
         let stderr_reader = std::thread::spawn(move || -> Vec<u8> {
             let mut full_buf = Vec::new();
+            let mut sanitizer = ExecOutputSanitizer::default();
             if let Some(mut err) = stderr_pipe {
                 let mut chunk = [0u8; 4096];
                 loop {
@@ -269,19 +365,36 @@ pub async fn exec_run_inner(
                             let data = &chunk[..n];
                             full_buf.extend_from_slice(data);
                             if let (Some(ref app_h), Some(ref id)) = (&app_err, &run_id_err) {
-                                let s = String::from_utf8_lossy(data);
-                                let _ = app_h.emit(
-                                    "exec_output",
-                                    json!({
-                                        "runId": id,
-                                        "stream": "stderr",
-                                        "data": s.as_ref(),
-                                    }),
-                                );
+                                let sanitized = sanitizer.push(data);
+                                if !sanitized.is_empty() {
+                                    let s = String::from_utf8_lossy(&sanitized);
+                                    let _ = app_h.emit(
+                                        "exec_output",
+                                        json!({
+                                            "runId": id,
+                                            "stream": "stderr",
+                                            "data": s.as_ref(),
+                                        }),
+                                    );
+                                }
                             }
                         }
                         Err(_) => break,
                     }
+                }
+            }
+            if let (Some(ref app_h), Some(ref id)) = (&app_err, &run_id_err) {
+                let tail = sanitizer.finish();
+                if !tail.is_empty() {
+                    let s = String::from_utf8_lossy(&tail);
+                    let _ = app_h.emit(
+                        "exec_output",
+                        json!({
+                            "runId": id,
+                            "stream": "stderr",
+                            "data": s.as_ref(),
+                        }),
+                    );
                 }
             }
             full_buf
@@ -346,8 +459,10 @@ pub async fn exec_run_inner(
 
         let stdout_raw = stdout_reader.join().unwrap_or_default();
         let stderr_raw = stderr_reader.join().unwrap_or_default();
-        let (stdout_trimmed, trunc_out) = truncate_bytes(&stdout_raw, max_stdout_bytes);
-        let (stderr_trimmed, trunc_err) = truncate_bytes(&stderr_raw, max_stderr_bytes);
+        let stdout_sanitized = sanitize_exec_output_bytes(&stdout_raw);
+        let stderr_sanitized = sanitize_exec_output_bytes(&stderr_raw);
+        let (stdout_trimmed, trunc_out) = truncate_bytes(&stdout_sanitized, max_stdout_bytes);
+        let (stderr_trimmed, trunc_err) = truncate_bytes(&stderr_sanitized, max_stderr_bytes);
 
         let result = json!({
             "command": command,
@@ -639,5 +754,37 @@ mod tests {
                 .unwrap();
 
         assert_eq!(resolved, file_path);
+    }
+
+    #[test]
+    fn test_sanitize_exec_output_bytes_strips_ansi_sequences() {
+        let sanitized = sanitize_exec_output_bytes(
+            b"\x1b[33mWarning\x1b[0m\n\x1b[3mnpm:fsevents@2.3.3\x1b[0m\n",
+        );
+
+        assert_eq!(
+            String::from_utf8(sanitized).unwrap(),
+            "Warning\nnpm:fsevents@2.3.3\n"
+        );
+    }
+
+    #[test]
+    fn test_exec_output_sanitizer_handles_split_escape_sequences() {
+        let mut sanitizer = ExecOutputSanitizer::default();
+
+        assert_eq!(sanitizer.push(b"\x1b[3"), b"");
+        assert_eq!(sanitizer.push(b"3mWarn"), b"Warn");
+        assert_eq!(sanitizer.push(b"ing\x1b[0"), b"ing");
+        assert_eq!(sanitizer.push(b"m\n"), b"\n");
+        assert_eq!(sanitizer.finish(), b"");
+    }
+
+    #[test]
+    fn test_exec_output_sanitizer_normalizes_carriage_returns() {
+        let sanitized = sanitize_exec_output_bytes(b"step 1\rstep 2\r\nstep 3");
+        assert_eq!(
+            String::from_utf8(sanitized).unwrap(),
+            "step 1\nstep 2\nstep 3"
+        );
     }
 }
