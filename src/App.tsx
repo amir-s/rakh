@@ -28,6 +28,7 @@ import {
   archiveSession,
   deleteSession,
   isSessionEmpty,
+  markSessionAsPersisted,
   type PersistedSession,
 } from "@/agent/persistence";
 import type { AgentStatus } from "@/agent/types";
@@ -212,6 +213,7 @@ export default function App() {
             }
 
             hydratePersistedSession(s, { restoreError });
+            markSessionAsPersisted(s);
           } catch (e) {
             console.error("rakh: failed to restore session", s.id, e);
           }
