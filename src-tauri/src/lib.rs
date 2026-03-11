@@ -69,6 +69,8 @@ pub fn run() {
             db::providers_save,
             db::profiles_load,
             db::profiles_save,
+            db::command_list_load,
+            db::command_list_save,
             mcp::mcp_servers_load,
             mcp::mcp_settings_load,
             mcp::mcp_servers_save,

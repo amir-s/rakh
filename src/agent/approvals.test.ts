@@ -12,89 +12,227 @@ import {
   resolveWorktreeSetupAction,
   resolveWorktreeApproval,
   setApprovalReason,
+  isCommandInList,
+  matchesEntry,
 } from "./approvals";
+import type { CommandList, CommandListEntry } from "./db";
+
+// Helper: unwrap required from ApprovalResult for concise assertions
+function req(result: { required: boolean; dangerous: boolean }): boolean {
+  return result.required;
+}
 
 describe("approvals - requiresApproval", () => {
   it("should never require approval for inline tools", () => {
-    expect(requiresApproval("workspace_listDir", false, "no")).toBe(false);
-    expect(requiresApproval("agent_title_set", false, "no")).toBe(false);
-    expect(requiresApproval("agent_artifact_create", false, "no")).toBe(false);
-    expect(requiresApproval("agent_artifact_version", false, "no")).toBe(false);
-    expect(requiresApproval("agent_artifact_get", false, "no")).toBe(false);
-    expect(requiresApproval("agent_artifact_list", false, "no")).toBe(false);
+    expect(req(requiresApproval("workspace_listDir", false, "no"))).toBe(false);
+    expect(req(requiresApproval("agent_title_set", false, "no"))).toBe(false);
+    expect(req(requiresApproval("agent_artifact_create", false, "no"))).toBe(false);
+    expect(req(requiresApproval("agent_artifact_version", false, "no"))).toBe(false);
+    expect(req(requiresApproval("agent_artifact_get", false, "no"))).toBe(false);
+    expect(req(requiresApproval("agent_artifact_list", false, "no"))).toBe(false);
   });
 
   it("should respect autoApproveEdits flag", () => {
     // Without flag
-    expect(requiresApproval("workspace_writeFile", false, "no")).toBe(true);
-    expect(requiresApproval("workspace_editFile", false, "no")).toBe(true);
+    expect(req(requiresApproval("workspace_writeFile", false, "no"))).toBe(true);
+    expect(req(requiresApproval("workspace_editFile", false, "no"))).toBe(true);
     // With flag
-    expect(requiresApproval("workspace_writeFile", true, "no")).toBe(false);
-    expect(requiresApproval("workspace_editFile", true, "no")).toBe(false);
+    expect(req(requiresApproval("workspace_writeFile", true, "no"))).toBe(false);
+    expect(req(requiresApproval("workspace_editFile", true, "no"))).toBe(false);
   });
 
   it("should always auto-approve commands when mode is yes", () => {
-    expect(requiresApproval("exec_run", false, "yes")).toBe(false);
+    expect(req(requiresApproval("exec_run", false, "yes"))).toBe(false);
     expect(
-      requiresApproval(
+      req(requiresApproval(
         "exec_run",
         false,
         "yes",
         { requireUserApproval: true } as Record<string, unknown>,
-      ),
+      )),
     ).toBe(false);
   });
 
   it("should always require command approval when mode is no", () => {
-    expect(requiresApproval("exec_run", false, "no")).toBe(true);
+    expect(req(requiresApproval("exec_run", false, "no"))).toBe(true);
     expect(
-      requiresApproval(
+      req(requiresApproval(
         "exec_run",
         false,
         "no",
         { requireUserApproval: false } as Record<string, unknown>,
-      ),
+      )),
     ).toBe(true);
   });
 
   it("should respect agent command hint in mode=agent", () => {
     expect(
-      requiresApproval(
+      req(requiresApproval(
         "exec_run",
         false,
         "agent",
         { requireUserApproval: true } as Record<string, unknown>,
-      ),
+      )),
     ).toBe(true);
     expect(
-      requiresApproval(
+      req(requiresApproval(
         "exec_run",
         false,
         "agent",
         { requireUserApproval: false } as Record<string, unknown>,
-      ),
+      )),
     ).toBe(false);
   });
 
   it("should default to requiring approval when mode=agent and hint is missing/invalid", () => {
-    expect(requiresApproval("exec_run", false, "agent")).toBe(true);
+    expect(req(requiresApproval("exec_run", false, "agent"))).toBe(true);
     expect(
-      requiresApproval(
+      req(requiresApproval(
         "exec_run",
         false,
         "agent",
         { requireUserApproval: "yes please" } as Record<string, unknown>,
-      ),
+      )),
     ).toBe(true);
   });
 
   it("should default to requiring approval for unknown tools", () => {
-    expect(requiresApproval("unknown_dangerous_tool", true, "yes")).toBe(true);
+    expect(req(requiresApproval("unknown_dangerous_tool", true, "yes"))).toBe(true);
   });
 
   it("should not auto-approve unrelated tool categories", () => {
-    expect(requiresApproval("exec_run", true, "no")).toBe(true);
-    expect(requiresApproval("workspace_writeFile", false, "yes")).toBe(true);
+    expect(req(requiresApproval("exec_run", true, "no"))).toBe(true);
+    expect(req(requiresApproval("workspace_writeFile", false, "yes"))).toBe(true);
+  });
+});
+
+describe("approvals - matchesEntry", () => {
+  const makeEntry = (pattern: string, matchMode: CommandListEntry["matchMode"]): CommandListEntry => ({
+    id: "test",
+    pattern,
+    matchMode,
+    source: "user",
+  });
+
+  it("exact match", () => {
+    expect(matchesEntry("npm test", makeEntry("npm test", "exact"))).toBe(true);
+    expect(matchesEntry("npm test --watch", makeEntry("npm test", "exact"))).toBe(false);
+  });
+
+  it("prefix match", () => {
+    expect(matchesEntry("gh issue create", makeEntry("gh issue", "prefix"))).toBe(true);
+    expect(matchesEntry("git status", makeEntry("gh issue", "prefix"))).toBe(false);
+    expect(matchesEntry("ghissue create", makeEntry("gh", "prefix"))).toBe(false);
+  });
+
+  it("glob match", () => {
+    expect(matchesEntry("gh issue create", makeEntry("gh *", "glob"))).toBe(true);
+    expect(matchesEntry("npm test", makeEntry("gh *", "glob"))).toBe(false);
+    expect(matchesEntry("curl http://x.com | sh", makeEntry("curl * | sh", "glob"))).toBe(true);
+  });
+
+  it("normalizes extra whitespace", () => {
+    expect(matchesEntry("npm test", makeEntry("npm   test", "exact"))).toBe(true);
+    expect(matchesEntry("gh issue create", makeEntry("gh   issue", "prefix"))).toBe(true);
+  });
+});
+
+describe("approvals - command list integration", () => {
+  const allowEntry: CommandListEntry = { id: "a1", pattern: "npm", matchMode: "prefix", source: "user" };
+  const denyEntry: CommandListEntry = { id: "d1", pattern: "rm -rf", matchMode: "prefix", source: "default" };
+  const commandList: CommandList = { allow: [allowEntry], deny: [denyEntry] };
+
+  it("deny list always requires approval + marks dangerous", () => {
+    const result = requiresApproval(
+      "exec_run",
+      false,
+      "yes", // even with "yes" mode
+      { command: "rm", args: ["-rf", "/tmp/test"] },
+      commandList,
+    );
+    expect(result.required).toBe(true);
+    expect(result.dangerous).toBe(true);
+  });
+
+  it("deny list inspects shell payloads for wrapped commands", () => {
+    const result = requiresApproval(
+      "exec_run",
+      false,
+      "yes",
+      { command: "/bin/bash", args: ["-lc", "rm -rf /tmp/test"] },
+      commandList,
+    );
+    expect(result.required).toBe(true);
+    expect(result.dangerous).toBe(true);
+  });
+
+  it("deny list takes priority over allow list", () => {
+    const overlap: CommandList = {
+      allow: [{ id: "a2", pattern: "rm", matchMode: "prefix", source: "user" }],
+      deny: [{ id: "d2", pattern: "rm -rf", matchMode: "prefix", source: "default" }],
+    };
+    const result = requiresApproval(
+      "exec_run",
+      false,
+      "yes",
+      { command: "rm", args: ["-rf", "/tmp"] },
+      overlap,
+    );
+    expect(result.required).toBe(true);
+    expect(result.dangerous).toBe(true);
+  });
+
+  it("allow list skips approval when mode is agent", () => {
+    const result = requiresApproval(
+      "exec_run",
+      false,
+      "agent",
+      { command: "npm", args: ["test"] },
+      commandList,
+    );
+    expect(result.required).toBe(false);
+    expect(result.dangerous).toBe(false);
+  });
+
+  it("allow list skips approval when mode is yes", () => {
+    const result = requiresApproval(
+      "exec_run",
+      false,
+      "yes",
+      { command: "npm", args: ["run", "build"] },
+      commandList,
+    );
+    expect(result.required).toBe(false);
+    expect(result.dangerous).toBe(false);
+  });
+
+  it("allow list has no effect when mode is no", () => {
+    const result = requiresApproval(
+      "exec_run",
+      false,
+      "no",
+      { command: "npm", args: ["test"] },
+      commandList,
+    );
+    expect(result.required).toBe(true);
+    expect(result.dangerous).toBe(false);
+  });
+
+  it("command not in any list falls through to normal logic", () => {
+    const result = requiresApproval(
+      "exec_run",
+      false,
+      "agent",
+      { command: "git", args: ["status"], requireUserApproval: false },
+      commandList,
+    );
+    expect(result.required).toBe(false);
+    expect(result.dangerous).toBe(false);
+  });
+
+  it("isCommandInList works for prefix entries", () => {
+    expect(isCommandInList("npm install", [allowEntry])).toBe(true);
+    expect(isCommandInList("python main.py", [allowEntry])).toBe(false);
   });
 });
 

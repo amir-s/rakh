@@ -12,7 +12,7 @@ import {
   themeNameAtom,
   agentAtomFamily,
 } from "@/agent/atoms";
-import { loadProviders, providersAtom, loadProfiles, profilesAtom } from "@/agent/db";
+import { loadProviders, providersAtom, loadProfiles, profilesAtom, loadCommandList, commandListAtom } from "@/agent/db";
 import {
   loadMcpServers,
   loadMcpSettings,
@@ -184,13 +184,15 @@ export default function App() {
       loadProfiles(),
       loadMcpServers(),
       loadMcpSettings(),
+      loadCommandList(),
     ]).then(
-      ([sessions, providers, profiles, mcpServers, mcpSettings]) => {
+      ([sessions, providers, profiles, mcpServers, mcpSettings, commandList]) => {
         // Load providers and profiles into global store early
         jotaiStore.set(providersAtom, providers);
         jotaiStore.set(profilesAtom, profiles);
         jotaiStore.set(mcpServersAtom, mcpServers);
         jotaiStore.set(mcpSettingsAtom, mcpSettings);
+        jotaiStore.set(commandListAtom, commandList);
 
         // Hydrate Jotai atoms before first render of agent components
         for (const s of sessions) {

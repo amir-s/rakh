@@ -144,6 +144,11 @@ export interface ToolCallDisplay {
   /** Live stdout+stderr accumulated while the command is running. */
   streamingOutput?: string;
   /**
+   * True when this command is on the deny list — UI shows a danger warning badge.
+   * Only set when status is "awaiting_approval".
+   */
+  dangerous?: boolean;
+  /**
    * Cached DiffFile states for UI components to render exactly what was originally proposed.
    * Captured at execution time so that it survives subsequent edits to the same file.
    * Each entry is a SerializedDiff; decode with deserializeDiff() before passing to UI components.

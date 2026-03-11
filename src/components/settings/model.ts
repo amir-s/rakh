@@ -7,6 +7,7 @@ export type SettingsSectionId =
   | "providers"
   | "mcp"
   | "voice"
+  | "command-list"
   | "updates";
 
 export type SettingsSectionGroupId = "general" | "ai" | "app";
@@ -72,6 +73,13 @@ export const SETTINGS_SECTIONS: SettingsSectionDefinition[] = [
     label: "Voice Input",
     description: "Microphone access and Whisper model state.",
     icon: "mic",
+  },
+  {
+    id: "command-list",
+    groupId: "ai",
+    label: "Command List",
+    description: "Allow or deny commands for automatic approval control.",
+    icon: "shield",
   },
   {
     id: "updates",

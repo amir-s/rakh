@@ -51,3 +51,31 @@ export async function deleteProfile(id: string): Promise<void> {
 }
 
 export const profilesAtom = atom<CommunicationProfileRecord[]>([]);
+
+/* ── Command List ─────────────────────────────────────────────────────────── */
+
+export type MatchMode = "exact" | "prefix" | "glob";
+
+export interface CommandListEntry {
+  id: string;
+  pattern: string;
+  matchMode: MatchMode;
+  description?: string;
+  /** "user" | "default" | subagent id */
+  source: string;
+}
+
+export interface CommandList {
+  allow: CommandListEntry[];
+  deny: CommandListEntry[];
+}
+
+export async function loadCommandList(): Promise<CommandList> {
+  return invoke<CommandList>("command_list_load");
+}
+
+export async function saveCommandList(list: CommandList): Promise<void> {
+  await invoke("command_list_save", { list });
+}
+
+export const commandListAtom = atom<CommandList>({ allow: [], deny: [] });

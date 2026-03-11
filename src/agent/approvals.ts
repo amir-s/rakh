@@ -1,4 +1,5 @@
 import type { AutoApproveCommandsMode } from "./types";
+import type { CommandList, CommandListEntry } from "./db";
 
 /**
  * Tool approval system.
@@ -97,6 +98,142 @@ export const TOOL_APPROVAL_CONFIG = new Map<string, boolean>(
 const EDIT_TOOLS = new Set<string>(["workspace_writeFile", "workspace_editFile"]);
 /** Command tools that the auto-approve flag covers */
 const COMMAND_TOOLS = new Set<string>(["exec_run"]);
+const SHELL_PAYLOAD_FLAGS = new Set(["-c", "-lc", "--command", "-command", "/c", "/k"]);
+const SHELL_WRAPPER_COMMANDS = new Set([
+  "bash",
+  "sh",
+  "zsh",
+  "fish",
+  "cmd",
+  "cmd.exe",
+  "powershell",
+  "pwsh",
+]);
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Command list matching helpers
+───────────────────────────────────────────────────────────────────────────── */
+
+/**
+ * Matches a full command string against a single CommandListEntry pattern.
+ * Supports three match modes:
+ * - exact: full string equality
+ * - prefix: string starts with pattern
+ * - glob: simple glob with * wildcard support (no path separators required)
+ */
+export function matchesEntry(fullCmd: string, entry: CommandListEntry): boolean {
+  const normalizedCmd = normalizeCommandText(fullCmd);
+  const normalizedPattern = normalizeCommandText(entry.pattern);
+  if (!normalizedCmd || !normalizedPattern) return false;
+
+  const { matchMode } = entry;
+  switch (matchMode) {
+    case "exact":
+      return normalizedCmd === normalizedPattern;
+    case "prefix":
+      return normalizedCmd === normalizedPattern ||
+        normalizedCmd.startsWith(`${normalizedPattern} `);
+    case "glob": {
+      // Convert glob pattern to a RegExp: escape special chars, then replace * with .*
+      const regexStr = normalizedPattern
+        .replace(/[.+^${}()|[\]\\]/g, "\\$&")
+        .replace(/\*/g, ".*");
+      return new RegExp(`^${regexStr}$`).test(normalizedCmd);
+    }
+    default:
+      return false;
+  }
+}
+
+/** Returns true if the full command matches any entry in the list. */
+export function isCommandInList(
+  fullCmd: string,
+  entries: CommandListEntry[],
+): boolean {
+  return entries.some((e) => matchesEntry(fullCmd, e));
+}
+
+/** Returns the matching deny entry, or null if not denied. */
+export function getDenyEntry(
+  fullCmd: string,
+  commandList: CommandList,
+): CommandListEntry | null {
+  return commandList.deny.find((e) => matchesEntry(fullCmd, e)) ?? null;
+}
+
+/** Returns true if the command is in the allow list. */
+export function isCommandAllowed(
+  fullCmd: string,
+  commandList: CommandList,
+): boolean {
+  return isCommandInList(fullCmd, commandList.allow);
+}
+
+function normalizeCommandText(value: string): string {
+  return value.trim().replace(/\s+/g, " ");
+}
+
+function getExecArgs(toolArgs?: Record<string, unknown>): { command: string; args: string[] } {
+  const command =
+    typeof toolArgs?.command === "string"
+      ? normalizeCommandText(toolArgs.command)
+      : "";
+  const args = Array.isArray(toolArgs?.args)
+    ? toolArgs.args.filter((arg): arg is string => typeof arg === "string")
+    : [];
+  return { command, args };
+}
+
+function getFullCommandText(toolArgs?: Record<string, unknown>): string {
+  const { command, args } = getExecArgs(toolArgs);
+  return normalizeCommandText([command, ...args].join(" "));
+}
+
+function getShellPayloadCommand(toolArgs?: Record<string, unknown>): string | null {
+  const { command, args } = getExecArgs(toolArgs);
+  if (!command) return null;
+
+  const commandBasename =
+    command.split(/[\\/]/).pop()?.toLowerCase() ?? command.toLowerCase();
+  if (!SHELL_WRAPPER_COMMANDS.has(commandBasename)) return null;
+
+  const payloadIndex = args.findIndex((arg) =>
+    SHELL_PAYLOAD_FLAGS.has(arg.toLowerCase()),
+  );
+  if (payloadIndex === -1) return null;
+
+  const payload = args[payloadIndex + 1];
+  return typeof payload === "string" ? normalizeCommandText(payload) : null;
+}
+
+function getDeniedCommandEntry(
+  toolArgs: Record<string, unknown> | undefined,
+  commandList: CommandList,
+): CommandListEntry | null {
+  const fullCommand = getFullCommandText(toolArgs);
+  if (fullCommand) {
+    const fullMatch = getDenyEntry(fullCommand, commandList);
+    if (fullMatch) return fullMatch;
+  }
+
+  const shellPayload = getShellPayloadCommand(toolArgs);
+  if (shellPayload) {
+    return getDenyEntry(shellPayload, commandList);
+  }
+
+  return null;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   ApprovalResult — enriched return type so callers know if dangerous
+───────────────────────────────────────────────────────────────────────────── */
+
+export interface ApprovalResult {
+  /** Whether the tool must be approved by the user before running. */
+  required: boolean;
+  /** Whether the command is on the deny list (show danger badge in UI). */
+  dangerous: boolean;
+}
 
 /** Returns true when the given tool must be approved before running. */
 export function requiresApproval(
@@ -104,24 +241,44 @@ export function requiresApproval(
   autoApproveEdits: boolean,
   autoApproveCommands: AutoApproveCommandsMode,
   toolArgs?: Record<string, unknown>,
-): boolean {
+  commandList?: CommandList,
+): ApprovalResult {
   // Inline tools never require approval.
-  if (isInlineTool(toolName)) return false;
+  if (isInlineTool(toolName)) return { required: false, dangerous: false };
   // Auto-approve overrides for edit tools
-  if (autoApproveEdits && EDIT_TOOLS.has(toolName)) return false;
+  if (autoApproveEdits && EDIT_TOOLS.has(toolName)) return { required: false, dangerous: false };
 
   // Command approval is tri-state and may consider a model-provided hint.
   if (COMMAND_TOOLS.has(toolName)) {
-    if (autoApproveCommands === "yes") return false;
-    if (autoApproveCommands === "no") return true;
+    const fullCmd = getFullCommandText(toolArgs);
 
-    // "agent": respect model hint, safe default is to ask.
+    // 1. Check deny list first — always requires approval + mark as dangerous.
+    if (commandList && fullCmd) {
+      const denyEntry = getDeniedCommandEntry(toolArgs, commandList);
+      if (denyEntry) {
+        return { required: true, dangerous: true };
+      }
+    }
+
+    // 2. If auto-run is "no", always ask (allow list has no effect).
+    if (autoApproveCommands === "no") return { required: true, dangerous: false };
+
+    // 3. Check allow list — auto-approve when autoApproveCommands is "agent" or "yes".
+    if (commandList && fullCmd && isCommandAllowed(fullCmd, commandList)) {
+      return { required: false, dangerous: false };
+    }
+
+    // 4. autoApproveCommands === "yes"
+    if (autoApproveCommands === "yes") return { required: false, dangerous: false };
+
+    // 5. "agent": respect model hint, safe default is to ask.
     const shouldRequireApproval = toolArgs?.requireUserApproval;
-    return shouldRequireApproval !== false;
+    return { required: shouldRequireApproval !== false, dangerous: false };
   }
 
   // Unknown tools default to requiring approval (safe default).
-  return TOOL_APPROVAL_CONFIG.get(toolName) ?? true;
+  const required = TOOL_APPROVAL_CONFIG.get(toolName) ?? true;
+  return { required, dangerous: false };
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
