@@ -341,6 +341,8 @@ export interface AgentState {
   autoApproveEdits: boolean;
   /** Auto-approve commands for this tab */
   autoApproveCommands: AutoApproveCommandsMode;
+  /** Null follows the global grouped inline tools preference. */
+  groupInlineToolCallsOverride: boolean | null;
   /** Follow-up user notes queued while the agent is busy. */
   queuedMessages: QueuedUserMessage[];
   /** Whether queued follow-ups will auto-drain, stay paused, or are empty. */

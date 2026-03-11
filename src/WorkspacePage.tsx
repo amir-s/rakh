@@ -33,6 +33,7 @@ import ProjectSettingsModal, {
 import ToolCallDetailsModal from "@/components/ToolCallDetailsModal";
 import ModelPickerModal from "@/components/ModelPickerModal";
 import CompactToolCall from "@/components/CompactToolCall";
+import GroupedInlineToolCall from "@/components/GroupedInlineToolCall";
 import ReasoningThought from "@/components/ReasoningThought";
 import ProjectCommandBar from "@/components/ProjectCommandBar";
 import {
@@ -59,6 +60,11 @@ import {
 import { getAllSubagents, getSubagentThemeColorToken } from "@/agent/subagents";
 import { groupChatMessagesForBubbles } from "@/agent/chatBubbleGroups";
 import { useArtifactContentCache } from "@/components/artifact-pane/useSessionArtifacts";
+import {
+  buildToolCallRenderItems,
+  type ToolCallRenderKind,
+  type ToolCallRenderItem,
+} from "@/components/toolCallRenderItems";
 import { AnimatePresence, motion } from "framer-motion";
 import type { ToolCallDisplay } from "@/agent/types";
 import {
@@ -248,6 +254,28 @@ async function readWorktreeHandoffState(
     hasChanges,
     error,
   };
+}
+
+function renderCompactToolCall(
+  item: {
+    kind: "tool";
+    toolCall: ToolCallDisplay;
+    renderKind: ToolCallRenderKind;
+  },
+  cwd: string | undefined,
+  showDebug: boolean,
+  setToolDetailsModal: (toolCall: ToolCallDisplay) => void,
+) {
+  const toolCall = item.toolCall;
+  return (
+    <CompactToolCall
+      key={toolCall.id}
+      tc={toolCall}
+      onInspect={() => setToolDetailsModal(toolCall)}
+      cwd={cwd}
+      showDebug={showDebug}
+    />
+  );
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
@@ -961,6 +989,15 @@ export default function WorkspacePage() {
       return;
     }
 
+    if (text === "/toggle-group-tools") {
+      const nextValue = !agent.groupInlineToolCalls;
+      patchAgentState(activeTabId, {
+        groupInlineToolCallsOverride: nextValue,
+      });
+      setInput("");
+      return;
+    }
+
     if (text === "/model") {
       setModelPickerOpen(true);
       setInput("");
@@ -1249,6 +1286,10 @@ export default function WorkspacePage() {
                 >
                   {groupMessages.map((msg) => {
                       const visibleToolCalls = msg.toolCalls ?? [];
+                      const toolCallRenderItems = buildToolCallRenderItems(
+                        visibleToolCalls,
+                        agent.groupInlineToolCalls,
+                      );
                       const showReasoning =
                         !!msg.reasoning || !!msg.reasoningStreaming;
                       const reasoningExpanded =
@@ -1289,33 +1330,38 @@ export default function WorkspacePage() {
                           {/* Tool calls */}
                           {visibleToolCalls.length > 0 && (
                             <div className="mt-2 flex flex-col gap-1">
-                              {visibleToolCalls.map((tc) =>
-                                tc.tool === "user_input" &&
-                                tc.status === "awaiting_approval" ? (
-                                  <UserInputCard key={tc.id} toolCall={tc} tabId={activeTabId} />
-                                ) : tc.status === "awaiting_approval" ||
-                                  tc.status === "awaiting_worktree" ||
-                                  tc.status === "awaiting_branch_release" ||
-                                  tc.status === "awaiting_setup_action" ||
-                                  (tc.tool === "git_worktree_init" &&
-                                    tc.status === "running") ||
-                                  (tc.tool === "exec_run" &&
-                                    tc.status === "running") ? (
+                              {toolCallRenderItems.map((item, index) =>
+                                item.kind === "group" ? (
+                                  <GroupedInlineToolCall
+                                    key={`group:${item.toolCalls[0]?.id ?? index}`}
+                                    toolCalls={item.toolCalls}
+                                    onInspect={(toolCall) =>
+                                      setToolDetailsModal(toolCall)
+                                    }
+                                    cwd={agent.config.cwd}
+                                    showDebug={agent.showDebug ?? false}
+                                  />
+                                ) : item.renderKind === "user_input" ? (
+                                  <UserInputCard
+                                    key={item.toolCall.id}
+                                    toolCall={item.toolCall}
+                                    tabId={activeTabId}
+                                  />
+                                ) : item.renderKind === "approval" ? (
                                   <ToolCallApproval
-                                    key={tc.id}
-                                    toolCall={tc}
+                                    key={item.toolCall.id}
+                                    toolCall={item.toolCall}
                                     cwd={agent.config.cwd}
                                     tabId={activeTabId}
                                     onOpenProjectSettings={openCurrentProjectSettings}
                                   />
                                 ) : (
-                                  <CompactToolCall
-                                    key={tc.id}
-                                    tc={tc}
-                                    onInspect={() => setToolDetailsModal(tc)}
-                                    cwd={agent.config.cwd}
-                                    showDebug={agent.showDebug ?? false}
-                                  />
+                                  renderCompactToolCall(
+                                    item,
+                                    agent.config.cwd,
+                                    agent.showDebug ?? false,
+                                    setToolDetailsModal,
+                                  )
                                 ),
                               )}
                             </div>

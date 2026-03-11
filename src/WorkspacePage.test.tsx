@@ -74,6 +74,7 @@ const workspaceMocks = vi.hoisted(() => ({
         },
     clearQueuedMessages: null as null | (() => void),
     errorDetails: null as unknown,
+    groupInlineToolCalls: true,
     queueMessage: null as null | ((message: string) => void),
     queueState: "idle" as "idle" | "draining" | "paused",
     queuedMessages: [] as Array<{ id: string; content: string; createdAtMs: number }>,
@@ -508,11 +509,14 @@ function emitTranscript(text: string) {
 }
 
 function applyLastPatch<T extends object>(state: T): T {
-  const updater = workspaceMocks.patchAgentStateMock.mock.calls.at(-1)?.[1];
-  if (typeof updater !== "function") {
-    throw new Error("Expected patchAgentState to be called with an updater");
+  const patch = workspaceMocks.patchAgentStateMock.mock.calls.at(-1)?.[1];
+  if (typeof patch === "function") {
+    return patch(state);
   }
-  return updater(state);
+  if (patch && typeof patch === "object") {
+    return { ...state, ...patch };
+  }
+  throw new Error("Expected patchAgentState to be called with a patch");
 }
 
 function makeExecRunResult(
@@ -541,6 +545,7 @@ function makeExecRunResult(
 type PatchedChatState = {
   chatMessages: Array<{ role?: string; content?: string }>;
   showDebug: boolean;
+  groupInlineToolCallsOverride?: boolean | null;
   status: string;
   error: unknown;
   errorAction?: unknown;
@@ -646,6 +651,7 @@ describe("WorkspacePage chat input", () => {
       error: null,
       errorAction: null,
       errorDetails: null,
+      groupInlineToolCalls: true,
       queueMessage: workspaceMocks.queueMessageMock,
       queueState: "idle",
       queuedMessages: [],
@@ -817,6 +823,7 @@ describe("WorkspacePage chat input", () => {
     expect(nextState.chatMessages[0]?.role).toBe("assistant");
     expect(nextState.chatMessages[0]?.content).toContain("**Available slash commands:**");
     expect(nextState.chatMessages[0]?.content).toContain("`/plan <task>`");
+    expect(nextState.chatMessages[0]?.content).toContain("`/toggle-group-tools`");
   });
 
   it("treats /? as an alias for /help", async () => {
@@ -911,6 +918,33 @@ describe("WorkspacePage chat input", () => {
       showDebug: false,
     });
     expect(nextState.showDebug).toBe(true);
+  });
+
+  it("toggles grouped inline tool calls for the current session", async () => {
+    render(<WorkspacePage />);
+
+    const textbox = screen.getByRole("textbox");
+    setTextboxRect(textbox);
+
+    emitTranscript("/toggle-group-tools");
+
+    await waitFor(() => {
+      expect(textbox.textContent).toBe("/toggle-group-tools");
+    });
+
+    fireEvent.keyDown(textbox, { key: "Enter" });
+
+    expect(workspaceMocks.sendMessageMock).not.toHaveBeenCalled();
+    const nextState = applyLastPatch<PatchedChatState>({
+      chatMessages: [],
+      showDebug: false,
+      groupInlineToolCallsOverride: null,
+      status: "idle",
+      error: null,
+      errorDetails: null,
+    });
+    expect(nextState.groupInlineToolCallsOverride).toBe(false);
+    expect(nextState.chatMessages).toHaveLength(0);
   });
 
   it("renders quick actions for the current cwd and invokes native launch commands", async () => {

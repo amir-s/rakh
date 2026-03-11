@@ -125,6 +125,12 @@
   background: var(--color-inset);
 }
 
+.inline-tool-group {
+  border-radius: 8px;
+  background: var(--color-inset);
+  overflow: hidden;
+}
+
 /* ── Collapsed header row ──────────────────────────────────────────────── */
 .inline-tool-summary {
   display: flex;
@@ -198,6 +204,45 @@
   color: color-mix(in srgb, var(--color-muted) 88%, transparent);
   font-size: var(--text-xxs);
   letter-spacing: 0.01em;
+}
+
+.inline-tool-group__summary-trailing {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.inline-tool-group__icon-strip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: color-mix(in srgb, var(--color-muted) 82%, transparent);
+}
+
+.inline-tool-group__icon {
+  font-size: 15px;
+  line-height: 1;
+  opacity: 0.8;
+}
+
+.inline-tool-group__body {
+  overflow: hidden;
+  opacity: 0;
+  transition:
+    max-height var(--t-slow),
+    opacity var(--t-fast);
+}
+
+.inline-tool-group__body--expanded {
+  opacity: 1;
+}
+
+.inline-tool-group__body-inner {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 0 0 4px;
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════

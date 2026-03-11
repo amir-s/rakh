@@ -24,6 +24,12 @@ const STATIC_SLASH_COMMANDS: SlashCommandDefinition[] = [
     takesArguments: false,
   },
   {
+    command: "/toggle-group-tools",
+    description: "Toggle grouped inline tool calls for the current session.",
+    insertText: "/toggle-group-tools ",
+    takesArguments: false,
+  },
+  {
     command: "/help",
     aliases: ["/?"],
     description: "Show this list.",
@@ -90,6 +96,7 @@ export function getSlashCommandCatalog(): SlashCommandDefinition[] {
   );
   pushUnique(staticByCommand.get("/model"));
   pushUnique(staticByCommand.get("/debug"));
+  pushUnique(staticByCommand.get("/toggle-group-tools"));
   pushUnique(staticByCommand.get("/help"));
 
   for (const definition of subagentCommands) {

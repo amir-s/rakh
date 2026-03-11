@@ -882,6 +882,22 @@ function AppearanceSection({
           <span>{controller.themeMode === "dark" ? "Light" : "Dark"}</span>
         </Button>
       </div>
+
+      <div className="settings-row">
+        <div className="settings-row-info">
+          <span className="settings-row-label">Group inline tool calls</span>
+          <span className="settings-row-desc">
+            Collapse consecutive auto-approved tool calls into a single
+            expandable block by default.
+          </span>
+        </div>
+        <ToggleSwitch
+          checked={controller.groupInlineToolCalls}
+          onChange={controller.setGroupInlineToolCalls}
+          className="settings-switch"
+          title="Group inline tool calls"
+        />
+      </div>
       </SectionCard>
 
       <SectionCard

@@ -27,6 +27,7 @@ import {
   agentReviewEditsAtomFamily,
   agentAutoApproveEditsAtomFamily,
   agentAutoApproveCommandsAtomFamily,
+  agentGroupInlineToolCallsAtomFamily,
   agentQueuedMessagesAtomFamily,
   agentQueueStateAtomFamily,
   agentShowDebugAtomFamily,
@@ -153,6 +154,10 @@ export function useAgentAutoApproveCommands(tabId: string) {
   return useAtomValue(agentAutoApproveCommandsAtomFamily(tabId));
 }
 
+export function useAgentGroupInlineToolCalls(tabId: string) {
+  return useAtomValue(agentGroupInlineToolCallsAtomFamily(tabId));
+}
+
 export function useAgentQueuedMessages(tabId: string) {
   return useAtomValue(agentQueuedMessagesAtomFamily(tabId));
 }
@@ -259,6 +264,7 @@ export function useResetAgent() {
       reviewEdits: [],
       autoApproveEdits: false,
       autoApproveCommands: "no",
+      groupInlineToolCallsOverride: null,
       queuedMessages: [],
       queueState: "idle",
       showDebug: false,
@@ -315,6 +321,7 @@ export function useAgent(tabId: string) {
   const tabTitle = useAgentTabTitle(tabId);
   const autoApproveEdits = useAgentAutoApproveEdits(tabId);
   const autoApproveCommands = useAgentAutoApproveCommands(tabId);
+  const groupInlineToolCalls = useAgentGroupInlineToolCalls(tabId);
   const queuedMessages = useAgentQueuedMessages(tabId);
   const queueState = useAgentQueueState(tabId);
   const showDebug = useAgentShowDebug(tabId);
@@ -346,6 +353,7 @@ export function useAgent(tabId: string) {
     contextWindowKb,
     autoApproveEdits,
     autoApproveCommands,
+    groupInlineToolCalls,
     queuedMessages,
     queueState,
     showDebug,

@@ -59,6 +59,12 @@ export const notifyOnAttentionAtom = atomWithStorage<boolean>(
   false,
 );
 
+/** Whether inline tool calls are grouped by default across sessions */
+export const groupInlineToolCallsAtom = atomWithStorage<boolean>(
+  "rakh.group-inline-tool-calls",
+  true,
+);
+
 /** Whether voice input is enabled in the chat composer */
 export const voiceInputEnabledAtom = atomWithStorage<boolean>(
   "rakh.voice-input-enabled",
@@ -142,6 +148,7 @@ function makeDefaultAgentState(): AgentState {
     reviewEdits: [],
     autoApproveEdits: false,
     autoApproveCommands: "no",
+    groupInlineToolCallsOverride: null,
     queuedMessages: [],
     queueState: "idle",
     showDebug: import.meta.env.DEV,
@@ -224,6 +231,20 @@ export const agentAutoApproveEditsAtomFamily = atomFamily((tabId: string) =>
 /** Auto-approve commands for a tab */
 export const agentAutoApproveCommandsAtomFamily = atomFamily((tabId: string) =>
   atom((get) => get(agentAtomFamily(tabId)).autoApproveCommands),
+);
+
+/** Per-tab override for grouped inline tools */
+export const agentGroupInlineToolCallsOverrideAtomFamily = atomFamily(
+  (tabId: string) =>
+    atom((get) => get(agentAtomFamily(tabId)).groupInlineToolCallsOverride),
+);
+
+/** Effective grouped inline tools setting for a tab */
+export const agentGroupInlineToolCallsAtomFamily = atomFamily((tabId: string) =>
+  atom((get) => {
+    const override = get(agentAtomFamily(tabId)).groupInlineToolCallsOverride;
+    return override ?? get(groupInlineToolCallsAtom);
+  }),
 );
 
 /** Queued user follow-ups for a tab */
