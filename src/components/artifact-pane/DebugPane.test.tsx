@@ -146,6 +146,7 @@ function buildFixture() {
     reviewEdits: [],
     autoApproveEdits: false,
     autoApproveCommands: "no",
+    groupInlineToolCallsOverride: null,
     queuedMessages: [],
     queueState: "idle",
     showDebug: true,

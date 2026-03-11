@@ -6,6 +6,7 @@ import {
   notifyOnAttentionAtom,
   themeModeAtom,
   themeNameAtom,
+  groupInlineToolCallsAtom,
   globalCommunicationProfileAtom,
   voiceInputEnabledAtom,
   voiceModelPathAtom,
@@ -67,6 +68,8 @@ export interface SettingsControllerValue {
   toggleThemeMode: () => void;
   themeName: ThemeName;
   setThemeName: (name: ThemeName) => void;
+  groupInlineToolCalls: boolean;
+  setGroupInlineToolCalls: (enabled: boolean) => void;
   globalCommunicationProfile: string;
   setGlobalCommunicationProfile: (profile: string) => void;
   customProfiles: CommunicationProfileRecord[];
@@ -96,6 +99,9 @@ export function useSettingsController(): SettingsControllerValue {
   const [mcpSettings, setMcpSettings] = useAtom(mcpSettingsAtom);
   const [themeMode, setThemeMode] = useAtom(themeModeAtom);
   const [themeName, setThemeName] = useAtom(themeNameAtom);
+  const [groupInlineToolCalls, setGroupInlineToolCalls] = useAtom(
+    groupInlineToolCallsAtom,
+  );
   const [globalCommunicationProfile, setGlobalCommunicationProfile] = useAtom(
     globalCommunicationProfileAtom,
   );
@@ -233,6 +239,8 @@ export function useSettingsController(): SettingsControllerValue {
     toggleThemeMode,
     themeName,
     setThemeName,
+    groupInlineToolCalls,
+    setGroupInlineToolCalls,
     globalCommunicationProfile,
     setGlobalCommunicationProfile,
     customProfiles,

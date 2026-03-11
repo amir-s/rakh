@@ -8,6 +8,7 @@ import { TabsProvider, useTabs } from "@/contexts/TabsContext";
 import {
   appUpdaterStateAtom,
   defaultAppUpdaterState,
+  groupInlineToolCallsAtom,
   jotaiStore,
 } from "@/agent/atoms";
 import { providersAtom } from "@/agent/db";
@@ -148,6 +149,7 @@ describe("SettingsPage", () => {
     jotaiStore.set(providersAtom, []);
     jotaiStore.set(mcpServersAtom, []);
     jotaiStore.set(mcpSettingsAtom, { artifactizeReturnedFiles: false });
+    jotaiStore.set(groupInlineToolCallsAtom, true);
     jotaiStore.set(appUpdaterStateAtom, {
       ...defaultAppUpdaterState,
       status: "available",
@@ -222,6 +224,27 @@ describe("SettingsPage", () => {
     });
     expect(screen.getByText("Theme & Mode")).not.toBeNull();
     expect(screen.getByText("Theme")).not.toBeNull();
+  });
+
+  it("toggles the grouped inline tool call appearance preference", async () => {
+    renderSettingsPage("appearance");
+
+    await waitFor(() => {
+      expect(screen.getByText("Group inline tool calls")).not.toBeNull();
+    });
+
+    const toggle = screen.getByTitle("Group inline tool calls");
+    fireEvent.click(toggle);
+
+    expect(jotaiStore.get(groupInlineToolCallsAtom)).toBe(false);
+
+    cleanup();
+    renderSettingsPage("appearance");
+
+    await waitFor(() => {
+      expect(screen.getByTitle("Group inline tool calls")).not.toBeNull();
+    });
+    expect(jotaiStore.get(groupInlineToolCallsAtom)).toBe(false);
   });
 
   it("renders the MCP settings section under AI and saves a tested server", async () => {
