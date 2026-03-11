@@ -10,6 +10,7 @@ import type {
 import ArtifactDetailModal from "@/components/artifact-pane/ArtifactDetailModal";
 import { resolveArtifactRenderKind } from "@/components/artifact-pane/model";
 import { ArtifactRenderer } from "@/components/artifact-pane/renderers";
+import { getChatAttentionTargetProps } from "@/components/autoScrollAttention";
 import { Badge, Button, Panel } from "@/components/ui";
 
 function findArtifactGroup(
@@ -108,6 +109,10 @@ function ArtifactConversationCard({
     group?.kind === "plan";
   const [copyFeedbackToken, setCopyFeedbackToken] = useState(0);
   const copied = copyFeedbackToken > 0;
+  const attentionTargetProps =
+    isPlanArtifact && !executePlanDisabled
+      ? getChatAttentionTargetProps("cta")
+      : undefined;
 
   useEffect(() => {
     if (copyFeedbackToken === 0) return;
@@ -132,7 +137,11 @@ function ArtifactConversationCard({
 
   return (
     <>
-      <Panel variant="inset" className="conversation-card">
+      <Panel
+        variant="inset"
+        className="conversation-card"
+        {...attentionTargetProps}
+      >
         <div className="conversation-card-header">
           <div className="conversation-card-heading">
             <div className="conversation-card-chip-row">
