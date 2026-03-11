@@ -118,6 +118,7 @@ vi.mock("./atoms", () => ({
 vi.mock("./db", () => ({
   providersAtom: providersAtomMock,
   profilesAtom: profilesAtomMock,
+  commandListAtom: { kind: "command-list-atom" },
 }));
 
 vi.mock("@ai-sdk/openai-compatible", () => ({
@@ -443,6 +444,9 @@ describe("runner", () => {
       if (atom === profilesAtomMock) {
         return [];
       }
+      if ((atom as { kind?: string })?.kind === "command-list-atom") {
+        return { allow: [], deny: [] };
+      }
       if (atom === globalCommunicationProfileAtomMock) {
         return "global-test-profile";
       }
@@ -455,7 +459,7 @@ describe("runner", () => {
       data: { branch: "feat/test" },
     });
 
-    requiresApprovalMock.mockReturnValue(false);
+    requiresApprovalMock.mockReturnValue({ required: false, dangerous: false });
     requestApprovalMock.mockResolvedValue(true);
     consumeApprovalReasonMock.mockReturnValue(undefined);
     dispatchToolMock.mockResolvedValue({ ok: true, data: { ok: true } });
@@ -1169,7 +1173,7 @@ describe("runner", () => {
       { deltas: ["follow-up"], toolCalls: [] },
     );
 
-    requiresApprovalMock.mockReturnValue(true);
+    requiresApprovalMock.mockReturnValue({ required: true, dangerous: false });
     requestApprovalMock.mockResolvedValue(false);
     consumeApprovalReasonMock.mockReturnValue("Denied for safety");
 
@@ -1177,7 +1181,7 @@ describe("runner", () => {
 
     expect(requiresApprovalMock).toHaveBeenCalledWith("exec_run", false, "no", {
       command: "pwd",
-    });
+    }, expect.objectContaining({ allow: [], deny: [] }));
 
     const state = states[tabId];
     expect(dispatchToolMock).not.toHaveBeenCalled();
@@ -1566,7 +1570,7 @@ describe("runner", () => {
       { deltas: ["All done."], toolCalls: [] },
     );
 
-    requiresApprovalMock.mockReturnValue(false);
+    requiresApprovalMock.mockReturnValue({ required: false, dangerous: false });
 
     dispatchToolMock.mockImplementation(async (...args: unknown[]) => {
       const callbacks = args[5] as
@@ -3083,7 +3087,7 @@ describe("runner", () => {
         return { ok: true, data: { ok: true } };
       });
 
-      requiresApprovalMock.mockReturnValue(false);
+      requiresApprovalMock.mockReturnValue({ required: false, dangerous: false });
 
       await runAgent(tabId, "run the planner");
 
@@ -3254,7 +3258,9 @@ describe("runner", () => {
       turns.push({ deltas: ["No security issues found."], toolCalls: [] });
 
       requiresApprovalMock.mockImplementation((toolName: string) => {
-        return toolName === "exec_run";
+        return toolName === "exec_run"
+          ? { required: true, dangerous: false }
+          : { required: false, dangerous: false };
       });
 
       dispatchToolMock.mockImplementation(async (...args: unknown[]) => {

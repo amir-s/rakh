@@ -956,6 +956,7 @@ export default function ToolCallApproval({
 
   const icon = getToolCallIcon(toolCall);
   const label = getToolCallLabel(toolCall);
+  const isDangerous = toolCall.dangerous === true;
 
   const argEntries = Object.entries(args);
 
@@ -969,6 +970,18 @@ export default function ToolCallApproval({
         </div>
         <div className="text-xxs text-muted font-mono opacity-60">{tool}</div>
       </div>
+
+      {/* ── Dangerous command warning ─────────────────────────────────── */}
+      {isDangerous && (
+        <div className="px-3 py-2 border-b border-border-subtle flex items-center gap-2 bg-danger/10">
+          <span className="material-symbols-outlined text-base text-danger">
+            warning
+          </span>
+          <span className="text-xs text-danger font-medium">
+            Potentially dangerous — this command is on your deny list and always requires approval.
+          </span>
+        </div>
+      )}
 
       {/* ── Args block ──────────────────────────────────────────────────────────────────────── */}
       {tool === "workspace_editFile" ? (

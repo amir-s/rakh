@@ -32,6 +32,8 @@ import {
   saveProvider,
   type ProviderInstance,
   type CommunicationProfileRecord,
+  type CommandListEntry,
+  type MatchMode,
 } from "@/agent/db";
 import {
   saveMcpSettings,
@@ -1881,6 +1883,280 @@ function UpdatesSection({
   );
 }
 
+/* ── CommandListSection ───────────────────────────────────────────────────── */
+
+const MATCH_MODE_OPTIONS: { value: MatchMode; label: string }[] = [
+  { value: "prefix", label: "Starts with" },
+  { value: "exact", label: "Exact" },
+  { value: "glob", label: "Glob (*)" },
+];
+
+function CommandEntryForm({
+  initial,
+  onSave,
+  onCancel,
+}: {
+  initial?: CommandListEntry;
+  onSave: (entry: Omit<CommandListEntry, "id" | "source">) => void;
+  onCancel: () => void;
+}) {
+  const [pattern, setPattern] = useState(initial?.pattern ?? "");
+  const [matchMode, setMatchMode] = useState<MatchMode>(
+    initial?.matchMode ?? "prefix",
+  );
+  const [description, setDescription] = useState(initial?.description ?? "");
+
+  const handleSubmit = () => {
+    const trimmed = pattern.trim();
+    if (!trimmed) return;
+    onSave({ pattern: trimmed, matchMode, description: description.trim() || undefined });
+  };
+
+  return (
+    <Panel className="settings-provider-form">
+      <div className="settings-provider-form__grid">
+        <div className="settings-field">
+          <label className="settings-field-label">Pattern</label>
+          <TextField
+            value={pattern}
+            onChange={(e) => setPattern(e.target.value)}
+            placeholder="e.g. npm test or rm -rf *"
+            autoFocus
+            wrapClassName="settings-input-wrap"
+          />
+        </div>
+        <div className="settings-field">
+          <label className="settings-field-label">Match mode</label>
+          <SelectField
+            className="settings-input settings-provider-form__select"
+            value={matchMode}
+            onChange={(e) => setMatchMode(e.target.value as MatchMode)}
+          >
+            {MATCH_MODE_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>{o.label}</option>
+            ))}
+          </SelectField>
+        </div>
+        <div className="settings-field settings-field--full-span">
+          <label className="settings-field-label">Description <span style={{fontWeight: 400}}>(optional)</span></label>
+          <TextField
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            placeholder="Short note for your own reference"
+            wrapClassName="settings-input-wrap"
+          />
+        </div>
+      </div>
+      <div className="settings-provider-form__footer">
+        <div className="settings-provider-form__status" />
+        <div className="settings-provider-form__actions">
+          <Button type="button" variant="ghost" size="xs" onClick={onCancel}>
+            Cancel
+          </Button>
+          <Button type="button" size="xs" onClick={handleSubmit} disabled={!pattern.trim()}>
+            Save
+          </Button>
+        </div>
+      </div>
+    </Panel>
+  );
+}
+
+function CommandEntryRow({
+  entry,
+  onEdit,
+  onDelete,
+}: {
+  entry: CommandListEntry;
+  onEdit: () => void;
+  onDelete: () => void;
+}) {
+  const isDefault = entry.source === "default";
+  const isSubagent = entry.source !== "user" && entry.source !== "default";
+  const modeLabelMap: Record<MatchMode, string> = {
+    exact: "Exact",
+    prefix: "Starts with",
+    glob: "Glob",
+  };
+
+  return (
+    <Panel className="settings-provider-card">
+      <div className="settings-provider-card__copy">
+        <span className="settings-provider-card__title">
+          <code>{entry.pattern}</code>
+        </span>
+        <span className="settings-provider-card__meta">
+          {modeLabelMap[entry.matchMode]}
+          {entry.description ? ` · ${entry.description}` : ""}
+        </span>
+      </div>
+      <div className="settings-provider-card__actions">
+        {isDefault && (
+          <Badge variant="muted">built-in</Badge>
+        )}
+        {isSubagent && (
+          <Badge variant="primary">{entry.source}</Badge>
+        )}
+        <IconButton
+          className="settings-provider-card__icon-btn"
+          onClick={onEdit}
+          title="Edit entry"
+          aria-label="Edit entry"
+        >
+          <span className="material-symbols-outlined text-sm">edit</span>
+        </IconButton>
+        <IconButton
+          className="settings-provider-card__icon-btn settings-provider-card__icon-btn--danger"
+          onClick={onDelete}
+          title={isDefault ? "Remove built-in safety rule" : "Delete entry"}
+          aria-label="Delete entry"
+        >
+          <span className="material-symbols-outlined text-sm">delete</span>
+        </IconButton>
+      </div>
+    </Panel>
+  );
+}
+
+function CommandListSubpanel({
+  title,
+  description,
+  entries,
+  emptyIcon,
+  emptyTitle,
+  emptyDesc,
+  listName,
+  onAdd,
+  onEdit,
+  onDelete,
+}: {
+  title: string;
+  description: string;
+  entries: CommandListEntry[];
+  emptyIcon: string;
+  emptyTitle: string;
+  emptyDesc: string;
+  listName: "allow" | "deny";
+  onAdd: (listName: "allow" | "deny", entry: Omit<CommandListEntry, "id" | "source">) => void;
+  onEdit: (listName: "allow" | "deny", entry: CommandListEntry) => void;
+  onDelete: (listName: "allow" | "deny", id: string) => void;
+}) {
+  const [isAdding, setIsAdding] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+
+  return (
+    <SectionCard
+      title={title}
+      description={description}
+      actions={
+        <Button
+          type="button"
+          size="xs"
+          onClick={() => { setIsAdding(true); setEditingId(null); }}
+          className="text-nowrap"
+        >
+          Add Entry
+        </Button>
+      }
+    >
+      <div className="settings-provider-list">
+        {isAdding ? (
+          <CommandEntryForm
+            onSave={(entry) => {
+              onAdd(listName, entry);
+              setIsAdding(false);
+            }}
+            onCancel={() => setIsAdding(false)}
+          />
+        ) : null}
+
+        {entries.length === 0 && !isAdding ? (
+          <Panel variant="inset" className="settings-empty-panel">
+            <span className="material-symbols-outlined settings-empty-panel__icon">{emptyIcon}</span>
+            <div className="settings-empty-panel__copy">
+              <span className="settings-empty-panel__title">{emptyTitle}</span>
+              <span className="settings-empty-panel__description">{emptyDesc}</span>
+            </div>
+          </Panel>
+        ) : null}
+
+        {entries.map((entry) =>
+          editingId === entry.id ? (
+            <CommandEntryForm
+              key={entry.id}
+              initial={entry}
+              onSave={(updated) => {
+                onEdit(listName, { ...entry, ...updated });
+                setEditingId(null);
+              }}
+              onCancel={() => setEditingId(null)}
+            />
+          ) : (
+            <CommandEntryRow
+              key={entry.id}
+              entry={entry}
+              onEdit={() => setEditingId(entry.id)}
+              onDelete={() => onDelete(listName, entry.id)}
+            />
+          ),
+        )}
+      </div>
+    </SectionCard>
+  );
+}
+
+function CommandListSection({
+  controller,
+}: {
+  controller: SettingsControllerValue;
+}) {
+  const handleAdd = async (
+    listName: "allow" | "deny",
+    entry: Omit<CommandListEntry, "id" | "source">,
+  ) => {
+    const { v4 } = await import("uuid");
+    const full: CommandListEntry = { ...entry, id: v4(), source: "user" };
+    await controller.addCommandEntry(listName, full);
+  };
+
+  const handleEdit = async (listName: "allow" | "deny", entry: CommandListEntry) => {
+    await controller.updateCommandEntry(listName, entry);
+  };
+
+  const handleDelete = async (listName: "allow" | "deny", id: string) => {
+    await controller.removeCommandEntry(listName, id);
+  };
+
+  return (
+    <div className="settings-page__section-stack">
+      <CommandListSubpanel
+        title="Allow List"
+        description="Commands on this list are auto-approved when auto-run is set to Agent or Yes. Has no effect when auto-run is Off."
+        entries={controller.commandList.allow}
+        emptyIcon="check_circle"
+        emptyTitle="No allowed commands"
+        emptyDesc="Add commands to skip approval prompts when auto-run is active."
+        listName="allow"
+        onAdd={(l, e) => { void handleAdd(l, e); }}
+        onEdit={(l, e) => { void handleEdit(l, e); }}
+        onDelete={(l, id) => { void handleDelete(l, id); }}
+      />
+      <CommandListSubpanel
+        title="Deny List"
+        description="Commands on this list always prompt for approval with a danger warning, even in auto-run mode."
+        entries={controller.commandList.deny}
+        emptyIcon="block"
+        emptyTitle="No denied commands"
+        emptyDesc="Add commands that should always require user confirmation."
+        listName="deny"
+        onAdd={(l, e) => { void handleAdd(l, e); }}
+        onEdit={(l, e) => { void handleEdit(l, e); }}
+        onDelete={(l, id) => { void handleDelete(l, id); }}
+      />
+    </div>
+  );
+}
+
 function renderSection(
   sectionId: SettingsSectionId,
   controller: SettingsControllerValue,
@@ -1896,6 +2172,8 @@ function renderSection(
       return <McpServersSection controller={controller} />;
     case "voice":
       return <VoiceSection controller={controller} />;
+    case "command-list":
+      return <CommandListSection controller={controller} />;
     case "updates":
       return <UpdatesSection controller={controller} />;
     default:

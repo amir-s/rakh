@@ -1662,6 +1662,243 @@ pub fn providers_save(providers: Vec<ProviderRecord>) -> Result<(), String> {
     Ok(())
 }
 
+/* ── Command List (disk-backed) ─────────────────────────────────────────── */
+
+fn command_list_config_path() -> Result<PathBuf, String> {
+    Ok(app_store_root()?.join("config").join("command-list.json"))
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct CommandListEntryRecord {
+    pub id: String,
+    pub pattern: String,
+    pub match_mode: String, // "exact" | "prefix" | "glob"
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    pub source: String, // "user" | "default" | subagent id
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CommandListRecord {
+    pub allow: Vec<CommandListEntryRecord>,
+    pub deny: Vec<CommandListEntryRecord>,
+}
+
+fn default_allow_list() -> Vec<CommandListEntryRecord> {
+    vec![
+        CommandListEntryRecord {
+            id: "default-pwd".to_string(),
+            pattern: "pwd".to_string(),
+            match_mode: "exact".to_string(),
+            description: Some("Print working directory".to_string()),
+            source: "default".to_string(),
+        },
+        CommandListEntryRecord {
+            id: "default-git-status".to_string(),
+            pattern: "git status".to_string(),
+            match_mode: "prefix".to_string(),
+            description: Some("Inspect repository status".to_string()),
+            source: "default".to_string(),
+        },
+        CommandListEntryRecord {
+            id: "default-git-branch-show-current".to_string(),
+            pattern: "git branch --show-current".to_string(),
+            match_mode: "exact".to_string(),
+            description: Some("Show current branch".to_string()),
+            source: "default".to_string(),
+        },
+        CommandListEntryRecord {
+            id: "default-git-remote-v".to_string(),
+            pattern: "git remote -v".to_string(),
+            match_mode: "exact".to_string(),
+            description: Some("List configured remotes".to_string()),
+            source: "default".to_string(),
+        },
+        CommandListEntryRecord {
+            id: "default-git-rev-parse-show-toplevel".to_string(),
+            pattern: "git rev-parse --show-toplevel".to_string(),
+            match_mode: "exact".to_string(),
+            description: Some("Show repository root".to_string()),
+            source: "default".to_string(),
+        },
+        CommandListEntryRecord {
+            id: "default-git-rev-parse-head".to_string(),
+            pattern: "git rev-parse --abbrev-ref HEAD".to_string(),
+            match_mode: "exact".to_string(),
+            description: Some("Resolve current branch name".to_string()),
+            source: "default".to_string(),
+        },
+        CommandListEntryRecord {
+            id: "default-git-log".to_string(),
+            pattern: "git log".to_string(),
+            match_mode: "prefix".to_string(),
+            description: Some("Inspect commit history".to_string()),
+            source: "default".to_string(),
+        },
+        CommandListEntryRecord {
+            id: "default-git-show".to_string(),
+            pattern: "git show".to_string(),
+            match_mode: "prefix".to_string(),
+            description: Some("Inspect repository objects".to_string()),
+            source: "default".to_string(),
+        },
+        CommandListEntryRecord {
+            id: "default-git-ls-files".to_string(),
+            pattern: "git ls-files".to_string(),
+            match_mode: "prefix".to_string(),
+            description: Some("List tracked files".to_string()),
+            source: "default".to_string(),
+        },
+    ]
+}
+
+fn default_deny_list() -> Vec<CommandListEntryRecord> {
+    vec![
+        CommandListEntryRecord {
+            id: "default-rm-rf".to_string(),
+            pattern: "rm -rf".to_string(),
+            match_mode: "prefix".to_string(),
+            description: Some("Recursive force delete".to_string()),
+            source: "default".to_string(),
+        },
+        CommandListEntryRecord {
+            id: "default-rm-rf-root".to_string(),
+            pattern: "rm -rf /".to_string(),
+            match_mode: "exact".to_string(),
+            description: Some("Delete root filesystem".to_string()),
+            source: "default".to_string(),
+        },
+        CommandListEntryRecord {
+            id: "default-sudo-rm".to_string(),
+            pattern: "sudo rm".to_string(),
+            match_mode: "prefix".to_string(),
+            description: Some("Privileged delete".to_string()),
+            source: "default".to_string(),
+        },
+        CommandListEntryRecord {
+            id: "default-mkfs".to_string(),
+            pattern: "mkfs".to_string(),
+            match_mode: "prefix".to_string(),
+            description: Some("Format filesystem".to_string()),
+            source: "default".to_string(),
+        },
+        CommandListEntryRecord {
+            id: "default-dd".to_string(),
+            pattern: "dd if=".to_string(),
+            match_mode: "prefix".to_string(),
+            description: Some("Low-level disk write".to_string()),
+            source: "default".to_string(),
+        },
+        CommandListEntryRecord {
+            id: "default-chmod-777".to_string(),
+            pattern: "chmod -R 777".to_string(),
+            match_mode: "prefix".to_string(),
+            description: Some("Insecure recursive permission change".to_string()),
+            source: "default".to_string(),
+        },
+        CommandListEntryRecord {
+            id: "default-etc-overwrite".to_string(),
+            pattern: "> /etc/".to_string(),
+            match_mode: "prefix".to_string(),
+            description: Some("Overwrite system config".to_string()),
+            source: "default".to_string(),
+        },
+        CommandListEntryRecord {
+            id: "default-curl-sh".to_string(),
+            pattern: "curl * | sh".to_string(),
+            match_mode: "glob".to_string(),
+            description: Some("Pipe remote script to shell".to_string()),
+            source: "default".to_string(),
+        },
+        CommandListEntryRecord {
+            id: "default-wget-sh".to_string(),
+            pattern: "wget * | sh".to_string(),
+            match_mode: "glob".to_string(),
+            description: Some("Pipe remote script to shell".to_string()),
+            source: "default".to_string(),
+        },
+        CommandListEntryRecord {
+            id: "default-shutdown".to_string(),
+            pattern: "shutdown".to_string(),
+            match_mode: "prefix".to_string(),
+            description: Some("System shutdown".to_string()),
+            source: "default".to_string(),
+        },
+        CommandListEntryRecord {
+            id: "default-reboot".to_string(),
+            pattern: "reboot".to_string(),
+            match_mode: "prefix".to_string(),
+            description: Some("System reboot".to_string()),
+            source: "default".to_string(),
+        },
+        CommandListEntryRecord {
+            id: "default-kill-9".to_string(),
+            pattern: "kill -9".to_string(),
+            match_mode: "prefix".to_string(),
+            description: Some("Force kill processes".to_string()),
+            source: "default".to_string(),
+        },
+        CommandListEntryRecord {
+            id: "default-fork-bomb".to_string(),
+            pattern: ":(){:|:&};:".to_string(),
+            match_mode: "exact".to_string(),
+            description: Some("Fork bomb".to_string()),
+            source: "default".to_string(),
+        },
+    ]
+}
+
+#[tauri::command]
+pub fn command_list_load() -> Result<CommandListRecord, String> {
+    tool_log("command_list_load", "start", json!({}));
+    let path = command_list_config_path()?;
+    if !path.exists() {
+        let defaults = CommandListRecord {
+            allow: default_allow_list(),
+            deny: default_deny_list(),
+        };
+        // Write defaults to disk so future loads are idempotent.
+        let _ = command_list_save(defaults.clone());
+        tool_log("command_list_load", "ok", json!({ "reason": "defaults_written", "allowCount": defaults.allow.len(), "denyCount": defaults.deny.len() }));
+        return Ok(defaults);
+    }
+    let raw = fs::read_to_string(&path)
+        .map_err(|e| format!("INTERNAL: cannot read command list: {}", e))?;
+    let record: CommandListRecord = serde_json::from_str(&raw)
+        .map_err(|e| format!("INTERNAL: cannot parse command list: {}", e))?;
+    tool_log("command_list_load", "ok", json!({ "allowCount": record.allow.len(), "denyCount": record.deny.len() }));
+    Ok(record)
+}
+
+#[tauri::command]
+pub fn command_list_save(list: CommandListRecord) -> Result<(), String> {
+    tool_log("command_list_save", "start", json!({ "allowCount": list.allow.len(), "denyCount": list.deny.len() }));
+    let path = command_list_config_path()?;
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|e| format!("INTERNAL: cannot create config dir: {}", e))?;
+    }
+    let raw = serde_json::to_string_pretty(&list)
+        .map_err(|e| format!("INTERNAL: cannot serialise command list: {}", e))?;
+    let tmp = path.with_extension(format!("json.tmp-{}", now_ms()));
+    fs::write(&tmp, raw.as_bytes())
+        .map_err(|e| format!("INTERNAL: cannot write command list tmp: {}", e))?;
+    match fs::rename(&tmp, &path) {
+        Ok(()) => {}
+        Err(e) => {
+            if path.exists() {
+                let _ = fs::remove_file(&tmp);
+            } else {
+                return Err(format!("INTERNAL: cannot rename command list file: {}", e));
+            }
+        }
+    }
+    tool_log("command_list_save", "ok", json!({ "allowCount": list.allow.len(), "denyCount": list.deny.len() }));
+    Ok(())
+}
+
 /* ── Communication Profiles (disk-backed) ────────────────────────────────── */
 
 fn profiles_config_path() -> Result<PathBuf, String> {
@@ -1747,11 +1984,11 @@ mod tests {
     use std::sync::OnceLock;
     use tempfile::tempdir;
 
-    static PROVIDER_TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    static HOME_TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
     #[test]
     fn test_providers_load_returns_empty_when_absent() {
-        let _guard = PROVIDER_TEST_LOCK
+        let _guard = HOME_TEST_LOCK
             .get_or_init(|| Mutex::new(()))
             .lock()
             .unwrap();
@@ -1770,7 +2007,7 @@ mod tests {
 
     #[test]
     fn test_providers_roundtrip() {
-        let _guard = PROVIDER_TEST_LOCK
+        let _guard = HOME_TEST_LOCK
             .get_or_init(|| Mutex::new(()))
             .lock()
             .unwrap();
@@ -2062,8 +2299,7 @@ mod tests {
 
     #[test]
     fn test_artifact_dedup_version_and_gc() {
-        static ENV_TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-        let _guard = ENV_TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+        let _guard = HOME_TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
 
         let tmp = tempdir().unwrap();
         let prev_home = std::env::var("HOME").ok();
@@ -2220,6 +2456,78 @@ mod tests {
                 "createdAt": 456,
             })
         );
+    }
+
+    #[test]
+    fn test_command_list_load_returns_defaults_when_absent() {
+        let _guard = HOME_TEST_LOCK
+            .get_or_init(|| Mutex::new(()))
+            .lock()
+            .unwrap();
+        let tmp = tempdir().unwrap();
+        let prev_home = std::env::var("HOME").ok();
+        std::env::set_var("HOME", tmp.path());
+
+        let result = command_list_load().expect("command_list_load should not error");
+        assert!(!result.allow.is_empty(), "Allow list should have safe default entries");
+        assert!(!result.deny.is_empty(), "Deny list should have default entries");
+        assert!(
+            result.allow.iter().any(|entry| entry.pattern == "git status"),
+            "Safe git status should be included by default"
+        );
+        // Check that the file was written to disk
+        let path = command_list_config_path().unwrap();
+        assert!(path.exists(), "command-list.json should be written on first load");
+
+        match prev_home {
+            Some(v) => std::env::set_var("HOME", v),
+            None => std::env::remove_var("HOME"),
+        }
+    }
+
+    #[test]
+    fn test_command_list_save_and_load_roundtrip() {
+        let _guard = HOME_TEST_LOCK
+            .get_or_init(|| Mutex::new(()))
+            .lock()
+            .unwrap();
+        let tmp = tempdir().unwrap();
+        let prev_home = std::env::var("HOME").ok();
+        std::env::set_var("HOME", tmp.path());
+
+        let list = CommandListRecord {
+            allow: vec![CommandListEntryRecord {
+                id: "entry-1".to_string(),
+                pattern: "npm test".to_string(),
+                match_mode: "exact".to_string(),
+                description: Some("Run tests".to_string()),
+                source: "user".to_string(),
+            }],
+            deny: vec![CommandListEntryRecord {
+                id: "entry-2".to_string(),
+                pattern: "rm -rf".to_string(),
+                match_mode: "prefix".to_string(),
+                description: None,
+                source: "default".to_string(),
+            }],
+        };
+
+        command_list_save(list.clone()).expect("command_list_save should succeed");
+        let loaded = command_list_load().expect("command_list_load should succeed");
+
+        assert_eq!(loaded.allow.len(), 1);
+        assert_eq!(loaded.allow[0].id, "entry-1");
+        assert_eq!(loaded.allow[0].pattern, "npm test");
+        assert_eq!(loaded.allow[0].match_mode, "exact");
+        assert_eq!(loaded.allow[0].description.as_deref(), Some("Run tests"));
+        assert_eq!(loaded.deny.len(), 1);
+        assert_eq!(loaded.deny[0].pattern, "rm -rf");
+        assert!(loaded.deny[0].description.is_none());
+
+        match prev_home {
+            Some(v) => std::env::set_var("HOME", v),
+            None => std::env::remove_var("HOME"),
+        }
     }
 
     #[test]

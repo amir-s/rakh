@@ -61,6 +61,7 @@ import {
   cancelAllApprovals,
   consumeApprovalReason,
 } from "./approvals";
+import { commandListAtom } from "./db";
 import type {
   AttachedImage,
   AgentQueueState,
@@ -2526,15 +2527,18 @@ async function runSubagentLoop(
 
         // Approval gate — reads tab-level auto-approve flags (identical to main agent)
         const subState = getAgentState(tabId);
-        if (
-          requiresApproval(
-            tc.function.name,
-            subState.autoApproveEdits,
-            subState.autoApproveCommands,
-            preparedArgs,
-          )
-        ) {
-          updateToolCallById({ status: "awaiting_approval" });
+        const subApprovalResult = requiresApproval(
+          tc.function.name,
+          subState.autoApproveEdits,
+          subState.autoApproveCommands,
+          preparedArgs,
+          jotaiStore.get(commandListAtom),
+        );
+        if (subApprovalResult.required) {
+          updateToolCallById({
+            status: "awaiting_approval",
+            dangerous: subApprovalResult.dangerous,
+          });
           const approved = await requestApproval(tabId, tcId);
           if (!approved) {
             const reason = consumeApprovalReason(tabId, tcId);
@@ -3677,15 +3681,18 @@ async function agentLoop(
         }
 
         // ── Approval gate ─────────────────────────────────────────────────
-        if (
-          requiresApproval(
-            tc.function.name,
-            getAgentState(tabId).autoApproveEdits,
-            getAgentState(tabId).autoApproveCommands,
-            preArgs,
-          )
-        ) {
-          updateToolCallById({ status: "awaiting_approval" });
+        const mainApprovalResult = requiresApproval(
+          tc.function.name,
+          getAgentState(tabId).autoApproveEdits,
+          getAgentState(tabId).autoApproveCommands,
+          preArgs,
+          jotaiStore.get(commandListAtom),
+        );
+        if (mainApprovalResult.required) {
+          updateToolCallById({
+            status: "awaiting_approval",
+            dangerous: mainApprovalResult.dangerous,
+          });
 
           const approved = await requestApproval(tabId, tcId);
 
