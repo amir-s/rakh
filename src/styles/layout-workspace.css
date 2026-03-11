@@ -225,9 +225,6 @@
     border-color var(--t-base),
     background var(--t-base);
 }
-.chat-input-shell--busy {
-  padding-right: 46px;
-}
 .chat-input-shell:focus-within {
   border-color: color-mix(in srgb, var(--color-primary) 35%, transparent);
   background: color-mix(in srgb, var(--color-subtle) 50%, transparent);
@@ -280,6 +277,13 @@
 .chat-input-actions button:hover {
   color: var(--color-primary);
   background: color-mix(in srgb, var(--color-subtle) 60%, transparent);
+}
+.chat-input-action-btn--stop {
+  color: var(--color-error);
+}
+.chat-input-action-btn--stop:hover:not(:disabled) {
+  color: var(--color-error);
+  background: color-mix(in srgb, var(--color-error) 14%, transparent);
 }
 
 .busy-composer-strip {
