@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.9.0](https://github.com/amir-s/rakh/compare/rakh-v0.8.0...rakh-v0.9.0) (2026-03-11)
+
+
+### Features
+
+* add chat attention jump controls ([#122](https://github.com/amir-s/rakh/issues/122)) ([4a63bf2](https://github.com/amir-s/rakh/commit/4a63bf262ffc9de0d98192b27dbc3ec0266ee028))
+* group inline tool calls ([#123](https://github.com/amir-s/rakh/issues/123)) ([3d4902a](https://github.com/amir-s/rakh/commit/3d4902aa8ca1eba92bd70cec2d2dfd926a7b4786))
+* **worktree:** add detached handoff workflow ([#96](https://github.com/amir-s/rakh/issues/96)) ([49eb8ed](https://github.com/amir-s/rakh/commit/49eb8ed7c242e75e270f1990db0a33db8fb46b5b))
+
+
+### Bug Fixes
+
+* **workspace:** show stop button while busy ([#120](https://github.com/amir-s/rakh/issues/120)) ([1e45a51](https://github.com/amir-s/rakh/commit/1e45a51bfcc3224b70def2eb3e32036ed7860fe3))
+
 ## [0.8.0](https://github.com/amir-s/rakh/compare/rakh-v0.7.0...rakh-v0.8.0) (2026-03-10)
 
 
