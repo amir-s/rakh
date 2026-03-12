@@ -3,32 +3,102 @@ import rawCatalog from "./models.catalog.json";
 export type SupportedProvider = "openai" | "anthropic" | "openai-compatible";
 
 export interface ModelCatalogEntry {
-  id: string; // E.g. "MyOpenAI/gpt-4o"
+  id: string; // E.g. "MyOpenAI/openai/gpt-5.3-codex"
   name: string; // The display name
   providerId: string; // Maps to ProviderInstance.id
   owned_by: SupportedProvider; // UI Badge indicator
   tags: string[];
   context_length?: number;
   pricing?: {
-    prompt: string;
-    completion: string;
+    prompt: number;
+    completion: number;
   };
   /**
    * Provider-native model identifier used when constructing the SDK model.
-   * E.g. "gpt-4o" or raw compatible model id.
+   * E.g. "gpt-5.3-codex" or a raw compatible model id.
    */
   sdk_id: string;
 }
 
-interface ModelCatalogFile {
-  version: number;
-  generatedAt: string;
-  source: string;
-  filters?: {
-    providers?: string[];
-    requiredTag?: string;
+interface ModelCatalogSourceProvider {
+  id?: unknown;
+  name?: unknown;
+}
+
+interface ModelCatalogSourceCost {
+  input?: unknown;
+  output?: unknown;
+}
+
+interface ModelCatalogSourceLimit {
+  context?: unknown;
+}
+
+interface ModelCatalogSourceModalities {
+  input?: unknown;
+}
+
+interface ModelCatalogSourceModel {
+  id?: unknown;
+  name?: unknown;
+  reasoning?: unknown;
+  tool_call?: unknown;
+  structured_output?: unknown;
+  modalities?: unknown;
+  cost?: unknown;
+  limit?: unknown;
+}
+
+interface ModelCatalogSourceEntry {
+  provider?: unknown;
+  model?: unknown;
+}
+
+function getFiniteNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((item) => typeof item === "string");
+}
+
+function inferTags(model: ModelCatalogSourceModel): string[] {
+  const tags: string[] = [];
+
+  if (model.reasoning === true) tags.push("reasoning");
+  if (model.tool_call === true) tags.push("tool-use");
+  if (model.structured_output === true) tags.push("structured-output");
+
+  if (isRecord(model.modalities)) {
+    const modalities = model.modalities as ModelCatalogSourceModalities;
+    const inputModalities = isStringArray(modalities.input)
+      ? modalities.input
+      : [];
+
+    if (inputModalities.includes("image")) tags.push("vision");
+    if (inputModalities.includes("pdf")) tags.push("file-input");
+  }
+
+  return tags;
+}
+
+function normalizePrice(
+  pricing: unknown,
+): ModelCatalogEntry["pricing"] | undefined {
+  if (!isRecord(pricing)) return undefined;
+
+  const cost = pricing as ModelCatalogSourceCost;
+  const prompt = getFiniteNumber(cost.input);
+  const completion = getFiniteNumber(cost.output);
+
+  if (prompt === undefined && completion === undefined) {
+    return undefined;
+  }
+
+  return {
+    prompt: prompt ?? 0,
+    completion: completion ?? 0,
   };
-  models: ModelCatalogEntry[];
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -41,72 +111,55 @@ function isSupportedProvider(value: unknown): value is SupportedProvider {
   );
 }
 
-function normalizeCatalog(input: unknown): ModelCatalogFile {
-  if (!isRecord(input)) {
-    throw new Error("Invalid model catalog: expected object");
+function normalizeCatalog(input: unknown): ModelCatalogEntry[] {
+  if (!Array.isArray(input)) {
+    throw new Error("Invalid model catalog: expected array");
   }
 
-  const modelsRaw = Array.isArray(input.models) ? input.models : [];
   const models: ModelCatalogEntry[] = [];
 
-  for (const item of modelsRaw) {
+  for (const item of input) {
     if (!isRecord(item)) continue;
 
-    const id = typeof item.id === "string" ? item.id.trim() : "";
-    const name = typeof item.name === "string" ? item.name.trim() : "";
-    const ownedBy = item.owned_by;
-    const sdkId = typeof item.sdk_id === "string" ? item.sdk_id.trim() : "";
+    const provider = isRecord((item as ModelCatalogSourceEntry).provider)
+      ? ((item as ModelCatalogSourceEntry).provider as ModelCatalogSourceProvider)
+      : null;
+    const model = isRecord((item as ModelCatalogSourceEntry).model)
+      ? ((item as ModelCatalogSourceEntry).model as ModelCatalogSourceModel)
+      : null;
 
-    if (!id || !name || !isSupportedProvider(ownedBy)) continue;
+    if (!provider || !model) continue;
 
-    const tags = Array.isArray(item.tags)
-      ? item.tags.filter((t): t is string => typeof t === "string")
-      : [];
+    const providerKey = typeof provider.id === "string" ? provider.id.trim() : "";
+    const modelId = typeof model.id === "string" ? model.id.trim() : "";
+    const name = typeof model.name === "string" ? model.name.trim() : "";
 
-    const context_length =
-      typeof item.context_length === "number" &&
-      Number.isFinite(item.context_length)
-        ? item.context_length
-        : undefined;
-
-    let pricing: ModelCatalogEntry["pricing"];
-    if (isRecord(item.pricing)) {
-      const prompt =
-        typeof item.pricing.prompt === "string" ? item.pricing.prompt : "";
-      const completion =
-        typeof item.pricing.completion === "string"
-          ? item.pricing.completion
-          : "";
-      if (prompt || completion) {
-        pricing = { prompt, completion };
-      }
+    if (!providerKey || !modelId || !name || !isSupportedProvider(providerKey)) {
+      continue;
     }
 
+    const limit = isRecord(model.limit)
+      ? (model.limit as ModelCatalogSourceLimit)
+      : null;
+    const context_length = limit ? getFiniteNumber(limit.context) : undefined;
+
     models.push({
-      id,
+      id: `${providerKey}/${modelId}`,
       name,
       providerId: "", // Filled at runtime
-      owned_by: ownedBy,
-      tags,
+      owned_by: providerKey,
+      tags: inferTags(model),
       context_length,
-      pricing,
-      sdk_id: sdkId,
+      pricing: normalizePrice(model.cost),
+      sdk_id: modelId,
     });
   }
 
-  return {
-    version: typeof input.version === "number" ? input.version : 1,
-    generatedAt:
-      typeof input.generatedAt === "string" ? input.generatedAt : "unknown",
-    source: typeof input.source === "string" ? input.source : "unknown",
-    models,
-  };
+  return models;
 }
 
-const catalog = normalizeCatalog(rawCatalog);
-
 export const STATIC_MODEL_CATALOG: ModelCatalogEntry[] = [
-  ...catalog.models,
+  ...normalizeCatalog(rawCatalog),
 ].sort((a, b) => a.id.localeCompare(b.id));
 
 // Fallback for missing configurations

@@ -715,6 +715,14 @@ function supportsAnthropicFastMode(modelSdkId?: string): boolean {
   return typeof modelSdkId === "string" && modelSdkId.startsWith("claude-opus-4-6");
 }
 
+function supportsAnthropicEffort(modelSdkId?: string): boolean {
+  return (
+    typeof modelSdkId === "string" &&
+    (modelSdkId.startsWith("claude-opus-4-5") ||
+      modelSdkId.startsWith("claude-opus-4-6"))
+  );
+}
+
 export function buildProviderOptions(
   provider: string | null,
   opts?: AdvancedModelOptions,
@@ -763,8 +771,11 @@ export function buildProviderOptions(
     anthropic.thinking = { type: "adaptive" };
   }
 
-  // Reasoning effort
-  anthropic.effort = reasoningEffort;
+  // Effort is model-specific for Anthropic. Omit it for unsupported models
+  // so requests for Haiku/Sonnet do not fail at the API layer.
+  if (supportsAnthropicEffort(modelSdkId)) {
+    anthropic.effort = reasoningEffort;
+  }
 
   // Fast mode is Anthropic model-specific. Omit the default "standard" mode
   // entirely so unsupported models do not receive an invalid request field.
@@ -797,7 +808,7 @@ function resolveLanguageModel(modelKey: string, providers: ProviderInstance[]) {
 
   if (!providerModelId) {
     throw new Error(
-      `Model "${modelEntry.id}" is missing sdk_id. Update src/agent/models.catalog.json and set sdk_id for this model.`,
+      `Model "${modelEntry.id}" is missing a provider model ID. Update src/agent/models.catalog.json for this model.`,
     );
   }
 
@@ -3198,7 +3209,7 @@ async function runAgentTurn(
   if (!modelEntry.sdk_id.trim()) {
     setAgentErrorState(
       tabId,
-      `Selected model is missing sdk_id. Please update src/agent/models.catalog.json for ${modelEntry.id}.`,
+      `Selected model is missing a provider model ID. Please update src/agent/models.catalog.json for ${modelEntry.id}.`,
     );
     clearActiveRun(tabId, activeRun);
     return;

@@ -22,12 +22,12 @@ export function fmtCtx(n?: number): string {
 }
 
 /** Format prompt price per 1M tokens. Returns "free" or "$0.15/M". */
-export function fmtPrice(pricing?: { prompt: string }): string {
-  if (!pricing?.prompt) return "";
-  const perToken = parseFloat(pricing.prompt);
-  if (isNaN(perToken) || perToken === 0) return "free";
-  const perM = perToken * 1_000_000;
-  return `$${perM < 1 ? perM.toFixed(3) : perM.toFixed(2)}/M`;
+export function fmtPrice(pricing?: { prompt: number }): string {
+  if (typeof pricing?.prompt !== "number" || !Number.isFinite(pricing.prompt)) {
+    return "";
+  }
+  if (pricing.prompt === 0) return "free";
+  return `$${pricing.prompt < 1 ? pricing.prompt.toFixed(3) : pricing.prompt.toFixed(2)}/M`;
 }
 
 function getModelSearchFields(model: GatewayModel): string[] {

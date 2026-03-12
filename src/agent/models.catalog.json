@@ -1,437 +1,380 @@
-{
-  "version": 1,
-  "generatedAt": "2026-02-24",
-  "source": "https://ai-gateway.vercel.sh/v1/models",
-  "filters": {
-    "providers": ["openai", "anthropic"],
-    "requiredTag": "tool-use"
-  },
-  "models": [
-    {
-      "id": "anthropic/claude-3-haiku",
-      "name": "Claude 3 Haiku",
-      "owned_by": "anthropic",
-      "tags": ["tool-use", "vision"],
-      "context_length": 200000,
-      "pricing": {
-        "prompt": "0.00000025",
-        "completion": "0.00000125"
-      },
-      "sdk_id": "claude-3-haiku-20240307"
+[
+  {
+    "provider": {
+      "id": "anthropic",
+      "name": "Anthropic"
     },
-    {
-      "id": "anthropic/claude-haiku-4.5",
-      "name": "Claude Haiku 4.5",
-      "owned_by": "anthropic",
-      "tags": ["tool-use", "vision"],
-      "context_length": 200000,
-      "pricing": {
-        "prompt": "0.000001",
-        "completion": "0.000005"
+    "model": {
+      "id": "claude-haiku-4-5",
+      "name": "Claude Haiku 4.5 (latest)",
+      "family": "claude-haiku",
+      "attachment": true,
+      "reasoning": true,
+      "tool_call": true,
+      "temperature": true,
+      "knowledge": "2025-02-28",
+      "release_date": "2025-10-15",
+      "last_updated": "2025-10-15",
+      "modalities": {
+        "input": ["text", "image", "pdf"],
+        "output": ["text"]
       },
-      "sdk_id": "claude-haiku-4-5-20251001"
-    },
-    {
-      "id": "anthropic/claude-opus-4",
-      "name": "Claude Opus 4",
-      "owned_by": "anthropic",
-      "tags": ["reasoning", "tool-use", "vision"],
-      "context_length": 200000,
-      "pricing": {
-        "prompt": "0.000015",
-        "completion": "0.000075"
+      "open_weights": false,
+      "cost": {
+        "input": 1,
+        "output": 5,
+        "cache_read": 0.1,
+        "cache_write": 1.25
       },
-      "sdk_id": "claude-opus-4-20250514"
-    },
-    {
-      "id": "anthropic/claude-opus-4.1",
-      "name": "Claude Opus 4.1",
-      "owned_by": "anthropic",
-      "tags": ["reasoning", "tool-use", "vision"],
-      "context_length": 200000,
-      "pricing": {
-        "prompt": "0.000015",
-        "completion": "0.000075"
-      },
-      "sdk_id": "claude-opus-4-1-20250805"
-    },
-    {
-      "id": "anthropic/claude-opus-4.5",
-      "name": "Claude Opus 4.5",
-      "owned_by": "anthropic",
-      "tags": ["reasoning", "tool-use", "vision"],
-      "context_length": 200000,
-      "pricing": {
-        "prompt": "0.000015",
-        "completion": "0.000075"
-      },
-      "sdk_id": "claude-opus-4-5-20251101"
-    },
-    {
-      "id": "anthropic/claude-opus-4.6",
-      "name": "Claude Opus 4.6",
-      "owned_by": "anthropic",
-      "tags": ["reasoning", "tool-use", "vision"],
-      "context_length": 200000,
-      "pricing": {
-        "prompt": "0.000015",
-        "completion": "0.000075"
-      },
-      "sdk_id": "claude-opus-4-6"
-    },
-    {
-      "id": "anthropic/claude-sonnet-4",
-      "name": "Claude Sonnet 4",
-      "owned_by": "anthropic",
-      "tags": ["reasoning", "tool-use", "vision"],
-      "context_length": 200000,
-      "pricing": {
-        "prompt": "0.000003",
-        "completion": "0.000015"
-      },
-      "sdk_id": "claude-sonnet-4-20250514"
-    },
-    {
-      "id": "anthropic/claude-sonnet-4.5",
-      "name": "Claude Sonnet 4.5",
-      "owned_by": "anthropic",
-      "tags": ["reasoning", "tool-use", "vision"],
-      "context_length": 200000,
-      "pricing": {
-        "prompt": "0.000003",
-        "completion": "0.000015"
-      },
-      "sdk_id": "claude-sonnet-4-5-20250929"
-    },
-    {
-      "id": "anthropic/claude-sonnet-4.6",
-      "name": "Claude Sonnet 4.6",
-      "owned_by": "anthropic",
-      "tags": ["reasoning", "tool-use", "vision"],
-      "context_length": 200000,
-      "pricing": {
-        "prompt": "0.000003",
-        "completion": "0.000015"
-      },
-      "sdk_id": "claude-sonnet-4-6"
-    },
-    {
-      "id": "openai/codex-mini",
-      "name": "Codex Mini",
-      "owned_by": "openai",
-      "tags": ["reasoning", "tool-use"],
-      "context_length": 200000,
-      "pricing": {
-        "prompt": "0.0000015",
-        "completion": "0.000006"
-      },
-      "sdk_id": "codex-mini-latest"
-    },
-    {
-      "id": "openai/gpt-4-turbo",
-      "name": "GPT-4 Turbo",
-      "owned_by": "openai",
-      "tags": ["tool-use"],
-      "context_length": 128000,
-      "pricing": {
-        "prompt": "0.00001",
-        "completion": "0.00003"
-      },
-      "sdk_id": "gpt-4-turbo"
-    },
-    {
-      "id": "openai/gpt-4.1",
-      "name": "GPT-4.1",
-      "owned_by": "openai",
-      "tags": ["tool-use", "vision"],
-      "context_length": 1047576,
-      "pricing": {
-        "prompt": "0.000002",
-        "completion": "0.000008"
-      },
-      "sdk_id": "gpt-4.1"
-    },
-    {
-      "id": "openai/gpt-4.1-mini",
-      "name": "GPT-4.1 mini",
-      "owned_by": "openai",
-      "tags": ["tool-use", "vision"],
-      "context_length": 1047576,
-      "pricing": {
-        "prompt": "0.0000004",
-        "completion": "0.0000016"
-      },
-      "sdk_id": "gpt-4.1-mini"
-    },
-    {
-      "id": "openai/gpt-4.1-nano",
-      "name": "GPT-4.1 nano",
-      "owned_by": "openai",
-      "tags": ["tool-use", "vision"],
-      "context_length": 1047576,
-      "pricing": {
-        "prompt": "0.0000001",
-        "completion": "0.0000004"
-      },
-      "sdk_id": "gpt-4.1-nano"
-    },
-    {
-      "id": "openai/gpt-4o",
-      "name": "GPT-4o",
-      "owned_by": "openai",
-      "tags": ["tool-use", "vision"],
-      "context_length": 128000,
-      "pricing": {
-        "prompt": "0.0000025",
-        "completion": "0.00001"
-      },
-      "sdk_id": "gpt-4o"
-    },
-    {
-      "id": "openai/gpt-4o-mini",
-      "name": "GPT-4o mini",
-      "owned_by": "openai",
-      "tags": ["tool-use", "vision"],
-      "context_length": 128000,
-      "pricing": {
-        "prompt": "0.00000015",
-        "completion": "0.0000006"
-      },
-      "sdk_id": "gpt-4o-mini"
-    },
-    {
-      "id": "openai/gpt-5",
-      "name": "GPT-5",
-      "owned_by": "openai",
-      "tags": ["reasoning", "tool-use", "vision", "implicit-caching"],
-      "context_length": 400000,
-      "pricing": {
-        "prompt": "0.00000125",
-        "completion": "0.00001"
-      },
-      "sdk_id": "gpt-5"
-    },
-    {
-      "id": "openai/gpt-5-chat",
-      "name": "GPT-5 Chat",
-      "owned_by": "openai",
-      "tags": ["tool-use", "vision", "implicit-caching"],
-      "context_length": 400000,
-      "pricing": {
-        "prompt": "0.00000125",
-        "completion": "0.00001"
-      },
-      "sdk_id": "gpt-5-chat-latest"
-    },
-    {
-      "id": "openai/gpt-5-codex",
-      "name": "GPT-5 Codex",
-      "owned_by": "openai",
-      "tags": ["reasoning", "tool-use", "vision", "implicit-caching"],
-      "context_length": 400000,
-      "pricing": {
-        "prompt": "0.0000015",
-        "completion": "0.000006"
-      },
-      "sdk_id": "gpt-5-codex"
-    },
-    {
-      "id": "openai/gpt-5-mini",
-      "name": "GPT-5 mini",
-      "owned_by": "openai",
-      "tags": ["reasoning", "tool-use", "vision", "implicit-caching"],
-      "context_length": 400000,
-      "pricing": {
-        "prompt": "0.00000025",
-        "completion": "0.000002"
-      },
-      "sdk_id": "gpt-5-mini"
-    },
-    {
-      "id": "openai/gpt-5-nano",
-      "name": "GPT-5 nano",
-      "owned_by": "openai",
-      "tags": ["reasoning", "tool-use", "vision", "implicit-caching"],
-      "context_length": 400000,
-      "pricing": {
-        "prompt": "0.00000005",
-        "completion": "0.0000004"
-      },
-      "sdk_id": "gpt-5-nano"
-    },
-    {
-      "id": "openai/gpt-5-pro",
-      "name": "GPT-5 Pro",
-      "owned_by": "openai",
-      "tags": ["reasoning", "tool-use", "vision", "implicit-caching"],
-      "context_length": 400000,
-      "pricing": {
-        "prompt": "0.000015",
-        "completion": "0.00012"
-      },
-      "sdk_id": "gpt-5-pro"
-    },
-    {
-      "id": "openai/gpt-5.1-codex",
-      "name": "GPT-5.1 Codex",
-      "owned_by": "openai",
-      "tags": ["reasoning", "tool-use", "vision", "implicit-caching"],
-      "context_length": 400000,
-      "pricing": {
-        "prompt": "0.0000015",
-        "completion": "0.000006"
-      },
-      "sdk_id": "gpt-5.1-codex"
-    },
-    {
-      "id": "openai/gpt-5.1-codex-max",
-      "name": "GPT-5.1 Codex Max",
-      "owned_by": "openai",
-      "tags": ["reasoning", "tool-use", "vision", "implicit-caching"],
-      "context_length": 400000,
-      "pricing": {
-        "prompt": "0.000006",
-        "completion": "0.000024"
-      },
-      "sdk_id": "gpt-5.1-codex-max"
-    },
-    {
-      "id": "openai/gpt-5.1-codex-mini",
-      "name": "GPT-5.1 Codex Mini",
-      "owned_by": "openai",
-      "tags": ["reasoning", "tool-use", "vision", "implicit-caching"],
-      "context_length": 400000,
-      "pricing": {
-        "prompt": "0.000000375",
-        "completion": "0.0000015"
-      },
-      "sdk_id": "gpt-5.1-codex-mini"
-    },
-    {
-      "id": "openai/gpt-5.2",
-      "name": "GPT-5.2",
-      "owned_by": "openai",
-      "tags": ["reasoning", "tool-use", "vision", "implicit-caching"],
-      "context_length": 400000,
-      "pricing": {
-        "prompt": "0.00000125",
-        "completion": "0.00001"
-      },
-      "sdk_id": "gpt-5.2"
-    },
-    {
-      "id": "openai/gpt-5.2-chat",
-      "name": "GPT-5.2 Chat",
-      "owned_by": "openai",
-      "tags": ["tool-use", "vision", "implicit-caching"],
-      "context_length": 400000,
-      "pricing": {
-        "prompt": "0.00000125",
-        "completion": "0.00001"
-      },
-      "sdk_id": "gpt-5.2-chat-latest"
-    },
-    {
-      "id": "openai/gpt-5.2-codex",
-      "name": "GPT-5.2 Codex",
-      "owned_by": "openai",
-      "tags": ["reasoning", "tool-use", "vision", "implicit-caching"],
-      "context_length": 400000,
-      "pricing": {
-        "prompt": "0.0000015",
-        "completion": "0.000006"
-      },
-      "sdk_id": "gpt-5.2-codex"
-    },
-    {
-      "id": "openai/gpt-5.2-pro",
-      "name": "GPT-5.2 Pro",
-      "owned_by": "openai",
-      "tags": ["reasoning", "tool-use", "vision", "implicit-caching"],
-      "context_length": 400000,
-      "pricing": {
-        "prompt": "0.000015",
-        "completion": "0.00012"
-      },
-      "sdk_id": "gpt-5.2-pro"
-    },
-    {
-      "id": "openai/o1",
-      "name": "o1",
-      "owned_by": "openai",
-      "tags": ["reasoning", "tool-use", "vision"],
-      "context_length": 200000,
-      "pricing": {
-        "prompt": "0.000015",
-        "completion": "0.00006"
-      },
-      "sdk_id": "o1"
-    },
-    {
-      "id": "openai/o3",
-      "name": "o3",
-      "owned_by": "openai",
-      "tags": ["reasoning", "tool-use", "vision", "implicit-caching"],
-      "context_length": 200000,
-      "pricing": {
-        "prompt": "0.000002",
-        "completion": "0.000008"
-      },
-      "sdk_id": "o3"
-    },
-    {
-      "id": "openai/o3-deep-research",
-      "name": "o3 Deep Research",
-      "owned_by": "openai",
-      "tags": ["reasoning", "tool-use", "vision"],
-      "context_length": 200000,
-      "pricing": {
-        "prompt": "0.00001",
-        "completion": "0.00004"
-      },
-      "sdk_id": "o3-deep-research"
-    },
-    {
-      "id": "openai/o3-mini",
-      "name": "o3-mini",
-      "owned_by": "openai",
-      "tags": ["reasoning", "tool-use", "vision"],
-      "context_length": 200000,
-      "pricing": {
-        "prompt": "0.0000011",
-        "completion": "0.0000044"
-      },
-      "sdk_id": "o3-mini"
-    },
-    {
-      "id": "openai/o3-pro",
-      "name": "o3-pro",
-      "owned_by": "openai",
-      "tags": ["reasoning", "tool-use", "vision", "implicit-caching"],
-      "context_length": 200000,
-      "pricing": {
-        "prompt": "0.00002",
-        "completion": "0.00008"
-      },
-      "sdk_id": "o3-pro"
-    },
-    {
-      "id": "openai/o4-mini",
-      "name": "o4-mini",
-      "owned_by": "openai",
-      "tags": [
-        "file-input",
-        "reasoning",
-        "tool-use",
-        "vision",
-        "implicit-caching"
-      ],
-      "context_length": 200000,
-      "pricing": {
-        "prompt": "0.0000011",
-        "completion": "0.0000044"
-      },
-      "sdk_id": "o4-mini"
+      "limit": {
+        "context": 200000,
+        "output": 64000
+      }
     }
-  ]
-}
+  },
+  {
+    "provider": {
+      "id": "anthropic",
+      "name": "Anthropic"
+    },
+    "model": {
+      "id": "claude-opus-4-5",
+      "name": "Claude Opus 4.5 (latest)",
+      "family": "claude-opus",
+      "attachment": true,
+      "reasoning": true,
+      "tool_call": true,
+      "temperature": true,
+      "knowledge": "2025-03-31",
+      "release_date": "2025-11-24",
+      "last_updated": "2025-11-24",
+      "modalities": {
+        "input": ["text", "image", "pdf"],
+        "output": ["text"]
+      },
+      "open_weights": false,
+      "cost": {
+        "input": 5,
+        "output": 25,
+        "cache_read": 0.5,
+        "cache_write": 6.25
+      },
+      "limit": {
+        "context": 200000,
+        "output": 64000
+      }
+    }
+  },
+  {
+    "provider": {
+      "id": "anthropic",
+      "name": "Anthropic"
+    },
+    "model": {
+      "id": "claude-sonnet-4-5",
+      "name": "Claude Sonnet 4.5 (latest)",
+      "family": "claude-sonnet",
+      "attachment": true,
+      "reasoning": true,
+      "tool_call": true,
+      "temperature": true,
+      "knowledge": "2025-07-31",
+      "release_date": "2025-09-29",
+      "last_updated": "2025-09-29",
+      "modalities": {
+        "input": ["text", "image", "pdf"],
+        "output": ["text"]
+      },
+      "open_weights": false,
+      "cost": {
+        "input": 3,
+        "output": 15,
+        "cache_read": 0.3,
+        "cache_write": 3.75
+      },
+      "limit": {
+        "context": 200000,
+        "output": 64000
+      }
+    }
+  },
+  {
+    "provider": {
+      "id": "anthropic",
+      "name": "Anthropic"
+    },
+    "model": {
+      "id": "claude-opus-4-6",
+      "name": "Claude Opus 4.6",
+      "family": "claude-opus",
+      "attachment": true,
+      "reasoning": true,
+      "tool_call": true,
+      "temperature": true,
+      "knowledge": "2025-05",
+      "release_date": "2026-02-05",
+      "last_updated": "2026-02-05",
+      "modalities": {
+        "input": ["text", "image", "pdf"],
+        "output": ["text"]
+      },
+      "open_weights": false,
+      "cost": {
+        "input": 5,
+        "output": 25,
+        "cache_read": 0.5,
+        "cache_write": 6.25,
+        "context_over_200k": {
+          "input": 10,
+          "output": 37.5,
+          "cache_read": 1,
+          "cache_write": 12.5
+        }
+      },
+      "limit": {
+        "context": 200000,
+        "output": 128000
+      }
+    }
+  },
+  {
+    "provider": {
+      "id": "anthropic",
+      "name": "Anthropic"
+    },
+    "model": {
+      "id": "claude-sonnet-4-6",
+      "name": "Claude Sonnet 4.6",
+      "family": "claude-sonnet",
+      "attachment": true,
+      "reasoning": true,
+      "tool_call": true,
+      "temperature": true,
+      "knowledge": "2025-08",
+      "release_date": "2026-02-17",
+      "last_updated": "2026-02-17",
+      "modalities": {
+        "input": ["text", "image", "pdf"],
+        "output": ["text"]
+      },
+      "open_weights": false,
+      "cost": {
+        "input": 3,
+        "output": 15,
+        "cache_read": 0.3,
+        "cache_write": 3.75,
+        "context_over_200k": {
+          "input": 6,
+          "output": 22.5,
+          "cache_read": 0.6,
+          "cache_write": 7.5
+        }
+      },
+      "limit": {
+        "context": 200000,
+        "output": 64000
+      }
+    }
+  },
+  {
+    "provider": {
+      "id": "openai",
+      "name": "OpenAI"
+    },
+    "model": {
+      "id": "gpt-5.3-codex",
+      "name": "GPT-5.3 Codex",
+      "family": "gpt-codex",
+      "attachment": true,
+      "reasoning": true,
+      "tool_call": true,
+      "structured_output": true,
+      "temperature": false,
+      "knowledge": "2025-08-31",
+      "release_date": "2026-02-05",
+      "last_updated": "2026-02-05",
+      "modalities": {
+        "input": ["text", "image", "pdf"],
+        "output": ["text"]
+      },
+      "open_weights": false,
+      "cost": {
+        "input": 1.75,
+        "output": 14,
+        "cache_read": 0.175
+      },
+      "limit": {
+        "context": 400000,
+        "input": 272000,
+        "output": 128000
+      }
+    }
+  },
+  {
+    "provider": {
+      "id": "openai",
+      "name": "OpenAI"
+    },
+    "model": {
+      "id": "gpt-5.2-codex",
+      "name": "GPT-5.2 Codex",
+      "family": "gpt-codex",
+      "attachment": true,
+      "reasoning": true,
+      "tool_call": true,
+      "structured_output": true,
+      "temperature": false,
+      "knowledge": "2025-08-31",
+      "release_date": "2025-12-11",
+      "last_updated": "2025-12-11",
+      "modalities": {
+        "input": ["text", "image", "pdf"],
+        "output": ["text"]
+      },
+      "open_weights": false,
+      "cost": {
+        "input": 1.75,
+        "output": 14,
+        "cache_read": 0.175
+      },
+      "limit": {
+        "context": 400000,
+        "input": 272000,
+        "output": 128000
+      }
+    }
+  },
+  {
+    "provider": {
+      "id": "openai",
+      "name": "OpenAI"
+    },
+    "model": {
+      "id": "gpt-5-codex",
+      "name": "GPT-5-Codex",
+      "family": "gpt-codex",
+      "attachment": false,
+      "reasoning": true,
+      "tool_call": true,
+      "structured_output": true,
+      "temperature": false,
+      "knowledge": "2024-09-30",
+      "release_date": "2025-09-15",
+      "last_updated": "2025-09-15",
+      "modalities": {
+        "input": ["text", "image"],
+        "output": ["text"]
+      },
+      "open_weights": false,
+      "cost": {
+        "input": 1.25,
+        "output": 10,
+        "cache_read": 0.125
+      },
+      "limit": {
+        "context": 400000,
+        "input": 272000,
+        "output": 128000
+      }
+    }
+  },
+  {
+    "provider": {
+      "id": "openai",
+      "name": "OpenAI"
+    },
+    "model": {
+      "id": "gpt-4o-mini",
+      "name": "GPT-4o mini",
+      "family": "gpt-mini",
+      "attachment": true,
+      "reasoning": false,
+      "tool_call": true,
+      "structured_output": true,
+      "temperature": true,
+      "knowledge": "2023-09",
+      "release_date": "2024-07-18",
+      "last_updated": "2024-07-18",
+      "modalities": {
+        "input": ["text", "image"],
+        "output": ["text"]
+      },
+      "open_weights": false,
+      "cost": {
+        "input": 0.15,
+        "output": 0.6,
+        "cache_read": 0.08
+      },
+      "limit": {
+        "context": 128000,
+        "output": 16384
+      }
+    }
+  },
+  {
+    "provider": {
+      "id": "openai",
+      "name": "OpenAI"
+    },
+    "model": {
+      "id": "codex-mini-latest",
+      "name": "Codex Mini",
+      "family": "gpt-codex-mini",
+      "attachment": true,
+      "reasoning": true,
+      "tool_call": true,
+      "temperature": false,
+      "knowledge": "2024-04",
+      "release_date": "2025-05-16",
+      "last_updated": "2025-05-16",
+      "modalities": {
+        "input": ["text"],
+        "output": ["text"]
+      },
+      "open_weights": false,
+      "cost": {
+        "input": 1.5,
+        "output": 6,
+        "cache_read": 0.375
+      },
+      "limit": {
+        "context": 200000,
+        "output": 100000
+      }
+    }
+  },
+  {
+    "provider": {
+      "id": "openai",
+      "name": "OpenAI"
+    },
+    "model": {
+      "id": "gpt-5-nano",
+      "name": "GPT-5 Nano",
+      "family": "gpt-nano",
+      "attachment": true,
+      "reasoning": true,
+      "tool_call": true,
+      "structured_output": true,
+      "temperature": false,
+      "knowledge": "2024-05-30",
+      "release_date": "2025-08-07",
+      "last_updated": "2025-08-07",
+      "modalities": {
+        "input": ["text", "image"],
+        "output": ["text"]
+      },
+      "open_weights": false,
+      "cost": {
+        "input": 0.05,
+        "output": 0.4,
+        "cache_read": 0.005
+      },
+      "limit": {
+        "context": 400000,
+        "input": 272000,
+        "output": 128000
+      }
+    }
+  }
+]
