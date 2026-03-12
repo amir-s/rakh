@@ -11,6 +11,7 @@
 
 import { useAtom, useAtomValue } from "jotai";
 import { useCallback } from "react";
+import { logFrontendSoon } from "@/logging/client";
 
 import {
   agentAtomFamily,
@@ -180,7 +181,16 @@ export function useSendMessage() {
   return useCallback(
     (tabId: string, message: string, attachments?: AttachedImage[]) => {
       // fire-and-forget; the runner updates atoms reactively
-      runAgent(tabId, message, attachments).catch(console.error);
+      runAgent(tabId, message, attachments).catch((error) => {
+        logFrontendSoon({
+          level: "error",
+          tags: ["frontend", "agent-loop"],
+          event: "agent.send-message.error",
+          message: "Failed to start an agent run from the send-message hook.",
+          data: { error, tabId },
+          context: { tabId },
+        });
+      });
     },
     [],
   );
@@ -194,7 +204,16 @@ export function useStopAgent() {
 /** retryAgent — re-run the last user message after an error */
 export function useRetryAgent() {
   return useCallback((tabId: string) => {
-    _retryAgent(tabId).catch(console.error);
+    _retryAgent(tabId).catch((error) => {
+      logFrontendSoon({
+        level: "error",
+        tags: ["frontend", "agent-loop"],
+        event: "agent.retry.error",
+        message: "Failed to retry the agent run.",
+        data: { error, tabId },
+        context: { tabId },
+      });
+    });
   }, []);
 }
 
@@ -206,7 +225,16 @@ export function useQueueMessage() {
 
 export function useSteerMessage() {
   return useCallback((tabId: string, message: string, queuedMessageId?: string) => {
-    _steerMessage(tabId, message, queuedMessageId).catch(console.error);
+    _steerMessage(tabId, message, queuedMessageId).catch((error) => {
+      logFrontendSoon({
+        level: "error",
+        tags: ["frontend", "agent-loop"],
+        event: "agent.steer.error",
+        message: "Failed to steer the active agent run.",
+        data: { error, tabId, queuedMessageId },
+        context: { tabId, correlationId: queuedMessageId },
+      });
+    });
   }, []);
 }
 

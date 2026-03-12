@@ -15,6 +15,7 @@ import {
   ARTIFACT_CONTENT_FORMAT,
   type ArtifactContentFormat,
 } from "./artifactTypes";
+import type { LogContext } from "@/logging/types";
 
 export interface ArtifactRef {
   artifactId: string;
@@ -55,6 +56,7 @@ export interface ArtifactManifest {
 export interface ArtifactRuntimeContext {
   runId: string;
   agentId: string;
+  logContext?: LogContext;
 }
 
 export type ArtifactChangeType = "created" | "versioned";
@@ -226,12 +228,14 @@ export function withArtifactFrameworkMetadata(
 async function getLatestArtifactForFrameworkMetadata(
   sessionId: string,
   artifactId: string,
+  logContext?: LogContext,
 ): Promise<ArtifactManifest> {
   return invoke<ArtifactManifest>("db_artifact_get", {
     sessionId,
     artifactId,
     version: null,
     includeContent: false,
+    ...(logContext ? { logContext } : {}),
   });
 }
 
@@ -258,6 +262,7 @@ function toArtifactCreateInvokeInput(
 async function toArtifactVersionInvokeInput(
   sessionId: string,
   input: ArtifactVersionInput,
+  logContext?: LogContext,
 ): Promise<Omit<ArtifactVersionInput, "artifactType">> {
   let metadata = input.metadata;
 
@@ -265,6 +270,7 @@ async function toArtifactVersionInvokeInput(
     const latest = await getLatestArtifactForFrameworkMetadata(
       sessionId,
       input.artifactId,
+      logContext,
     );
     metadata = latest.metadata;
   }
@@ -328,6 +334,7 @@ export async function artifactCreate(
       runId: runtimeCtx.runId,
       agentId: runtimeCtx.agentId,
       input: toArtifactCreateInvokeInput(input),
+      ...(runtimeCtx.logContext ? { logContext: runtimeCtx.logContext } : {}),
     });
     return { ok: true, data: { artifact } };
   } catch (err) {
@@ -359,12 +366,17 @@ export async function artifactVersion(
 
   try {
     const runtimeCtx = ensureRuntimeContext(runtime);
-    const invokeInput = await toArtifactVersionInvokeInput(sessionId, input);
+    const invokeInput = await toArtifactVersionInvokeInput(
+      sessionId,
+      input,
+      runtimeCtx.logContext,
+    );
     const artifact = await invoke<ArtifactManifest>("db_artifact_version", {
       sessionId,
       runId: runtimeCtx.runId,
       agentId: runtimeCtx.agentId,
       input: invokeInput,
+      ...(runtimeCtx.logContext ? { logContext: runtimeCtx.logContext } : {}),
     });
     return { ok: true, data: { artifact } };
   } catch (err) {
@@ -376,6 +388,7 @@ export async function artifactVersion(
 export async function artifactGet(
   sessionId: string,
   input: ArtifactGetInput,
+  logContext?: LogContext,
 ): Promise<ToolResult<{ artifact: ArtifactManifest }>> {
   if (!input.artifactId?.trim()) {
     return makeError("INVALID_ARGUMENT", "artifactId must not be empty");
@@ -386,6 +399,7 @@ export async function artifactGet(
       artifactId: input.artifactId,
       version: input.version ?? null,
       includeContent: input.includeContent ?? true,
+      ...(logContext ? { logContext } : {}),
     });
     return { ok: true, data: { artifact: withArtifactValidation(artifact) } };
   } catch (err) {
@@ -397,6 +411,7 @@ export async function artifactGet(
 export async function artifactList(
   sessionId: string,
   input: ArtifactListInput,
+  logContext?: LogContext,
 ): Promise<ToolResult<{ artifacts: ArtifactManifest[] }>> {
   const normalizedInput: ArtifactListInput = {
     ...input,
@@ -410,6 +425,7 @@ export async function artifactList(
     const artifacts = await invoke<ArtifactManifest[]>("db_artifact_list", {
       sessionId,
       input: normalizedInput,
+      ...(logContext ? { logContext } : {}),
     });
     return { ok: true, data: { artifacts } };
   } catch (err) {

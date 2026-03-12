@@ -33,6 +33,7 @@ import {
 } from "@/agent/persistence";
 import type { AgentStatus } from "@/agent/types";
 import { preloadEnvProviderKeys } from "@/agent/useEnvProviderKeys";
+import { logFrontendSoon } from "@/logging/client";
 import { getThemeSubagentColorVariables } from "@/styles/themes/registry";
 import { checkForAppUpdates } from "@/updater";
 
@@ -215,7 +216,14 @@ export default function App() {
             hydratePersistedSession(s, { restoreError });
             markSessionAsPersisted(s);
           } catch (e) {
-            console.error("rakh: failed to restore session", s.id, e);
+            logFrontendSoon({
+              level: "error",
+              tags: ["frontend", "db", "system"],
+              event: "app.restoreSession.error",
+              message: "Failed to restore session",
+              kind: "error",
+              data: { sessionId: s.id, error: e },
+            });
           }
         }
         setInitialSessions(sessions);

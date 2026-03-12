@@ -461,6 +461,7 @@ describe("gitWorktreeInit", () => {
         runId: "tc-1",
       },
       undefined,
+      undefined,
     );
     expect(result).toEqual({
       ok: true,

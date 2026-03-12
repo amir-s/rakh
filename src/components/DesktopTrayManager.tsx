@@ -8,6 +8,7 @@ import {
   type WorkspaceAggregateStatus,
 } from "@/agent/desktopStatus";
 import { useTabs } from "@/contexts/TabsContext";
+import { logFrontendSoon } from "@/logging/client";
 import { focusAppWindow } from "@/notifications";
 import trayDarkIconUrl from "../../src-tauri/icons/tray-dark.png";
 import trayLightIconUrl from "../../src-tauri/icons/tray-light.png";
@@ -242,7 +243,13 @@ export default function DesktopTrayManager() {
       return tray;
     })().catch((error) => {
       trayInitPromiseRef.current = null;
-      console.error("Failed to initialize desktop tray:", error);
+      logFrontendSoon({
+        level: "error",
+        tags: ["frontend", "system"],
+        event: "desktop-tray.init.error",
+        message: "Failed to initialize the desktop tray.",
+        data: { error },
+      });
       return null;
     });
 
@@ -301,7 +308,13 @@ export default function DesktopTrayManager() {
 
       appliedStateRef.current = nextState;
     } catch (error) {
-      console.error("Failed to sync desktop tray state:", error);
+      logFrontendSoon({
+        level: "error",
+        tags: ["frontend", "system"],
+        event: "desktop-tray.sync.error",
+        message: "Failed to sync desktop tray state.",
+        data: { error },
+      });
     }
   }, [ensureTrayReady]);
 

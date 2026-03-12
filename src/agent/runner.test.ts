@@ -70,6 +70,7 @@ const {
   shutdownMcpRunMock,
   artifactCreateMock,
   switchToGitBranchMock,
+  logFrontendSoonMock,
 } = vi.hoisted(() => ({
   states: {} as Record<string, MockAgentState>,
   providersAtomMock: { kind: "providers-atom" },
@@ -99,6 +100,7 @@ const {
   callMcpToolMock: vi.fn(),
   shutdownMcpRunMock: vi.fn(),
   artifactCreateMock: vi.fn(),
+  logFrontendSoonMock: vi.fn(),
 }));
 
 vi.mock("./atoms", () => ({
@@ -265,6 +267,16 @@ vi.mock("./tools/artifacts", async () => {
   };
 });
 
+vi.mock("@/logging/client", async () => {
+  const actual = await vi.importActual<typeof import("@/logging/client")>(
+    "@/logging/client",
+  );
+  return {
+    ...actual,
+    logFrontendSoon: (...args: unknown[]) => logFrontendSoonMock(...args),
+  };
+});
+
 import {
   buildProviderOptions,
   resumeQueue,
@@ -409,6 +421,7 @@ describe("runner", () => {
     shutdownMcpRunMock.mockReset();
     artifactCreateMock.mockReset();
     switchToGitBranchMock.mockReset();
+    logFrontendSoonMock.mockReset();
     jotaiStoreMock.get.mockReset();
 
     jotaiStoreMock.get.mockImplementation((atom: unknown) => {
@@ -671,6 +684,12 @@ describe("runner", () => {
           enabled: true,
         }),
       ],
+      expect.objectContaining({
+        sessionId: "tab-mcp-tool",
+        tabId: "tab-mcp-tool",
+        agentId: "agent_main",
+        traceId: expect.any(String),
+      }),
     );
     const firstStreamCall = streamTextMock.mock.calls[0]?.[0] as
       | Record<string, unknown>
@@ -689,6 +708,11 @@ describe("runner", () => {
       "filesystem",
       "read_file",
       { path: "README.md" },
+      expect.objectContaining({
+        correlationId: "tc-mcp-1",
+        toolName: "mcp_filesystem_read_file",
+        traceId: expect.any(String),
+      }),
     );
     expect(parseToolMessageResult(tabId, "tc-mcp-1")).toMatchObject({
       ok: true,
@@ -713,7 +737,15 @@ describe("runner", () => {
         }),
       ],
     });
-    expect(shutdownMcpRunMock).toHaveBeenCalledWith(expect.any(String));
+    expect(shutdownMcpRunMock).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        sessionId: "tab-mcp-tool",
+        tabId: "tab-mcp-tool",
+        agentId: "agent_main",
+        traceId: expect.any(String),
+      }),
+    );
   });
 
   it("artifactizes MCP file payloads only when the global MCP setting is enabled", async () => {
@@ -812,6 +844,11 @@ describe("runner", () => {
       expect.objectContaining({
         agentId: "agent_main",
         runId: expect.stringMatching(/^run_/),
+        logContext: expect.objectContaining({
+          correlationId: "tc-mcp-image-1",
+          toolName: "mcp_playwright_browser_take_screenshot",
+          traceId: expect.any(String),
+        }),
       }),
       expect.objectContaining({
         kind: "mcp-attachment",
@@ -997,7 +1034,15 @@ describe("runner", () => {
         }),
       ]),
     );
-    expect(shutdownMcpRunMock).toHaveBeenCalledWith(expect.any(String));
+    expect(shutdownMcpRunMock).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        sessionId: "tab-mcp-warning",
+        tabId: "tab-mcp-warning",
+        agentId: "agent_main",
+        traceId: expect.any(String),
+      }),
+    );
   });
 
   it("includes reviewer scope guidance in the main system prompt via description", async () => {
@@ -1096,30 +1141,44 @@ describe("runner", () => {
       toolCalls: [],
     });
 
-    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
-    let debugCalls: unknown[][] = [];
-    try {
-      await runAgent(tabId, "hi");
-      const debugPrefix = `[rakh:stream][${tabId}]`;
-      debugCalls = logSpy.mock.calls.filter((args) => args[0] === debugPrefix);
-    } finally {
-      logSpy.mockRestore();
-    }
-    const debugPrefix = `[rakh:stream][${tabId}]`;
+    await runAgent(tabId, "hi");
+
+    const debugCalls = logFrontendSoonMock.mock.calls
+      .map(([entry]) => entry as Record<string, unknown>)
+      .filter((entry) => entry.level === "debug");
 
     expect(debugCalls.length).toBeGreaterThan(0);
     expect(debugCalls).toEqual(
       expect.arrayContaining([
-        expect.arrayContaining([debugPrefix, "turn:start"]),
-        expect.arrayContaining([debugPrefix, "stream:part"]),
-        expect.arrayContaining([debugPrefix, "stream:reasoning-start"]),
-        expect.arrayContaining([debugPrefix, "stream:reasoning-delta"]),
-        expect.arrayContaining([debugPrefix, "stream:text-delta"]),
-        expect.arrayContaining([debugPrefix, "stream:tool-calls:raw"]),
-        expect.arrayContaining([
-          debugPrefix,
-          "stream:finish",
-          expect.objectContaining({
+        expect.objectContaining({
+          event: "runner.turn:start",
+          message: `[${tabId}] turn:start`,
+          context: expect.objectContaining({ tabId }),
+        }),
+        expect.objectContaining({
+          event: "runner.stream:part",
+          message: `[${tabId}] stream:part`,
+        }),
+        expect.objectContaining({
+          event: "runner.stream:reasoning-start",
+          message: `[${tabId}] stream:reasoning-start`,
+        }),
+        expect.objectContaining({
+          event: "runner.stream:reasoning-delta",
+          message: `[${tabId}] stream:reasoning-delta`,
+        }),
+        expect.objectContaining({
+          event: "runner.stream:text-delta",
+          message: `[${tabId}] stream:text-delta`,
+        }),
+        expect.objectContaining({
+          event: "runner.stream:tool-calls:raw",
+          message: `[${tabId}] stream:tool-calls:raw`,
+        }),
+        expect.objectContaining({
+          event: "runner.stream:finish",
+          message: `[${tabId}] stream:finish`,
+          data: expect.objectContaining({
             finishReason: "stop",
             stepCount: 1,
             steps: [
@@ -1132,8 +1191,11 @@ describe("runner", () => {
               }),
             ],
           }),
-        ]),
-        expect.arrayContaining([debugPrefix, "stream:summary"]),
+        }),
+        expect.objectContaining({
+          event: "runner.stream:summary",
+          message: `[${tabId}] stream:summary`,
+        }),
       ]),
     );
   });
@@ -1143,15 +1205,10 @@ describe("runner", () => {
     setState(tabId, { showDebug: false });
     turns.push({ deltas: ["Hello"], toolCalls: [] });
 
-    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
-    let debugCalls: unknown[][] = [];
-    try {
-      await runAgent(tabId, "hi");
-      const debugPrefix = `[rakh:stream][${tabId}]`;
-      debugCalls = logSpy.mock.calls.filter((args) => args[0] === debugPrefix);
-    } finally {
-      logSpy.mockRestore();
-    }
+    await runAgent(tabId, "hi");
+    const debugCalls = logFrontendSoonMock.mock.calls
+      .map(([entry]) => entry as Record<string, unknown>)
+      .filter((entry) => entry.level === "debug");
     expect(debugCalls).toHaveLength(0);
   });
 

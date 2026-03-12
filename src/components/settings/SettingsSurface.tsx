@@ -42,6 +42,7 @@ import {
   type McpServerConfig,
   type McpServerProbeResult,
 } from "@/agent/mcp";
+import { logFrontendSoon } from "@/logging/client";
 import { cn } from "@/utils/cn";
 import {
   THEME_NAMES,
@@ -1294,10 +1295,13 @@ function ProvidersSection({
       setProviderRefreshStatus((prev) => ({ ...prev, [provider.id]: "ok" }));
       scheduleRefreshStatusReset(provider.id);
     } catch (error) {
-      console.error(
-        `Failed to refresh OpenAI-compatible models for "${provider.name}"`,
-        error,
-      );
+      logFrontendSoon({
+        level: "error",
+        tags: ["frontend", "system"],
+        event: "settings.providers.refresh-models.error",
+        message: `Failed to refresh OpenAI-compatible models for "${provider.name}".`,
+        data: { error, providerId: provider.id, providerName: provider.name },
+      });
       setProviderRefreshStatus((prev) => ({
         ...prev,
         [provider.id]: "error",
@@ -1580,7 +1584,13 @@ function McpServersSection({
       setProbeStatusById((prev) => ({ ...prev, [server.id]: "ok" }));
       scheduleProbeStatusReset(server.id);
     } catch (error) {
-      console.error(`Failed to probe MCP server "${server.name}"`, error);
+      logFrontendSoon({
+        level: "error",
+        tags: ["frontend", "system"],
+        event: "settings.mcp.probe.error",
+        message: `Failed to probe MCP server "${server.name}".`,
+        data: { error, serverId: server.id, serverName: server.name },
+      });
       setProbeStatusById((prev) => ({ ...prev, [server.id]: "error" }));
       scheduleProbeStatusReset(server.id);
     }

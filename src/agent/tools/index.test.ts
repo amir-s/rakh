@@ -201,8 +201,52 @@ describe("tools/index dispatchTool", () => {
       "tc-1",
     );
 
-    expect(listDirMock).toHaveBeenCalledWith("/cwd", { path: "src" });
+    expect(listDirMock).toHaveBeenCalledWith("/cwd", { path: "src" }, undefined);
     expect(result).toMatchObject({ ok: true });
+  });
+
+  it("passes runtime logContext through workspace and exec dispatch", async () => {
+    const logContext = {
+      sessionId: "tab",
+      tabId: "tab",
+      traceId: "trace:run-1:main",
+      correlationId: "tc-log",
+    };
+    listDirMock.mockResolvedValue({
+      ok: true,
+      data: { path: "/cwd/src", entries: [], truncated: false },
+    });
+    execRunMock.mockResolvedValue({ ok: true, data: { exitCode: 0 } });
+
+    await dispatchTool(
+      "tab",
+      "/cwd",
+      "workspace_listDir",
+      { path: "src" },
+      "tc-log",
+      undefined,
+      { runId: "run_1", agentId: "agent_main", logContext },
+    );
+    await dispatchTool(
+      "tab",
+      "/cwd",
+      "exec_run",
+      { command: "pwd" },
+      "tc-log",
+      undefined,
+      { runId: "run_1", agentId: "agent_main", logContext },
+    );
+
+    expect(listDirMock).toHaveBeenCalledWith("/cwd", { path: "src" }, logContext);
+    expect(execRunMock).toHaveBeenCalledWith(
+      "/cwd",
+      expect.objectContaining({
+        command: "pwd",
+        runId: "tc-log",
+      }),
+      undefined,
+      logContext,
+    );
   });
 
   it("routes agent_card_add calls to cardAdd", async () => {
@@ -264,7 +308,7 @@ describe("tools/index dispatchTool", () => {
     expect(editFileMock).toHaveBeenCalledWith("/cwd", {
       path: "file.txt",
       changes: [{ oldString: "original", newString: "edited" }],
-    });
+    }, undefined);
     expect(computeDiffFileMock).toHaveBeenCalledWith(
       "file.txt",
       "original content",
@@ -341,7 +385,7 @@ describe("tools/index dispatchTool", () => {
       content: "export const x = 1;",
       mode: "create",
       createDirs: true,
-    });
+    }, undefined);
     expect(computeDiffFileMock).toHaveBeenCalledWith(
       "new.ts",
       "",
@@ -375,6 +419,7 @@ describe("tools/index dispatchTool", () => {
       "/cwd",
       { suggestedBranch: "feature branch" },
       undefined,
+      undefined,
     );
     expect(result).toMatchObject({ ok: true });
   });
@@ -405,6 +450,7 @@ describe("tools/index dispatchTool", () => {
       "/cwd",
       { suggestedBranch: "feature branch" },
       onExecOutput,
+      undefined,
     );
   });
 
@@ -426,6 +472,7 @@ describe("tools/index dispatchTool", () => {
       "/cwd",
       { command: "pwd", runId: "tool-call-exec" },
       undefined, // no onExecOutput when no callbacks provided
+      undefined,
     );
     expect(result).toMatchObject({ ok: true });
   });
@@ -450,6 +497,7 @@ describe("tools/index dispatchTool", () => {
       "/cwd",
       { command: "pwd", runId: "tc-cb" },
       onExecOutput,
+      undefined,
     );
   });
 
@@ -522,7 +570,7 @@ describe("tools/index dispatchTool", () => {
     );
 
     expect(artifactVersionMock).toHaveBeenCalledTimes(1);
-    expect(artifactGetMock).toHaveBeenCalledWith("tab", { artifactId: "a1" });
-    expect(artifactListMock).toHaveBeenCalledWith("tab", { latestOnly: true });
+    expect(artifactGetMock).toHaveBeenCalledWith("tab", { artifactId: "a1" }, undefined);
+    expect(artifactListMock).toHaveBeenCalledWith("tab", { latestOnly: true }, undefined);
   });
 });

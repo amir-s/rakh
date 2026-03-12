@@ -4,6 +4,7 @@ import {
   type ProjectCommandConfig,
   type ProjectScriptsConfigState,
 } from "@/projectScripts";
+import { logFrontendSoon } from "@/logging/client";
 
 export interface SavedProject {
   path: string;
@@ -125,7 +126,13 @@ export function saveSavedProjects(projects: SavedProject[]): void {
       JSON.stringify(normalized),
     );
   } catch (error) {
-    console.error("Failed to save projects:", error);
+    logFrontendSoon({
+      level: "error",
+      tags: ["frontend", "system"],
+      event: "projects.save.error",
+      message: "Failed to save projects to local storage.",
+      data: { error },
+    });
   }
 }
 

@@ -1,5 +1,6 @@
+use crate::logging::LogContext;
 use crate::shell_env::resolved_login_shell_env;
-use crate::utils::{app_store_root, now_ms, tool_log};
+use crate::utils::{app_store_root, now_ms, tool_log, tool_log_with_context};
 use reqwest::header::{HeaderName, HeaderValue};
 use rmcp::model::{CallToolRequestParams, CallToolResult, Tool};
 use rmcp::service::RunningService;
@@ -85,9 +86,7 @@ impl McpServerRecord {
 
     fn timeout_ms(&self) -> u64 {
         let raw = match self {
-            Self::Stdio { timeout_ms, .. } | Self::StreamableHttp { timeout_ms, .. } => {
-                *timeout_ms
-            }
+            Self::Stdio { timeout_ms, .. } | Self::StreamableHttp { timeout_ms, .. } => *timeout_ms,
         };
 
         match raw {
@@ -238,7 +237,10 @@ fn save_mcp_config_to_path(path: &Path, config: &PersistedMcpConfigRecord) -> Re
                 let _ = fs::remove_file(&tmp);
                 Ok(())
             } else {
-                Err(format!("INTERNAL: cannot rename MCP server file: {}", error))
+                Err(format!(
+                    "INTERNAL: cannot rename MCP server file: {}",
+                    error
+                ))
             }
         }
     }
@@ -257,13 +259,15 @@ fn save_mcp_settings_to_path(path: &Path, settings: &McpSettingsRecord) -> Resul
 }
 
 fn tool_annotations_record(tool: &Tool) -> Option<McpToolAnnotationsRecord> {
-    tool.annotations.as_ref().map(|annotations| McpToolAnnotationsRecord {
-        title: annotations.title.clone(),
-        read_only_hint: annotations.read_only_hint,
-        destructive_hint: annotations.destructive_hint,
-        idempotent_hint: annotations.idempotent_hint,
-        open_world_hint: annotations.open_world_hint,
-    })
+    tool.annotations
+        .as_ref()
+        .map(|annotations| McpToolAnnotationsRecord {
+            title: annotations.title.clone(),
+            read_only_hint: annotations.read_only_hint,
+            destructive_hint: annotations.destructive_hint,
+            idempotent_hint: annotations.idempotent_hint,
+            open_world_hint: annotations.open_world_hint,
+        })
 }
 
 fn discovered_tool_record(server: &McpServerRecord, tool: Tool) -> McpDiscoveredToolRecord {
@@ -313,10 +317,7 @@ async fn connect_stdio_server(
     cwd: &str,
 ) -> Result<RunningService<RoleClient, ()>, String> {
     let McpServerRecord::Stdio {
-        command,
-        args,
-        env,
-        ..
+        command, args, env, ..
     } = server
     else {
         return Err("Invalid stdio server definition".to_string());
@@ -338,10 +339,13 @@ async fn connect_stdio_server(
         .map(|(transport, _stderr)| transport)
         .map_err(|error| format!("Failed to spawn {}: {}", server.name(), error))?;
 
-    timeout(Duration::from_millis(server.timeout_ms()), ().serve(transport))
-        .await
-        .map_err(|_| format!("Timed out connecting to {}", server.name()))?
-        .map_err(|error| format!("Failed to initialize {}: {}", server.name(), error))
+    timeout(
+        Duration::from_millis(server.timeout_ms()),
+        ().serve(transport),
+    )
+    .await
+    .map_err(|_| format!("Timed out connecting to {}", server.name()))?
+    .map_err(|error| format!("Failed to initialize {}: {}", server.name(), error))
 }
 
 fn parse_custom_headers(
@@ -369,10 +373,13 @@ async fn connect_streamable_http_server(
         .custom_headers(parse_custom_headers(headers)?);
     let transport = StreamableHttpClientTransport::from_config(config);
 
-    timeout(Duration::from_millis(server.timeout_ms()), ().serve(transport))
-        .await
-        .map_err(|_| format!("Timed out connecting to {}", server.name()))?
-        .map_err(|error| format!("Failed to initialize {}: {}", server.name(), error))
+    timeout(
+        Duration::from_millis(server.timeout_ms()),
+        ().serve(transport),
+    )
+    .await
+    .map_err(|_| format!("Timed out connecting to {}", server.name()))?
+    .map_err(|error| format!("Failed to initialize {}: {}", server.name(), error))
 }
 
 async fn connect_server(
@@ -396,10 +403,18 @@ async fn list_tools(
     server: &McpServerRecord,
 ) -> Result<Vec<McpDiscoveredToolRecord>, String> {
     let client = runtime.client.lock().await;
-    let tools = timeout(Duration::from_millis(runtime.timeout_ms), client.peer().list_all_tools())
-        .await
-        .map_err(|_| format!("Timed out listing tools for {}", runtime.server_name))?
-        .map_err(|error| format!("Failed to list tools for {}: {}", runtime.server_name, error))?;
+    let tools = timeout(
+        Duration::from_millis(runtime.timeout_ms),
+        client.peer().list_all_tools(),
+    )
+    .await
+    .map_err(|_| format!("Timed out listing tools for {}", runtime.server_name))?
+    .map_err(|error| {
+        format!(
+            "Failed to list tools for {}: {}",
+            runtime.server_name, error
+        )
+    })?;
 
     Ok(tools
         .into_iter()
@@ -425,7 +440,11 @@ fn map_call_result(result: CallToolResult) -> McpToolCallResultRecord {
         content: result
             .content
             .into_iter()
-            .map(|content| serde_json::to_value(content).unwrap_or_else(|_| json!({ "type": "text", "text": "Unable to serialize MCP content." })))
+            .map(|content| {
+                serde_json::to_value(content).unwrap_or_else(
+                    |_| json!({ "type": "text", "text": "Unable to serialize MCP content." }),
+                )
+            })
             .collect(),
         structured_content: result.structured_content,
         is_error: result.is_error,
@@ -530,11 +549,13 @@ pub async fn mcp_prepare_run(
     cwd: String,
     servers: Vec<McpServerRecord>,
     state: State<'_, McpRunState>,
+    log_context: Option<LogContext>,
 ) -> Result<McpPrepareRunResult, String> {
-    tool_log(
+    tool_log_with_context(
         "mcp_prepare_run",
         "start",
         json!({ "runId": run_id, "cwd": cwd, "serverCount": servers.len() }),
+        log_context.as_ref(),
     );
 
     let mut runtimes = HashMap::new();
@@ -577,7 +598,7 @@ pub async fn mcp_prepare_run(
         shutdown_run(previous).await;
     }
 
-    tool_log(
+    tool_log_with_context(
         "mcp_prepare_run",
         "ok",
         json!({
@@ -585,6 +606,7 @@ pub async fn mcp_prepare_run(
             "toolCount": tools.len(),
             "failureCount": failures.len(),
         }),
+        log_context.as_ref(),
     );
 
     Ok(McpPrepareRunResult { tools, failures })
@@ -597,14 +619,30 @@ pub async fn mcp_call_tool(
     tool_name: String,
     input: Value,
     state: State<'_, McpRunState>,
+    log_context: Option<LogContext>,
 ) -> Result<McpToolCallResultRecord, String> {
+    tool_log_with_context(
+        "mcp_call_tool",
+        "start",
+        json!({
+            "runId": run_id,
+            "serverId": server_id,
+            "toolName": tool_name
+        }),
+        log_context.as_ref(),
+    );
     let runtime = {
         let runs = state.runs.lock().await;
         runs.get(&run_id)
             .and_then(|run| run.servers.get(&server_id))
             .cloned()
     }
-    .ok_or_else(|| format!("MCP server '{}' is not available for run '{}'.", server_id, run_id))?;
+    .ok_or_else(|| {
+        format!(
+            "MCP server '{}' is not available for run '{}'.",
+            server_id, run_id
+        )
+    })?;
 
     let client = runtime.client.lock().await;
     let mut request = CallToolRequestParams::new(tool_name.clone());
@@ -625,13 +663,28 @@ pub async fn mcp_call_tool(
     })?
     .map_err(|error| format!("MCP tool '{}' failed: {}", tool_name, error))?;
 
-    Ok(map_call_result(result))
+    let mapped = map_call_result(result);
+    let is_error = mapped.is_error.unwrap_or(false);
+    tool_log_with_context(
+        "mcp_call_tool",
+        if is_error { "err" } else { "ok" },
+        json!({
+            "runId": run_id,
+            "serverId": server_id,
+            "toolName": tool_name,
+            "contentCount": mapped.content.len(),
+            "isError": is_error
+        }),
+        log_context.as_ref(),
+    );
+    Ok(mapped)
 }
 
 #[tauri::command]
 pub async fn mcp_shutdown_run(
     run_id: String,
     state: State<'_, McpRunState>,
+    log_context: Option<LogContext>,
 ) -> Result<(), String> {
     let removed = {
         let mut runs = state.runs.lock().await;
@@ -642,7 +695,12 @@ pub async fn mcp_shutdown_run(
         shutdown_run(run).await;
     }
 
-    tool_log("mcp_shutdown_run", "ok", json!({ "runId": run_id }));
+    tool_log_with_context(
+        "mcp_shutdown_run",
+        "ok",
+        json!({ "runId": run_id }),
+        log_context.as_ref(),
+    );
     Ok(())
 }
 
@@ -672,10 +730,7 @@ mod tests {
                 enabled: false,
                 timeout_ms: None,
                 url: "http://localhost:8123/mcp".to_string(),
-                headers: HashMap::from([(
-                    "Authorization".to_string(),
-                    "Bearer token".to_string(),
-                )]),
+                headers: HashMap::from([("Authorization".to_string(), "Bearer token".to_string())]),
             },
         ]
     }

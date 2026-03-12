@@ -1,6 +1,7 @@
+use crate::logging::LogContext;
 #[cfg(not(test))]
 use crate::shell_env::{login_shell_candidates, run_login_shell_script};
-use crate::utils::{app_store_root, non_empty_env_var, now_ms, tool_log};
+use crate::utils::{app_store_root, non_empty_env_var, now_ms, tool_log, tool_log_with_context};
 use portable_pty::MasterPty;
 use rusqlite::{params, types::Value as SqlValue, Connection, OptionalExtension, Row};
 use serde::{Deserialize, Serialize};
@@ -710,12 +711,14 @@ pub fn init_db() -> Result<Connection, String> {
     );
     let _ = conn
         .execute_batch("ALTER TABLE sessions ADD COLUMN show_debug INTEGER NOT NULL DEFAULT 0;");
-    let _ = conn
-        .execute_batch("ALTER TABLE sessions ADD COLUMN queued_messages TEXT NOT NULL DEFAULT '[]';");
+    let _ = conn.execute_batch(
+        "ALTER TABLE sessions ADD COLUMN queued_messages TEXT NOT NULL DEFAULT '[]';",
+    );
     let _ = conn
         .execute_batch("ALTER TABLE sessions ADD COLUMN queue_state TEXT NOT NULL DEFAULT 'idle';");
-    let _ = conn
-        .execute_batch("ALTER TABLE sessions ADD COLUMN communication_profile TEXT NOT NULL DEFAULT 'pragmatic';");
+    let _ = conn.execute_batch(
+        "ALTER TABLE sessions ADD COLUMN communication_profile TEXT NOT NULL DEFAULT 'pragmatic';",
+    );
     conn.execute_batch(
         "
         CREATE TABLE IF NOT EXISTS artifact_blobs (
@@ -1111,9 +1114,10 @@ pub fn db_artifact_create(
     input: ArtifactCreateInput,
     app_handle: AppHandle,
     state: State<'_, AppState>,
+    log_context: Option<LogContext>,
 ) -> Result<ArtifactManifest, String> {
     let start = Instant::now();
-    tool_log(
+    tool_log_with_context(
         "db_artifact_create",
         "start",
         json!({
@@ -1123,6 +1127,7 @@ pub fn db_artifact_create(
             "kind": input.kind,
             "contentFormat": input.content_format
         }),
+        log_context.as_ref(),
     );
 
     let result: Result<ArtifactManifest, String> = (|| {
@@ -1211,7 +1216,7 @@ pub fn db_artifact_create(
         Ok(v) => {
             let payload = artifact_change_event_from_manifest(v, ArtifactChangeKind::Created);
             let _ = app_handle.emit("artifact_changed", &payload);
-            tool_log(
+            tool_log_with_context(
                 "db_artifact_create",
                 "ok",
                 json!({
@@ -1220,15 +1225,17 @@ pub fn db_artifact_create(
                     "version": v.version,
                     "blobHash": v.blob_hash
                 }),
+                log_context.as_ref(),
             )
         }
-        Err(e) => tool_log(
+        Err(e) => tool_log_with_context(
             "db_artifact_create",
             "err",
             json!({
                 "durationMs": start.elapsed().as_millis() as u64,
                 "error": e
             }),
+            log_context.as_ref(),
         ),
     }
 
@@ -1243,9 +1250,10 @@ pub fn db_artifact_version(
     input: ArtifactVersionInput,
     app_handle: AppHandle,
     state: State<'_, AppState>,
+    log_context: Option<LogContext>,
 ) -> Result<ArtifactManifest, String> {
     let start = Instant::now();
-    tool_log(
+    tool_log_with_context(
         "db_artifact_version",
         "start",
         json!({
@@ -1254,6 +1262,7 @@ pub fn db_artifact_version(
             "agentId": agent_id,
             "artifactId": input.artifact_id
         }),
+        log_context.as_ref(),
     );
 
     let result: Result<ArtifactManifest, String> = (|| {
@@ -1352,7 +1361,7 @@ pub fn db_artifact_version(
         Ok(v) => {
             let payload = artifact_change_event_from_manifest(v, ArtifactChangeKind::Versioned);
             let _ = app_handle.emit("artifact_changed", &payload);
-            tool_log(
+            tool_log_with_context(
                 "db_artifact_version",
                 "ok",
                 json!({
@@ -1361,15 +1370,17 @@ pub fn db_artifact_version(
                     "version": v.version,
                     "blobHash": v.blob_hash
                 }),
+                log_context.as_ref(),
             )
         }
-        Err(e) => tool_log(
+        Err(e) => tool_log_with_context(
             "db_artifact_version",
             "err",
             json!({
                 "durationMs": start.elapsed().as_millis() as u64,
                 "error": e
             }),
+            log_context.as_ref(),
         ),
     }
 
@@ -1383,9 +1394,10 @@ pub fn db_artifact_get(
     version: Option<i64>,
     include_content: Option<bool>,
     state: State<'_, AppState>,
+    log_context: Option<LogContext>,
 ) -> Result<ArtifactManifest, String> {
     let start = Instant::now();
-    tool_log(
+    tool_log_with_context(
         "db_artifact_get",
         "start",
         json!({
@@ -1393,6 +1405,7 @@ pub fn db_artifact_get(
             "artifactId": artifact_id,
             "version": version
         }),
+        log_context.as_ref(),
     );
 
     let result: Result<ArtifactManifest, String> = (|| {
@@ -1435,7 +1448,7 @@ pub fn db_artifact_get(
     })();
 
     match &result {
-        Ok(v) => tool_log(
+        Ok(v) => tool_log_with_context(
             "db_artifact_get",
             "ok",
             json!({
@@ -1443,14 +1456,16 @@ pub fn db_artifact_get(
                 "artifactId": v.artifact_id,
                 "version": v.version
             }),
+            log_context.as_ref(),
         ),
-        Err(e) => tool_log(
+        Err(e) => tool_log_with_context(
             "db_artifact_get",
             "err",
             json!({
                 "durationMs": start.elapsed().as_millis() as u64,
                 "error": e
             }),
+            log_context.as_ref(),
         ),
     }
 
@@ -1462,9 +1477,10 @@ pub fn db_artifact_list(
     session_id: String,
     input: ArtifactListInput,
     state: State<'_, AppState>,
+    log_context: Option<LogContext>,
 ) -> Result<Vec<ArtifactManifest>, String> {
     let start = Instant::now();
-    tool_log(
+    tool_log_with_context(
         "db_artifact_list",
         "start",
         json!({
@@ -1475,6 +1491,7 @@ pub fn db_artifact_list(
             "latestOnly": input.latest_only,
             "limit": input.limit
         }),
+        log_context.as_ref(),
     );
 
     let result: Result<Vec<ArtifactManifest>, String> = (|| {
@@ -1541,21 +1558,23 @@ pub fn db_artifact_list(
     })();
 
     match &result {
-        Ok(v) => tool_log(
+        Ok(v) => tool_log_with_context(
             "db_artifact_list",
             "ok",
             json!({
                 "durationMs": start.elapsed().as_millis() as u64,
                 "count": v.len()
             }),
+            log_context.as_ref(),
         ),
-        Err(e) => tool_log(
+        Err(e) => tool_log_with_context(
             "db_artifact_list",
             "err",
             json!({
                 "durationMs": start.elapsed().as_millis() as u64,
                 "error": e
             }),
+            log_context.as_ref(),
         ),
     }
 
@@ -1624,7 +1643,11 @@ pub fn providers_load() -> Result<Vec<ProviderRecord>, String> {
     tool_log("providers_load", "start", json!({}));
     let path = providers_config_path()?;
     if !path.exists() {
-        tool_log("providers_load", "ok", json!({ "count": 0, "reason": "file_absent" }));
+        tool_log(
+            "providers_load",
+            "ok",
+            json!({ "count": 0, "reason": "file_absent" }),
+        );
         return Ok(vec![]);
     }
     let raw =
@@ -1637,7 +1660,11 @@ pub fn providers_load() -> Result<Vec<ProviderRecord>, String> {
 
 #[tauri::command]
 pub fn providers_save(providers: Vec<ProviderRecord>) -> Result<(), String> {
-    tool_log("providers_save", "start", json!({ "count": providers.len() }));
+    tool_log(
+        "providers_save",
+        "start",
+        json!({ "count": providers.len() }),
+    );
     let path = providers_config_path()?;
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)
@@ -1861,20 +1888,32 @@ pub fn command_list_load() -> Result<CommandListRecord, String> {
         };
         // Write defaults to disk so future loads are idempotent.
         let _ = command_list_save(defaults.clone());
-        tool_log("command_list_load", "ok", json!({ "reason": "defaults_written", "allowCount": defaults.allow.len(), "denyCount": defaults.deny.len() }));
+        tool_log(
+            "command_list_load",
+            "ok",
+            json!({ "reason": "defaults_written", "allowCount": defaults.allow.len(), "denyCount": defaults.deny.len() }),
+        );
         return Ok(defaults);
     }
     let raw = fs::read_to_string(&path)
         .map_err(|e| format!("INTERNAL: cannot read command list: {}", e))?;
     let record: CommandListRecord = serde_json::from_str(&raw)
         .map_err(|e| format!("INTERNAL: cannot parse command list: {}", e))?;
-    tool_log("command_list_load", "ok", json!({ "allowCount": record.allow.len(), "denyCount": record.deny.len() }));
+    tool_log(
+        "command_list_load",
+        "ok",
+        json!({ "allowCount": record.allow.len(), "denyCount": record.deny.len() }),
+    );
     Ok(record)
 }
 
 #[tauri::command]
 pub fn command_list_save(list: CommandListRecord) -> Result<(), String> {
-    tool_log("command_list_save", "start", json!({ "allowCount": list.allow.len(), "denyCount": list.deny.len() }));
+    tool_log(
+        "command_list_save",
+        "start",
+        json!({ "allowCount": list.allow.len(), "denyCount": list.deny.len() }),
+    );
     let path = command_list_config_path()?;
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)
@@ -1895,7 +1934,11 @@ pub fn command_list_save(list: CommandListRecord) -> Result<(), String> {
             }
         }
     }
-    tool_log("command_list_save", "ok", json!({ "allowCount": list.allow.len(), "denyCount": list.deny.len() }));
+    tool_log(
+        "command_list_save",
+        "ok",
+        json!({ "allowCount": list.allow.len(), "denyCount": list.deny.len() }),
+    );
     Ok(())
 }
 
@@ -1936,14 +1979,18 @@ pub fn profiles_load() -> Result<Vec<CommunicationProfileRecord>, String> {
             },
         ];
         // We will do a full population of the snippets in the next step
-        tool_log("profiles_load", "ok", json!({ "count": default_profiles.len(), "reason": "defaults_created" }));
-        
+        tool_log(
+            "profiles_load",
+            "ok",
+            json!({ "count": default_profiles.len(), "reason": "defaults_created" }),
+        );
+
         let _ = profiles_save(default_profiles.clone());
-        
+
         return Ok(default_profiles);
     }
-    let raw = fs::read_to_string(&path)
-        .map_err(|e| format!("INTERNAL: cannot read profiles: {}", e))?;
+    let raw =
+        fs::read_to_string(&path).map_err(|e| format!("INTERNAL: cannot read profiles: {}", e))?;
     let records: Vec<CommunicationProfileRecord> = serde_json::from_str(&raw)
         .map_err(|e| format!("INTERNAL: cannot parse profiles: {}", e))?;
     tool_log("profiles_load", "ok", json!({ "count": records.len() }));
@@ -2299,7 +2346,10 @@ mod tests {
 
     #[test]
     fn test_artifact_dedup_version_and_gc() {
-        let _guard = HOME_TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+        let _guard = HOME_TEST_LOCK
+            .get_or_init(|| Mutex::new(()))
+            .lock()
+            .unwrap();
 
         let tmp = tempdir().unwrap();
         let prev_home = std::env::var("HOME").ok();
@@ -2402,8 +2452,7 @@ mod tests {
             content: None,
         };
 
-        let event =
-            artifact_change_event_from_manifest(&manifest, ArtifactChangeKind::Created);
+        let event = artifact_change_event_from_manifest(&manifest, ArtifactChangeKind::Created);
 
         assert_eq!(
             serde_json::to_value(event).unwrap(),
@@ -2440,8 +2489,7 @@ mod tests {
             content: None,
         };
 
-        let event =
-            artifact_change_event_from_manifest(&manifest, ArtifactChangeKind::Versioned);
+        let event = artifact_change_event_from_manifest(&manifest, ArtifactChangeKind::Versioned);
 
         assert_eq!(
             serde_json::to_value(event).unwrap(),
@@ -2469,15 +2517,27 @@ mod tests {
         std::env::set_var("HOME", tmp.path());
 
         let result = command_list_load().expect("command_list_load should not error");
-        assert!(!result.allow.is_empty(), "Allow list should have safe default entries");
-        assert!(!result.deny.is_empty(), "Deny list should have default entries");
         assert!(
-            result.allow.iter().any(|entry| entry.pattern == "git status"),
+            !result.allow.is_empty(),
+            "Allow list should have safe default entries"
+        );
+        assert!(
+            !result.deny.is_empty(),
+            "Deny list should have default entries"
+        );
+        assert!(
+            result
+                .allow
+                .iter()
+                .any(|entry| entry.pattern == "git status"),
             "Safe git status should be included by default"
         );
         // Check that the file was written to disk
         let path = command_list_config_path().unwrap();
-        assert!(path.exists(), "command-list.json should be written on first load");
+        assert!(
+            path.exists(),
+            "command-list.json should be written on first load"
+        );
 
         match prev_home {
             Some(v) => std::env::set_var("HOME", v),

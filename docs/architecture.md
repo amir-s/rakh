@@ -4,6 +4,7 @@
 
 - [`docs/architecture.md`](./architecture.md): system overview, runtime flow, and code map
 - [`docs/artifacts.md`](./artifacts.md): durable artifact model and validation flow
+- [`docs/logging.md`](./logging.md): structured log schema, storage, and query/export APIs
 - [`docs/subagents.md`](./subagents.md): subagent registry, contracts, and execution model
 
 ## Overview
@@ -31,8 +32,11 @@ graph TB
     Tauri --> SQLite["SQLite session + artifact DB"]
     Tauri --> Whisper["Whisper voice commands"]
     Runner --> Artifacts["Artifact wrappers"]
+    Runner --> Logs["Structured logger<br/>trace + correlation context"]
     Artifacts --> SQLite
+    Logs --> Tauri
     SQLite --> Blobs["Artifact blobs<br/>release: ~/.rakh/artifacts/blobs/sha256<br/>debug: ~/.rakh-dev/artifacts/blobs/sha256"]
+    Tauri --> LogFiles["JSONL logs<br/>release: ~/.rakh/logs/rakh.log<br/>debug: ~/.rakh-dev/logs/rakh.log"]
 ```
 
 ## Frontend architecture
@@ -125,6 +129,23 @@ High-level flow for a workspace turn:
 The runner supports multiple concurrent tabs by keeping a separate abort
 controller and run counter per tab.
 
+### Structured logging
+
+The runner and the backend command layer now share a structured log contract.
+Frontend events are emitted through [`src/logging/client.ts`](../src/logging/client.ts),
+which forwards entries to Tauri in desktop mode and falls back to structured
+console output in plain web mode.
+
+Trace propagation rules:
+
+- each main agent run gets a dedicated `traceId` derived from the `runId`
+- subagents derive child traces from the parent trace
+- tool call ids become `correlationId`
+- assistant message and stream lifecycle events attach to the same trace tree
+
+This gives one JSONL timeline across runner lifecycle events, tool dispatch,
+MCP transport, artifact persistence, and backend command execution.
+
 ### Tools, approvals, and review diffs
 
 Tool schemas live in
@@ -186,6 +207,8 @@ Current backend modules:
 - [`src-tauri/src/pty.rs`](../src-tauri/src/pty.rs): interactive terminal PTY
   lifecycle used by the xterm.js terminal
 - [`src-tauri/src/git.rs`](../src-tauri/src/git.rs): worktree creation command
+- [`src-tauri/src/logging.rs`](../src-tauri/src/logging.rs): JSONL log store,
+  rotation, query/export/clear commands, and `log_entry` event emission
 - [`src-tauri/src/mcp.rs`](../src-tauri/src/mcp.rs): global MCP config
   persistence plus per-run MCP transport/session management
 - [`src-tauri/src/whisper.rs`](../src-tauri/src/whisper.rs): local Whisper
@@ -198,6 +221,10 @@ The backend already uses Tauri events for streaming-style UI updates. PTY and
 exec output are emitted as app events, and artifact writes now emit an
 `artifact_changed` event after successful create/version persistence so the
 frontend can refresh the artifact pane without polling.
+
+Structured logging uses the same event channel pattern. Every successful write
+also emits a `log_entry` event so future log viewers or diagnostics panes can
+tail new entries without polling.
 
 ## Persistence and storage
 
@@ -213,6 +240,8 @@ Rakh persists data in multiple places by design:
 - debug/dev artifact content blobs: `~/.rakh-dev/artifacts/blobs/sha256`
 - release git worktrees created by the agent: `~/.rakh/worktrees/<owner>/<repo>/<branch>`
 - debug/dev git worktrees created by the agent: `~/.rakh-dev/worktrees/<owner>/<repo>/<branch>`
+- release structured logs: `~/.rakh/logs/rakh.log`
+- debug/dev structured logs: `~/.rakh-dev/logs/rakh.log`
 
 Session persistence is front-to-back:
 

@@ -35,6 +35,7 @@ import {
   isTauriRuntime,
   type EnvKeyEntry,
 } from "@/agent/useEnvProviderKeys";
+import { logFrontendSoon } from "@/logging/client";
 import type { ThemeName } from "@/styles/themes/registry";
 import { checkForAppUpdates, installAppUpdate } from "@/updater";
 import { useTabs } from "@/contexts/TabsContext";
@@ -220,7 +221,12 @@ export function useSettingsController(): SettingsControllerValue {
     if (nextValue) {
       const granted = await ensureNotificationPermission();
       if (!granted) {
-        console.warn("Notification permission denied by user");
+        logFrontendSoon({
+          level: "warn",
+          tags: ["frontend", "system"],
+          event: "settings.notifications.denied",
+          message: "Notification permission was denied by the user.",
+        });
         return;
       }
     }
