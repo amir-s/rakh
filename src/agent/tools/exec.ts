@@ -5,6 +5,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type { ToolResult } from "../types";
+import type { LogContext } from "@/logging/types";
 
 function normalizeSlashes(path: string): string {
   return path.replace(/\\/g, "/");
@@ -76,6 +77,7 @@ export async function execRun(
   agentCwd: string,
   input: ExecRunInput,
   onOutput?: (stream: "stdout" | "stderr", data: string) => void,
+  logContext?: LogContext,
 ): Promise<ToolResult<ExecRunOutput>> {
   if (!input.command || input.command.trim() === "") {
     return {
@@ -123,6 +125,7 @@ export async function execRun(
       maxStderrBytes: input.maxStderrBytes ?? 200_000,
       stdin: input.stdin ?? null,
       runId: input.runId ?? null,
+      ...(logContext ? { logContext } : {}),
     });
     return { ok: true, data };
   } catch (e) {

@@ -112,6 +112,64 @@ describe("artifact tools", () => {
     });
   });
 
+  it("forwards logContext to artifact commands", async () => {
+    const logContext = {
+      sessionId: "tab-1",
+      tabId: "tab-1",
+      traceId: "trace:run_1:main",
+      correlationId: "tc-artifact",
+    };
+    invokeMock
+      .mockResolvedValueOnce({
+        artifactId: "report_deadbeef",
+        version: 1,
+      })
+      .mockResolvedValueOnce({
+        artifactId: "report_deadbeef",
+        version: 1,
+      })
+      .mockResolvedValueOnce([{ artifactId: "report_deadbeef", version: 1 }]);
+
+    await artifactCreate(
+      "tab-1",
+      { runId: "run_1", agentId: "agent_main", logContext },
+      {
+        kind: "report",
+        contentFormat: "markdown",
+        content: "# Report",
+      },
+    );
+    await artifactGet(
+      "tab-1",
+      { artifactId: "report_deadbeef" },
+      logContext,
+    );
+    await artifactList("tab-1", {}, logContext);
+
+    expect(invokeMock).toHaveBeenNthCalledWith(1, "db_artifact_create", {
+      sessionId: "tab-1",
+      runId: "run_1",
+      agentId: "agent_main",
+      input: expect.objectContaining({ kind: "report" }),
+      logContext,
+    });
+    expect(invokeMock).toHaveBeenNthCalledWith(2, "db_artifact_get", {
+      sessionId: "tab-1",
+      artifactId: "report_deadbeef",
+      version: null,
+      includeContent: true,
+      logContext,
+    });
+    expect(invokeMock).toHaveBeenNthCalledWith(3, "db_artifact_list", {
+      sessionId: "tab-1",
+      input: {
+        latestOnly: true,
+        limit: 200,
+      },
+      logContext,
+    });
+  });
+
   it("persists artifactType in framework metadata on create", async () => {
     invokeMock.mockResolvedValueOnce({
       artifactId: "review_1",

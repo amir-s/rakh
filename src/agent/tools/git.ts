@@ -15,6 +15,7 @@ import {
 } from "../approvals";
 import { execRun, type ExecRunOutput } from "./exec";
 import type { ToolResult } from "../types";
+import type { LogContext } from "@/logging/types";
 
 export interface GitWorktreeInitInput {
   suggestedBranch: string;
@@ -72,6 +73,14 @@ export interface GitWorktreeInitOutput {
 type OutputStream = "stdout" | "stderr";
 type OutputCallback = (stream: OutputStream, data: string) => void;
 
+function invokeWithLogContext<T>(
+  cmd: string,
+  args: Record<string, unknown>,
+  logContext?: LogContext,
+): Promise<T> {
+  return invoke<T>(cmd, logContext ? { ...args, logContext } : args);
+}
+
 async function runGitCommand(
   cwd: string,
   args: string[],
@@ -80,9 +89,10 @@ async function runGitCommand(
     maxStdoutBytes?: number;
     maxStderrBytes?: number;
   } = {},
+  logContext?: LogContext,
 ): Promise<ToolResult<GitExecOutput>> {
   try {
-    const result = await invoke<GitExecOutput>("exec_run", {
+    const result = await invokeWithLogContext<GitExecOutput>("exec_run", {
       command: "git",
       args,
       cwd,
@@ -91,7 +101,7 @@ async function runGitCommand(
       maxStdoutBytes: options.maxStdoutBytes ?? 32_000,
       maxStderrBytes: options.maxStderrBytes ?? 32_000,
       stdin: null,
-    });
+    }, logContext);
     return { ok: true, data: result };
   } catch (error) {
     return {
@@ -147,8 +157,14 @@ export function getBranchReleaseInstructions(
 
 export async function readGitHeadState(
   cwd: string,
+  logContext?: LogContext,
 ): Promise<ToolResult<GitHeadState>> {
-  const result = await runGitCommand(cwd, ["symbolic-ref", "--quiet", "--short", "HEAD"]);
+  const result = await runGitCommand(
+    cwd,
+    ["symbolic-ref", "--quiet", "--short", "HEAD"],
+    {},
+    logContext,
+  );
   if (!result.ok) return result;
   if (result.data.exitCode === 0) {
     const branch = result.data.stdout.trim();
@@ -169,13 +185,14 @@ export async function readGitHeadState(
 export async function switchToGitBranch(
   cwd: string,
   branch: string,
+  logContext?: LogContext,
 ): Promise<
   ToolResult<{
     branch: string;
     guidance?: BranchReleaseGuidance;
   }>
 > {
-  const result = await runGitCommand(cwd, ["switch", branch]);
+  const result = await runGitCommand(cwd, ["switch", branch], {}, logContext);
   if (!result.ok) return result;
   if (result.data.exitCode === 0) {
     return { ok: true, data: { branch } };
@@ -202,8 +219,11 @@ export async function switchToGitBranch(
   };
 }
 
-export async function detachGitHead(cwd: string): Promise<ToolResult<{ detached: true }>> {
-  const result = await runGitCommand(cwd, ["switch", "--detach"]);
+export async function detachGitHead(
+  cwd: string,
+  logContext?: LogContext,
+): Promise<ToolResult<{ detached: true }>> {
+  const result = await runGitCommand(cwd, ["switch", "--detach"], {}, logContext);
   if (!result.ok) return result;
   if (result.data.exitCode === 0) {
     return { ok: true, data: { detached: true } };
@@ -219,12 +239,13 @@ export async function detachGitHead(cwd: string): Promise<ToolResult<{ detached:
 
 export async function stageAllGitChanges(
   cwd: string,
+  logContext?: LogContext,
 ): Promise<ToolResult<{ staged: true }>> {
   const result = await runGitCommand(cwd, ["add", "-A"], {
     timeoutMs: 30_000,
     maxStdoutBytes: 8_000,
     maxStderrBytes: 16_000,
-  });
+  }, logContext);
   if (!result.ok) return result;
   if (result.data.exitCode === 0) {
     return { ok: true, data: { staged: true } };
@@ -382,6 +403,7 @@ async function runSetupAttempt(
   setupCommand: string,
   attemptCount: number,
   onSetupOutput?: OutputCallback,
+  logContext?: LogContext,
 ): Promise<GitWorktreeSetupState> {
   if (attemptCount > 1) {
     onSetupOutput?.(
@@ -399,6 +421,7 @@ async function runSetupAttempt(
       runId: toolCallId,
     },
     onSetupOutput,
+    logContext,
   );
 
   if (!result.ok) {
@@ -427,6 +450,7 @@ export async function gitWorktreeInit(
   agentCwd: string,
   input: GitWorktreeInitInput,
   onSetupOutput?: OutputCallback,
+  logContext?: LogContext,
 ): Promise<ToolResult<GitWorktreeInitOutput>> {
   const state = getAgentState(tabId);
   const config = state.config;
@@ -448,7 +472,7 @@ export async function gitWorktreeInit(
 
   let repoRoot: string;
   try {
-    const result = await invoke<{
+    const result = await invokeWithLogContext<{
       exitCode: number;
       stdout: string;
       stderr: string;
@@ -461,7 +485,7 @@ export async function gitWorktreeInit(
       maxStdoutBytes: 4096,
       maxStderrBytes: 4096,
       stdin: null,
-    });
+    }, logContext);
     if (result.exitCode !== 0) {
       return {
         ok: false,
@@ -482,7 +506,7 @@ export async function gitWorktreeInit(
   const repoName = repoRoot.split("/").filter(Boolean).pop() ?? "repo";
   let slug = repoName;
   try {
-    const result = await invoke<{ exitCode: number; stdout: string }>(
+    const result = await invokeWithLogContext<{ exitCode: number; stdout: string }>(
       "exec_run",
       {
         command: "git",
@@ -494,6 +518,7 @@ export async function gitWorktreeInit(
         maxStderrBytes: 4096,
         stdin: null,
       },
+      logContext,
     );
     if (result.exitCode === 0 && result.stdout.trim()) {
       slug = parseRemoteSlug(result.stdout, repoName);
@@ -532,13 +557,14 @@ export async function gitWorktreeInit(
     finalBranch = sanitiseBranch(branchName || sanitised);
 
     try {
-      const created = await invoke<{ path: string; branch: string }>(
+      const created = await invokeWithLogContext<{ path: string; branch: string }>(
         "git_worktree_add",
         {
           repoPath: repoRoot,
           repoSlug,
           branch: finalBranch,
         },
+        logContext,
       );
       finalPath = created.path;
       break;
@@ -616,6 +642,7 @@ export async function gitWorktreeInit(
       setupCommand,
       attemptCount,
       onSetupOutput,
+      logContext,
     );
 
     if (setupAttempt.status === "success") {

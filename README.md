@@ -18,6 +18,7 @@ artifacts, and specialized subagents.
 - Automatic git worktree setup before agent-driven code changes
 - Built-in subagents for planning, review, security, copy, and GitHub tasks
 - Durable artifacts for plans, reports, and other structured outputs
+- Structured JSONL logging with per-run traces and backend persistence
 - Integrated terminal, voice input, theme system, and session restore
 
 ## Built with
@@ -58,6 +59,17 @@ Run the desktop app in development:
 
 ```bash
 npm run tauri:dev
+```
+
+Structured logs are written by the desktop runtime to:
+
+- release: `~/.rakh/logs/rakh.log`
+- debug: `~/.rakh-dev/logs/rakh.log`
+
+Example:
+
+```bash
+tail -f ~/.rakh/logs/rakh.log | grep '"tool-calls"'
 ```
 
 ## Provider setup
@@ -126,6 +138,7 @@ cd src-tauri && cargo test
 ## Docs
 
 - `docs/artifacts.md` - durable artifact model and validation flow
+- `docs/logging.md` - structured log schema, storage, query APIs, and CLI usage
 - `docs/macos-release-signing.md` - Apple signing and notarization credentials for macOS releases
 - `docs/subagents.md` - subagent registry, contracts, and execution model
 - `docs/tauri-updater-release.md` - updater signing, GitHub secrets, and rollout checks

@@ -1,5 +1,6 @@
+use crate::logging::LogContext;
 use crate::shell_env::resolved_login_shell_env;
-use crate::utils::{tool_log, truncate_bytes};
+use crate::utils::{tool_log, tool_log_with_context, truncate_bytes};
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
 use std::io::Read;
@@ -167,6 +168,7 @@ pub async fn exec_run_inner(
     max_stderr_bytes: usize,
     stdin: Option<String>,
     run_id: Option<String>,
+    log_context: Option<LogContext>,
 ) -> Result<Value, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let start = Instant::now();
@@ -187,7 +189,7 @@ pub async fn exec_run_inner(
 
         let env_keys: Vec<String> = env.keys().cloned().collect();
 
-        tool_log(
+        tool_log_with_context(
             "exec_run",
             "start",
             json!({
@@ -203,6 +205,7 @@ pub async fn exec_run_inner(
                 "resolvedBin": resolved_bin,
                 "path": path_env
             }),
+            log_context.as_ref(),
         );
 
         if !command_uses_explicit_path(&command) && resolved_program.is_none() {
@@ -212,7 +215,7 @@ pub async fn exec_run_inner(
                 format!("Command failed to start: {:?} not found in PATH", command)
             };
 
-            tool_log(
+            tool_log_with_context(
                 "exec_run",
                 "err",
                 json!({
@@ -221,6 +224,7 @@ pub async fn exec_run_inner(
                     "ioErrorKind": format!("{:?}", std::io::ErrorKind::NotFound),
                     "cwdExists": cwd_exists
                 }),
+                log_context.as_ref(),
             );
 
             return Err(msg);
@@ -277,7 +281,7 @@ pub async fn exec_run_inner(
                 format!("Command failed to start: {}", e)
             };
 
-            tool_log(
+            tool_log_with_context(
                 "exec_run",
                 "err",
                 json!({
@@ -286,6 +290,7 @@ pub async fn exec_run_inner(
                     "ioErrorKind": format!("{:?}", kind),
                     "cwdExists": cwd_exists
                 }),
+                log_context.as_ref(),
             );
 
             msg
@@ -477,7 +482,7 @@ pub async fn exec_run_inner(
             "terminatedByUser": terminated_by_user,
         });
 
-        tool_log(
+        tool_log_with_context(
             "exec_run",
             "ok",
             json!({
@@ -489,6 +494,7 @@ pub async fn exec_run_inner(
                 "truncatedStderr": trunc_err,
                 "terminatedByUser": terminated_by_user
             }),
+            log_context.as_ref(),
         );
 
         Ok(result)
@@ -509,6 +515,7 @@ pub async fn exec_run(
     max_stderr_bytes: usize,
     stdin: Option<String>,
     run_id: Option<String>,
+    log_context: Option<LogContext>,
 ) -> Result<Value, String> {
     exec_run_inner(
         Some(app),
@@ -521,6 +528,7 @@ pub async fn exec_run(
         max_stderr_bytes,
         stdin,
         run_id,
+        log_context,
     )
     .await
 }
@@ -691,6 +699,7 @@ mod tests {
             1024,
             None,
             None,
+            None,
         ))
         .unwrap();
         assert_eq!(res["exitCode"], 0);
@@ -709,6 +718,7 @@ mod tests {
             1024,
             None,
             None,
+            None,
         ))
         .unwrap();
         assert_eq!(fail_res["exitCode"], 42);
@@ -723,6 +733,7 @@ mod tests {
             100,
             1024,
             1024,
+            None,
             None,
             None,
         ));

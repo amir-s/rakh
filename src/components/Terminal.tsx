@@ -4,6 +4,7 @@ import { FitAddon } from "@xterm/addon-fit";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { WebglAddon } from "@xterm/addon-webgl";
+import { logFrontendSoon } from "@/logging/client";
 
 import "@xterm/xterm/css/xterm.css";
 
@@ -99,7 +100,13 @@ export default function Terminal({
             data: `${command}\r`,
           });
         } catch (error) {
-          console.error("Failed to run queued PTY command", error);
+          logFrontendSoon({
+            level: "error",
+            tags: ["frontend", "system"],
+            event: "terminal.pty.queue.error",
+            message: "Failed to run a queued PTY command.",
+            data: { error, tabId, command },
+          });
           queueCommand(tabId, command);
           break;
         }
@@ -189,7 +196,17 @@ export default function Terminal({
           invoke("write_pty", { sessionId: session.sessionId, data }).catch(
             (err) => {
               if (!session.exited) {
-                console.error("Failed to write to PTY", err);
+                logFrontendSoon({
+                  level: "error",
+                  tags: ["frontend", "system"],
+                  event: "terminal.pty.write.error",
+                  message: "Failed to write to the PTY.",
+                  data: {
+                    error: err,
+                    sessionId: session.sessionId,
+                    tabId: session.tabId,
+                  },
+                });
               }
             },
           );
@@ -203,7 +220,19 @@ export default function Terminal({
             cols: size.cols,
           }).catch((err) => {
             if (!session.exited) {
-              console.error("Failed to resize PTY", err);
+              logFrontendSoon({
+                level: "error",
+                tags: ["frontend", "system"],
+                event: "terminal.pty.resize.error",
+                message: "Failed to resize the PTY.",
+                data: {
+                  error: err,
+                  sessionId: session.sessionId,
+                  tabId: session.tabId,
+                  rows: size.rows,
+                  cols: size.cols,
+                },
+              });
             }
           });
         });
@@ -214,7 +243,13 @@ export default function Terminal({
           setTimeout(() => session.fitAddon.fit(), 0);
         }
       } catch (e) {
-        console.error("Failed to spawn PTY", e);
+        logFrontendSoon({
+          level: "error",
+          tags: ["frontend", "system"],
+          event: "terminal.pty.spawn.error",
+          message: "Failed to spawn a PTY session.",
+          data: { error: e, tabId: session.tabId, cwd: spawnCwd ?? cwd ?? "" },
+        });
         session.exited = true;
         session.exitCode = -1;
         session.sessionId = "";
@@ -358,7 +393,15 @@ export default function Terminal({
     invoke("write_pty", {
       sessionId: session.sessionId,
       data: `cd ${JSON.stringify(cwd)}\r`,
-    }).catch(console.error);
+    }).catch((error) => {
+      logFrontendSoon({
+        level: "error",
+        tags: ["frontend", "system"],
+        event: "terminal.cwd-sync.error",
+        message: "Failed to sync the terminal working directory.",
+        data: { error, sessionId: session.sessionId, tabId: activeTabId, cwd },
+      });
+    });
   }, [cwd, activeTabId]);
 
   useEffect(() => {
@@ -374,7 +417,18 @@ export default function Terminal({
         sessionId: session.sessionId,
         data: `${commandRequest.command}\r`,
       }).catch((error) => {
-        console.error("Failed to run PTY command", error);
+        logFrontendSoon({
+          level: "error",
+          tags: ["frontend", "system"],
+          event: "terminal.pty.command.error",
+          message: "Failed to run a PTY command.",
+          data: {
+            error,
+            sessionId: session.sessionId,
+            tabId: activeTabId,
+            command: commandRequest.command,
+          },
+        });
       });
       return;
     }

@@ -36,6 +36,7 @@ import type { ToolResult } from "../types";
 import { computeDiffFile } from "../patchToDiff";
 import { serializeDiff } from "@/components/diffSerialization";
 import { patchAgentState, getAgentState } from "../atoms";
+import type { LogContext } from "@/logging/types";
 
 export { TOOL_DEFINITIONS, getToolDefinitionsByNames } from "./definitions";
 
@@ -109,6 +110,10 @@ export interface DispatchCallbacks {
   onExecOutput?: (stream: "stdout" | "stderr", data: string) => void;
 }
 
+export interface DispatchRuntimeContext extends ArtifactRuntimeContext {
+  logContext?: LogContext;
+}
+
 export async function dispatchTool(
   tabId: string,
   cwd: string,
@@ -117,7 +122,7 @@ export async function dispatchTool(
   args: Record<string, any>,
   toolCallId: string = "",
   callbacks?: DispatchCallbacks,
-  runtime?: ArtifactRuntimeContext,
+  runtime?: DispatchRuntimeContext,
 ): Promise<ToolResult<unknown>> {
   // ⚠️  args are LLM-generated and may be missing fields; each tool validates internally.
   // The casts below are intentional — runtime errors surface as ToolResult errors.
@@ -126,13 +131,13 @@ export async function dispatchTool(
   switch (name) {
     /* ── workspace ──────────────────────────────────────────────────────────── */
     case "workspace_listDir":
-      return listDir(cwd, a);
+      return listDir(cwd, a, runtime?.logContext);
 
     case "workspace_stat":
-      return statFile(cwd, a);
+      return statFile(cwd, a, runtime?.logContext);
 
     case "workspace_readFile":
-      return readFile(cwd, a);
+      return readFile(cwd, a, runtime?.logContext);
 
     case "workspace_writeFile": {
       const wfPath = typeof a.path === "string" ? a.path : "";
@@ -147,7 +152,7 @@ export async function dispatchTool(
         content: typeof a.content === "string" ? a.content : "",
         mode: wfOverwrite ? "create_or_overwrite" : "create",
         createDirs: true,
-      });
+      }, runtime?.logContext);
 
       if (wfResult.ok) {
         const currentContent = typeof a.content === "string" ? a.content : "";
@@ -162,11 +167,15 @@ export async function dispatchTool(
       // Snapshot original before editing
       const efOriginal = await snapshotOriginal(tabId, cwd, efInput.path);
 
-      const efResult = await editFile(cwd, efInput);
+      const efResult = await editFile(cwd, efInput, runtime?.logContext);
 
       if (efResult.ok) {
         // Read the new content from disk
-        const readResult = await readFile(cwd, { path: efInput.path });
+        const readResult = await readFile(
+          cwd,
+          { path: efInput.path },
+          runtime?.logContext,
+        );
         const currentContent = readResult.ok ? readResult.data.content : "";
         upsertReviewEdit(tabId, efInput.path, efOriginal ?? "", currentContent);
       }
@@ -175,14 +184,21 @@ export async function dispatchTool(
     }
 
     case "workspace_glob":
-      return glob(cwd, a);
+      return glob(cwd, a, runtime?.logContext);
 
     case "workspace_search":
-      return searchFiles(cwd, a);
+      return searchFiles(cwd, a, runtime?.logContext);
 
     /* ── git ─────────────────────────────────────────────────────────────────────────── */
     case "git_worktree_init":
-      return gitWorktreeInit(tabId, toolCallId, cwd, a, callbacks?.onExecOutput);
+      return gitWorktreeInit(
+        tabId,
+        toolCallId,
+        cwd,
+        a,
+        callbacks?.onExecOutput,
+        runtime?.logContext,
+      );
 
     /* ── exec ──────────────────────────────────────────────────────────────────────── */
     case "exec_run":
@@ -196,6 +212,7 @@ export async function dispatchTool(
               : undefined,
         },
         callbacks?.onExecOutput,
+        runtime?.logContext,
       );
 
     /* ── agent.todo ─────────────────────────────────────────────────────────── */
@@ -222,10 +239,10 @@ export async function dispatchTool(
       return artifactVersion(tabId, runtime, a);
 
     case "agent_artifact_get":
-      return artifactGet(tabId, a);
+      return artifactGet(tabId, a, runtime?.logContext);
 
     case "agent_artifact_list":
-      return artifactList(tabId, a);
+      return artifactList(tabId, a, runtime?.logContext);
 
     /* ── agent.title ─────────────────────────────────────────────────────────────── */
     case "agent_title_set":

@@ -20,6 +20,7 @@
  */
 
 import type { Tab } from "@/contexts/TabsContext";
+import { logFrontendSoon } from "@/logging/client";
 import type { AgentQueueState, AgentState } from "./types";
 import {
   DEFAULT_MODEL,
@@ -149,7 +150,14 @@ export async function loadSessions(): Promise<PersistedSession[]> {
   try {
     return await invoke<PersistedSession[]>("db_load_sessions");
   } catch (e) {
-    console.error("rakh: failed to load sessions:", e);
+    logFrontendSoon({
+      level: "error",
+      tags: ["frontend", "db", "system"],
+      event: "persistence.load.error",
+      message: "Failed to load sessions",
+      kind: "error",
+      data: e,
+    });
     return [];
   }
 }
@@ -229,7 +237,14 @@ export async function upsertSession(tab: Tab): Promise<void> {
     await invoke("db_upsert_session", { session });
     markSessionAsPersisted(session);
   } catch (e) {
-    console.error("rakh: failed to upsert session:", e);
+    logFrontendSoon({
+      level: "error",
+      tags: ["frontend", "db", "system"],
+      event: "persistence.upsert.error",
+      message: "Failed to upsert session",
+      kind: "error",
+      data: { sessionId: tab.id, error: e },
+    });
     patchSessionPersistenceState(tab.id, {
       phase: "error",
       lastSaveError: e instanceof Error ? e.message : String(e),
@@ -248,7 +263,14 @@ export async function archiveSession(id: string): Promise<void> {
   try {
     await invoke("db_archive_session", { id });
   } catch (e) {
-    console.error("rakh: failed to archive session:", e);
+    logFrontendSoon({
+      level: "error",
+      tags: ["frontend", "db", "system"],
+      event: "persistence.archive.error",
+      message: "Failed to archive session",
+      kind: "error",
+      data: { sessionId: id, error: e },
+    });
   }
 }
 
@@ -258,7 +280,14 @@ export async function loadArchivedSessions(): Promise<PersistedSession[]> {
   try {
     return await invoke<PersistedSession[]>("db_load_archived_sessions");
   } catch (e) {
-    console.error("rakh: failed to load archived sessions:", e);
+    logFrontendSoon({
+      level: "error",
+      tags: ["frontend", "db", "system"],
+      event: "persistence.loadArchived.error",
+      message: "Failed to load archived sessions",
+      kind: "error",
+      data: e,
+    });
     return [];
   }
 }
@@ -272,7 +301,14 @@ export async function restoreSession(session: PersistedSession): Promise<void> {
     });
     markSessionAsPersisted({ ...session, archived: false });
   } catch (e) {
-    console.error("rakh: failed to restore session:", e);
+    logFrontendSoon({
+      level: "error",
+      tags: ["frontend", "db", "system"],
+      event: "persistence.restore.error",
+      message: "Failed to restore session",
+      kind: "error",
+      data: { sessionId: session.id, error: e },
+    });
   }
 }
 
@@ -282,6 +318,13 @@ export async function deleteSession(id: string): Promise<void> {
   try {
     await invoke("db_delete_session", { id });
   } catch (e) {
-    console.error("rakh: failed to delete session:", e);
+    logFrontendSoon({
+      level: "error",
+      tags: ["frontend", "db", "system"],
+      event: "persistence.delete.error",
+      message: "Failed to delete session",
+      kind: "error",
+      data: { sessionId: id, error: e },
+    });
   }
 }

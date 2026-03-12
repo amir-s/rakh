@@ -1,4 +1,5 @@
-use crate::utils::{app_store_root, tool_log};
+use crate::logging::LogContext;
+use crate::utils::{app_store_root, tool_log_with_context};
 use serde_json::{json, Value};
 use std::fs;
 use std::path::{Component, Path, PathBuf};
@@ -78,9 +79,10 @@ pub fn git_worktree_add(
     repo_path: String,
     repo_slug: String,
     branch: String,
+    log_context: Option<LogContext>,
 ) -> Result<Value, String> {
     let start = Instant::now();
-    tool_log(
+    tool_log_with_context(
         "git_worktree_add",
         "start",
         json!({
@@ -88,6 +90,7 @@ pub fn git_worktree_add(
             "repoSlug": repo_slug,
             "branch": branch
         }),
+        log_context.as_ref(),
     );
 
     let result: Result<Value, String> = (|| {
@@ -135,7 +138,7 @@ pub fn git_worktree_add(
     })();
 
     match &result {
-        Ok(v) => tool_log(
+        Ok(v) => tool_log_with_context(
             "git_worktree_add",
             "ok",
             json!({
@@ -143,14 +146,16 @@ pub fn git_worktree_add(
                 "path": v["path"],
                 "branch": v["branch"]
             }),
+            log_context.as_ref(),
         ),
-        Err(e) => tool_log(
+        Err(e) => tool_log_with_context(
             "git_worktree_add",
             "err",
             json!({
                 "durationMs": start.elapsed().as_millis() as u64,
                 "error": e
             }),
+            log_context.as_ref(),
         ),
     }
 

@@ -6,14 +6,14 @@ const {
   patchSessionPersistenceStateMock,
   defaultModel,
   stateByTab,
-  consoleErrorSpy,
+  logFrontendSoonMock,
 } = vi.hoisted(() => ({
   invokeMock: vi.fn(),
   getAgentStateMock: vi.fn(),
   patchSessionPersistenceStateMock: vi.fn(),
   defaultModel: "openai/gpt-5.2",
   stateByTab: {} as Record<string, unknown>,
-  consoleErrorSpy: vi.spyOn(console, "error").mockImplementation(() => {}),
+  logFrontendSoonMock: vi.fn(),
 }));
 
 vi.mock("@tauri-apps/api/core", () => ({
@@ -25,6 +25,10 @@ vi.mock("./atoms", () => ({
   patchSessionPersistenceState: (...args: unknown[]) =>
     patchSessionPersistenceStateMock(...args),
   DEFAULT_MODEL: defaultModel,
+}));
+
+vi.mock("@/logging/client", () => ({
+  logFrontendSoon: (...args: unknown[]) => logFrontendSoonMock(...args),
 }));
 
 import {
@@ -56,7 +60,7 @@ describe("persistence", () => {
     invokeMock.mockReset();
     getAgentStateMock.mockReset();
     patchSessionPersistenceStateMock.mockReset();
-    consoleErrorSpy.mockClear();
+    logFrontendSoonMock.mockReset();
     for (const key of Object.keys(stateByTab)) {
       delete stateByTab[key];
     }
@@ -194,7 +198,12 @@ describe("persistence", () => {
 
     const sessions = await loadSessions();
     expect(sessions).toEqual([]);
-    expect(consoleErrorSpy).toHaveBeenCalled();
+    expect(logFrontendSoonMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        level: "error",
+        event: "persistence.load.error",
+      }),
+    );
   });
 
   it("upsertSession is no-op outside Tauri and for non-workspace tabs", async () => {

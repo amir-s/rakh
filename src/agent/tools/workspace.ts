@@ -5,6 +5,7 @@
  */
 import { invoke } from "@tauri-apps/api/core";
 import type { ToolResult } from "../types";
+import type { LogContext } from "@/logging/types";
 
 /* ── helpers ────────────────────────────────────────────────────────────────── */
 
@@ -63,11 +64,12 @@ function validatePath(
 async function tauriInvoke<T>(
   cmd: string,
   args: Record<string, unknown>,
+  logContext?: LogContext,
 ): Promise<T> {
   if (!isTauri()) {
     throw new Error("Tauri is not available — run inside the Tauri app");
   }
-  return invoke<T>(cmd, args);
+  return invoke<T>(cmd, logContext ? { ...args, logContext } : args);
 }
 
 /* ── 1.1 workspace.listDir ──────────────────────────────────────────────────── */
@@ -95,6 +97,7 @@ export interface ListDirOutput {
 export async function listDir(
   cwd: string,
   input: ListDirInput,
+  logContext?: LogContext,
 ): Promise<ToolResult<ListDirOutput>> {
   const pathErr = validatePath(input.path, { allowEmpty: true });
   if (pathErr)
@@ -107,7 +110,7 @@ export async function listDir(
       path: absPath,
       includeHidden: input.includeHidden ?? false,
       maxEntries: input.maxEntries ?? 200,
-    });
+    }, logContext);
     return { ok: true, data };
   } catch (e) {
     return { ok: false, error: { code: "INTERNAL", message: String(e) } };
@@ -131,6 +134,7 @@ export interface StatFileOutput {
 export async function statFile(
   cwd: string,
   input: StatFileInput,
+  logContext?: LogContext,
 ): Promise<ToolResult<StatFileOutput>> {
   const pathErr = validatePath(input.path);
   if (pathErr)
@@ -140,7 +144,7 @@ export async function statFile(
   try {
     const data = await tauriInvoke<StatFileOutput>("stat_file", {
       path: absPath,
-    });
+    }, logContext);
     return { ok: true, data };
   } catch (e) {
     return { ok: false, error: { code: "INTERNAL", message: String(e) } };
@@ -168,6 +172,7 @@ export interface ReadFileOutput {
 export async function readFile(
   cwd: string,
   input: ReadFileInput,
+  logContext?: LogContext,
 ): Promise<ToolResult<ReadFileOutput>> {
   const pathErr = validatePath(input.path);
   if (pathErr)
@@ -181,7 +186,7 @@ export async function readFile(
       startLine: input.range?.startLine ?? null,
       endLine: input.range?.endLine ?? null,
       maxBytes: input.maxBytes ?? 200_000,
-    });
+    }, logContext);
     return { ok: true, data };
   } catch (e) {
     const msg = String(e);
@@ -213,6 +218,7 @@ export interface WriteFileOutput {
 export async function writeFile(
   cwd: string,
   input: WriteFileInput,
+  logContext?: LogContext,
 ): Promise<ToolResult<WriteFileOutput>> {
   const pathErr = validatePath(input.path);
   if (pathErr)
@@ -237,7 +243,7 @@ export async function writeFile(
       content: input.content,
       mode: input.mode ?? "create_or_overwrite",
       createDirs: input.createDirs ?? true,
-    });
+    }, logContext);
     return { ok: true, data };
   } catch (e) {
     const msg = String(e);
@@ -316,6 +322,7 @@ export function applyEditChanges(
 export async function validateEditFile(
   cwd: string,
   input: EditFileInput,
+  logContext?: LogContext,
 ): Promise<ToolResult<null> | null> {
   const pathErr = validatePath(input.path);
   if (pathErr)
@@ -332,7 +339,7 @@ export async function validateEditFile(
   }
 
   // Read current content
-  const readResult = await readFile(cwd, { path: input.path });
+  const readResult = await readFile(cwd, { path: input.path }, logContext);
   if (!readResult.ok) {
     return {
       ok: false,
@@ -356,13 +363,14 @@ export async function validateEditFile(
 export async function editFile(
   cwd: string,
   input: EditFileInput,
+  logContext?: LogContext,
 ): Promise<ToolResult<EditFileOutput>> {
-  const validationErr = await validateEditFile(cwd, input);
+  const validationErr = await validateEditFile(cwd, input, logContext);
   if (validationErr) {
     return validationErr as unknown as ToolResult<EditFileOutput>;
   }
 
-  const readResult = await readFile(cwd, { path: input.path });
+  const readResult = await readFile(cwd, { path: input.path }, logContext);
   if (!readResult.ok) {
     return {
       ok: false,
@@ -386,7 +394,7 @@ export async function editFile(
     path: input.path,
     content: newContent,
     mode: "overwrite",
-  });
+  }, logContext);
   if (!writeResult.ok) return writeResult as ToolResult<EditFileOutput>;
 
   return {
@@ -417,6 +425,7 @@ export interface GlobOutput {
 export async function glob(
   agentCwd: string,
   input: GlobInput,
+  logContext?: LogContext,
 ): Promise<ToolResult<GlobOutput>> {
   const pathErr = validatePath(input.cwd, { allowEmpty: true });
   if (pathErr)
@@ -434,7 +443,7 @@ export async function glob(
       maxMatches: input.maxMatches ?? 2000,
       includeDirs: input.includeDirs ?? false,
       includeHidden: input.includeHidden ?? false,
-    });
+    }, logContext);
     return { ok: true, data };
   } catch (e) {
     return { ok: false, error: { code: "INTERNAL", message: String(e) } };
@@ -473,6 +482,7 @@ export interface SearchFilesOutput {
 export async function searchFiles(
   agentCwd: string,
   input: SearchFilesInput,
+  logContext?: LogContext,
 ): Promise<ToolResult<SearchFilesOutput>> {
   const pathErr = validatePath(input.rootDir, { allowEmpty: true });
   if (pathErr)
@@ -494,7 +504,7 @@ export async function searchFiles(
       includeHidden: input.includeHidden ?? false,
       contextLines: input.contextLines ?? 0,
       followSymlinks: input.followSymlinks ?? false,
-    });
+    }, logContext);
     return { ok: true, data };
   } catch (e) {
     return { ok: false, error: { code: "INTERNAL", message: String(e) } };

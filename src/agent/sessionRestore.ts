@@ -1,4 +1,5 @@
 import type { Tab } from "@/contexts/TabsContext";
+import { logFrontendSoon } from "@/logging/client";
 import { patchAgentState } from "./atoms";
 import {
   loadArchivedSessions,
@@ -121,7 +122,14 @@ export async function restoreArchivedTab(
   try {
     hydratePersistedSession(session);
   } catch (error) {
-    console.error("rakh: failed to hydrate restored session", error);
+    logFrontendSoon({
+      level: "error",
+      tags: ["frontend", "db", "system"],
+      event: "sessionRestore.hydrate.error",
+      message: "Failed to hydrate restored session",
+      kind: "error",
+      data: { sessionId: session.id, error },
+    });
   }
 
   addTabWithId(buildTabFromSession(session));

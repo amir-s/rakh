@@ -3,6 +3,7 @@ pub mod exec;
 pub mod external_tools;
 pub mod fs_ops;
 pub mod git;
+pub mod logging;
 pub mod mcp;
 pub mod pty;
 pub mod shell_env;
@@ -10,6 +11,7 @@ pub mod utils;
 pub mod whisper;
 
 use db::{init_db, AppState};
+use logging::init_runtime_logging;
 use mcp::McpRunState;
 use std::collections::HashMap;
 use std::sync::Mutex;
@@ -26,6 +28,7 @@ pub fn run() {
             #[cfg(desktop)]
             app.handle()
                 .plugin(tauri_plugin_updater::Builder::new().build())?;
+            init_runtime_logging(app.handle().clone())?;
             Ok(())
         })
         .manage(AppState {
@@ -71,6 +74,10 @@ pub fn run() {
             db::profiles_save,
             db::command_list_load,
             db::command_list_save,
+            logging::logs_write,
+            logging::logs_query,
+            logging::logs_export,
+            logging::logs_clear,
             mcp::mcp_servers_load,
             mcp::mcp_settings_load,
             mcp::mcp_servers_save,

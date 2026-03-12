@@ -35,6 +35,7 @@ import {
   type SavedProject,
 } from "@/projects";
 import { writeProjectScriptsConfig } from "@/projectScripts";
+import { logFrontendSoon } from "@/logging/client";
 
 /* ─────────────────────────────────────────────────────────────────────────────
    Advanced options — localStorage helpers
@@ -315,7 +316,13 @@ export default function NewSession({ onSubmit }: NewSessionProps) {
         addProject(result);
       }
     } catch (error) {
-      console.error("Failed to select folder:", error);
+      logFrontendSoon({
+        level: "error",
+        tags: ["frontend", "system"],
+        event: "new-session.select-folder.error",
+        message: "Failed to select a folder.",
+        data: { error },
+      });
     }
   };
 

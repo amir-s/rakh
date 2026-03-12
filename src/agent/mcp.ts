@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { jsonSchema, tool as aiTool } from "ai";
 import { atom } from "jotai";
+import type { LogContext } from "@/logging/types";
 
 type JsonObject = Record<string, unknown>;
 
@@ -144,8 +145,14 @@ export async function prepareMcpRun(
   runId: string,
   cwd: string,
   servers: McpServerConfig[],
+  logContext?: LogContext,
 ): Promise<McpPrepareRunResult> {
-  return invoke<McpPrepareRunResult>("mcp_prepare_run", { runId, cwd, servers });
+  return invoke<McpPrepareRunResult>("mcp_prepare_run", {
+    runId,
+    cwd,
+    servers,
+    ...(logContext ? { logContext } : {}),
+  });
 }
 
 export async function callMcpTool(
@@ -153,17 +160,25 @@ export async function callMcpTool(
   serverId: string,
   toolName: string,
   input: Record<string, unknown>,
+  logContext?: LogContext,
 ): Promise<McpToolCallResponse> {
   return invoke<McpToolCallResponse>("mcp_call_tool", {
     runId,
     serverId,
     toolName,
     input,
+    ...(logContext ? { logContext } : {}),
   });
 }
 
-export async function shutdownMcpRun(runId: string): Promise<void> {
-  await invoke("mcp_shutdown_run", { runId });
+export async function shutdownMcpRun(
+  runId: string,
+  logContext?: LogContext,
+): Promise<void> {
+  await invoke("mcp_shutdown_run", {
+    runId,
+    ...(logContext ? { logContext } : {}),
+  });
 }
 
 function slugify(value: string): string {

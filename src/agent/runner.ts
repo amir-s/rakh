@@ -109,6 +109,13 @@ import {
   type ArtifactManifest,
 } from "./tools/artifacts";
 import { buildConversationCard, type CardAddInput } from "./tools/agentControl";
+import {
+  createChildLogContext,
+  logFrontendSoon,
+  nextLogId,
+  nextTraceId,
+} from "@/logging/client";
+import type { LogContext } from "@/logging/types";
 
 /* ─────────────────────────────────────────────────────────────────────────────
    Abort controller registry — one per running agent
@@ -218,6 +225,7 @@ async function prepareMainAgentMcpRuntime(
   tabId: string,
   runId: string,
   cwd: string,
+  logContext?: LogContext,
 ): Promise<MainAgentMcpRuntime> {
   const configuredServers = jotaiStore.get(mcpServersAtom);
   if (!configuredServers.some((server) => server.enabled)) {
@@ -225,7 +233,7 @@ async function prepareMainAgentMcpRuntime(
   }
 
   try {
-    const prepared = await prepareMcpRun(runId, cwd, configuredServers);
+    const prepared = await prepareMcpRun(runId, cwd, configuredServers, logContext);
     if (prepared.failures.length > 0) {
       appendChatMessage(tabId, {
         id: msgId(),
@@ -392,6 +400,7 @@ async function createMcpPayloadArtifact(
   runId: string,
   mcpTool: McpToolRegistration,
   candidate: McpArtifactPayloadCandidate,
+  logContext?: LogContext,
 ): Promise<McpArtifactReference | null> {
   const summaryParts = [
     mcpTool.serverName,
@@ -424,14 +433,29 @@ async function createMcpPayloadArtifact(
   };
   const artifactResult = await artifactCreate(
     tabId,
-    { runId, agentId: "agent_main" },
+    { runId, agentId: "agent_main", logContext },
     artifactInput,
   );
   if (!artifactResult.ok) {
-    console.warn("Failed to artifactize MCP payload", {
-      serverId: mcpTool.serverId,
-      toolName: mcpTool.toolName,
-      error: artifactResult.error,
+    writeRunnerLog({
+      level: "warn",
+      tags: ["frontend", "tool-calls", "system"],
+      event: "runner.mcp.artifactize.warn",
+      message: "Failed to artifactize MCP payload",
+      data: {
+        serverId: mcpTool.serverId,
+        toolName: mcpTool.toolName,
+        error: artifactResult.error,
+      },
+      context:
+        logContext ??
+        {
+          sessionId: tabId,
+          tabId,
+          traceId: nextTraceId("trace", runId, "main"),
+          depth: 1,
+          agentId: "agent_main",
+        },
     });
     return null;
   }
@@ -451,10 +475,17 @@ async function sanitizeMcpStructuredValue(
   runId: string,
   mcpTool: McpToolRegistration,
   artifactRefs: McpArtifactReference[],
+  logContext?: LogContext,
 ): Promise<unknown> {
   const candidate = getMcpArtifactPayloadCandidate(value);
   if (candidate) {
-    const artifactRef = await createMcpPayloadArtifact(tabId, runId, mcpTool, candidate);
+    const artifactRef = await createMcpPayloadArtifact(
+      tabId,
+      runId,
+      mcpTool,
+      candidate,
+      logContext,
+    );
     if (!artifactRef) return value;
     artifactRefs.push(artifactRef);
     return buildMcpArtifactReferenceRecord(artifactRef);
@@ -463,7 +494,14 @@ async function sanitizeMcpStructuredValue(
   if (Array.isArray(value)) {
     return Promise.all(
       value.map((entry) =>
-        sanitizeMcpStructuredValue(entry, tabId, runId, mcpTool, artifactRefs),
+        sanitizeMcpStructuredValue(
+          entry,
+          tabId,
+          runId,
+          mcpTool,
+          artifactRefs,
+          logContext,
+        ),
       ),
     );
   }
@@ -475,7 +513,14 @@ async function sanitizeMcpStructuredValue(
   const entries = await Promise.all(
     Object.entries(value).map(async ([key, entry]) => [
       key,
-      await sanitizeMcpStructuredValue(entry, tabId, runId, mcpTool, artifactRefs),
+      await sanitizeMcpStructuredValue(
+        entry,
+        tabId,
+        runId,
+        mcpTool,
+        artifactRefs,
+        logContext,
+      ),
     ]),
   );
   return Object.fromEntries(entries);
@@ -487,6 +532,7 @@ async function maybeArtifactizeMcpToolResult(
   mcpTool: McpToolRegistration,
   result: McpToolCallResponse,
   artifactizeReturnedFiles: boolean,
+  logContext?: LogContext,
 ): Promise<McpToolCallResponse> {
   if (!artifactizeReturnedFiles) {
     return result;
@@ -498,7 +544,13 @@ async function maybeArtifactizeMcpToolResult(
       const candidate = getMcpArtifactPayloadCandidate(item);
       if (!candidate) return item;
 
-      const artifactRef = await createMcpPayloadArtifact(tabId, runId, mcpTool, candidate);
+      const artifactRef = await createMcpPayloadArtifact(
+        tabId,
+        runId,
+        mcpTool,
+        candidate,
+        logContext,
+      );
       if (!artifactRef) return item;
       artifactRefs.push(artifactRef);
       return {
@@ -516,11 +568,19 @@ async function maybeArtifactizeMcpToolResult(
           runId,
           mcpTool,
           artifactRefs,
+          logContext,
         );
   const nextMeta =
     result.meta === undefined
       ? undefined
-      : await sanitizeMcpStructuredValue(result.meta, tabId, runId, mcpTool, artifactRefs);
+      : await sanitizeMcpStructuredValue(
+          result.meta,
+          tabId,
+          runId,
+          mcpTool,
+          artifactRefs,
+          logContext,
+        );
 
   if (artifactRefs.length === 0) {
     return result;
@@ -1203,7 +1263,17 @@ export function queueMessage(tabId: string, userMessage: string): void {
     queueState: prev.queueState === "paused" ? "paused" : "draining",
   }));
 
-  void maybeStartQueuedRun(tabId).catch(console.error);
+  void maybeStartQueuedRun(tabId).catch((error) => {
+    writeRunnerLog({
+      level: "error",
+      tags: ["frontend", "agent-loop", "system"],
+      event: "runner.queue.start.error",
+      message: "Failed to start queued run",
+      kind: "error",
+      data: error,
+      context: { sessionId: tabId, tabId, depth: 0 },
+    });
+  });
 }
 
 export async function steerMessage(
@@ -1226,7 +1296,17 @@ export function resumeQueue(tabId: string): void {
     ...prev,
     queueState: prev.queuedMessages.length > 0 ? "draining" : "idle",
   }));
-  void maybeStartQueuedRun(tabId).catch(console.error);
+  void maybeStartQueuedRun(tabId).catch((error) => {
+    writeRunnerLog({
+      level: "error",
+      tags: ["frontend", "agent-loop", "system"],
+      event: "runner.queue.resume.error",
+      message: "Failed to resume queued run",
+      kind: "error",
+      data: error,
+      context: { sessionId: tabId, tabId, depth: 0 },
+    });
+  });
 }
 
 export function removeQueuedMessage(tabId: string, messageId: string): void {
@@ -1515,19 +1595,92 @@ function toLoggable(value: unknown): unknown {
   return value instanceof Error ? serializeError(value) : value;
 }
 
+function writeRunnerLog(input: {
+  id?: string;
+  level?: "trace" | "debug" | "info" | "warn" | "error";
+  tags: string[];
+  event: string;
+  message: string;
+  kind?: "start" | "end" | "event" | "error";
+  expandable?: boolean;
+  durationMs?: number;
+  data?: unknown;
+  context?: LogContext;
+}): void {
+  logFrontendSoon({
+    id: input.id,
+    level: input.level,
+    tags: input.tags,
+    event: input.event,
+    message: input.message,
+    kind: input.kind,
+    expandable: input.expandable,
+    durationMs: input.durationMs,
+    data: input.data,
+    context: input.context,
+  });
+}
+
+function createMainRunLogContext(tabId: string, runId: string): {
+  runStartId: string;
+  rootContext: LogContext;
+  childContext: LogContext;
+} {
+  const traceId = nextTraceId("trace", runId, "main");
+  const runStartId = nextLogId(`run:${runId}`);
+  const rootContext: LogContext = {
+    sessionId: tabId,
+    tabId,
+    traceId,
+    depth: 0,
+    agentId: "agent_main",
+  };
+  return {
+    runStartId,
+    rootContext,
+    childContext: {
+      ...rootContext,
+      parentId: runStartId,
+      depth: 1,
+    },
+  };
+}
+
+function createToolLogContext(
+  baseContext: LogContext,
+  toolCallId: string,
+  toolName: string,
+): { startId: string; context: LogContext } {
+  const startId = nextLogId(`tool:${toolCallId}`);
+  return {
+    startId,
+    context: createChildLogContext(baseContext, {
+      correlationId: toolCallId,
+      parentId: startId,
+      toolName,
+    }),
+  };
+}
+
 function logStreamDebug(
   tabId: string,
   debugEnabled: boolean,
   event: string,
+  logContext: LogContext,
   payload?: unknown,
 ): void {
   if (!debugEnabled) return;
-  const prefix = `[rakh:stream][${tabId}]`;
-  if (payload === undefined) {
-    console.log(prefix, event);
-    return;
-  }
-  console.log(prefix, event, toLoggable(payload));
+  const tags = ["frontend", "agent-loop", "streaming"];
+  if (event.includes("delta")) tags.push("tokens");
+  if (event.includes("tool-calls")) tags.push("tool-calls");
+  writeRunnerLog({
+    level: "debug",
+    tags,
+    event: `runner.${event}`,
+    message: `[${tabId}] ${event}`,
+    data: payload === undefined ? undefined : toLoggable(payload),
+    context: logContext,
+  });
 }
 
 interface DebuggableStreamStep {
@@ -1589,6 +1742,7 @@ async function logStreamFinishDebug(
   tabId: string,
   debugEnabled: boolean,
   result: DebuggableStreamResult,
+  logContext: LogContext,
 ): Promise<void> {
   if (!debugEnabled) return;
 
@@ -1600,7 +1754,7 @@ async function logStreamFinishDebug(
     ]);
     const steps = Array.isArray(stepsValue) ? stepsValue : [];
 
-    logStreamDebug(tabId, debugEnabled, "stream:finish", {
+    logStreamDebug(tabId, debugEnabled, "stream:finish", logContext, {
       ...(typeof finishReason === "string" ? { finishReason } : {}),
       ...(typeof rawFinishReason === "string" ? { rawFinishReason } : {}),
       stepCount: steps.length,
@@ -1609,7 +1763,7 @@ async function logStreamFinishDebug(
       ),
     });
   } catch (error) {
-    logStreamDebug(tabId, debugEnabled, "stream:finish:error", error);
+    logStreamDebug(tabId, debugEnabled, "stream:finish:error", logContext, error);
   }
 }
 
@@ -1838,6 +1992,7 @@ interface SubagentLoopOptions {
   parentModelId: string;
   providers: ProviderInstance[];
   debugEnabled: boolean;
+  logContext: LogContext;
 }
 
 /**
@@ -1865,9 +2020,35 @@ async function runSubagentLoop(
     parentModelId,
     providers,
     debugEnabled,
+    logContext,
   } = opts;
 
   const startedAtMs = Date.now();
+  const subagentStartId = nextLogId(`subagent:${subagentDef.id}`);
+  const subagentRootContext: LogContext = {
+    ...logContext,
+    agentId: `agent_${subagentDef.id}`,
+  };
+  const subagentContext: LogContext = {
+    ...subagentRootContext,
+    traceId: nextTraceId(logContext.traceId ?? nextTraceId("trace", runId), subagentDef.id),
+    parentId: subagentStartId,
+    depth: (logContext.depth ?? 0) + 1,
+  };
+  writeRunnerLog({
+    id: subagentStartId,
+    level: "info",
+    tags: ["frontend", "agent-loop", "messages"],
+    event: "runner.subagent.start",
+    message: `${subagentDef.name} started`,
+    kind: "start",
+    expandable: true,
+    data: {
+      subagentId: subagentDef.id,
+      modelId: parentModelId,
+    },
+    context: subagentRootContext,
+  });
   const modelId = resolveSubagentModelId(subagentDef, parentModelId, providers);
 
   let languageModel;
@@ -2376,6 +2557,30 @@ async function runSubagentLoop(
     const toolResults = await Promise.all(
       parsedToolCalls.map(async (tc) => {
         const tcId = tc.id;
+        const toolLog = createToolLogContext(
+          subagentContext,
+          tcId,
+          tc.function.name,
+        );
+        writeRunnerLog({
+          id: toolLog.startId,
+          level: "info",
+          tags: ["frontend", "agent-loop", "tool-calls"],
+          event: "runner.subagent.tool.start",
+          message: `${subagentDef.name} queued ${tc.function.name}`,
+          kind: "start",
+          expandable: true,
+          data: {
+            toolName: tc.function.name,
+            args: parseArgs(tc.function.arguments),
+            subagentId: subagentDef.id,
+          },
+          context: {
+            ...subagentContext,
+            correlationId: tcId,
+            depth: subagentContext.depth,
+          },
+        });
 
         function updateToolCallById(patch: Partial<ToolCallDisplay>): void {
           if (signal.aborted || !isCurrentRunId(tabId, runId)) return;
@@ -2578,11 +2783,28 @@ async function runSubagentLoop(
           args,
           tcId,
           callbacks,
-          { runId, agentId: `agent_${subagentDef.id}` },
+          {
+            runId,
+            agentId: `agent_${subagentDef.id}`,
+            logContext: toolLog.context,
+          },
         );
         updateToolCallById({
           status: toolResult.ok ? "done" : "error",
           result: toolResult.ok ? toolResult.data : toolResult.error,
+        });
+        writeRunnerLog({
+          level: toolResult.ok ? "info" : "error",
+          tags: ["frontend", "agent-loop", "tool-calls"],
+          event: toolResult.ok
+            ? "runner.subagent.tool.end"
+            : "runner.subagent.tool.error",
+          message: toolResult.ok
+            ? `${subagentDef.name} completed ${tc.function.name}`
+            : `${subagentDef.name} failed ${tc.function.name}`,
+          kind: toolResult.ok ? "end" : "error",
+          data: toolResult.ok ? toolResult.data : toolResult.error,
+          context: toolLog.context,
         });
 
         if (
@@ -2636,15 +2858,28 @@ async function runSubagentLoop(
     }
 
     if (debugEnabled) {
-      console.log(
-        `[rakh:subagent][${tabId}][${subagentDef.id}]`,
-        `iteration=${iteration} toolCalls=${parsedToolCalls.length}`,
-      );
+      writeRunnerLog({
+        level: "debug",
+        tags: ["frontend", "agent-loop", "messages"],
+        event: "runner.subagent.iteration",
+        message: `${subagentDef.name} iteration ${iteration}`,
+        data: { iteration, toolCallCount: parsedToolCalls.length },
+        context: subagentContext,
+      });
     }
   }
 
   const contractResult = finalizeSubagentArtifacts();
   if (!contractResult.ok) {
+    writeRunnerLog({
+      level: "error",
+      tags: ["frontend", "agent-loop", "messages"],
+      event: "runner.subagent.error",
+      message: `${subagentDef.name} failed artifact validation`,
+      kind: "error",
+      data: contractResult.result.error,
+      context: subagentContext,
+    });
     return {
       ok: false,
       error: contractResult.result.error,
@@ -2652,6 +2887,21 @@ async function runSubagentLoop(
   }
 
   const note = subagentDef.output?.parentNote;
+  writeRunnerLog({
+    level: "info",
+    tags: ["frontend", "agent-loop", "messages"],
+    event: "runner.subagent.end",
+    message: `${subagentDef.name} completed`,
+    kind: "end",
+    durationMs: Math.max(0, Date.now() - startedAtMs),
+    data: {
+      subagentId: subagentDef.id,
+      turns,
+      artifactCount: collectedArtifacts.length,
+      cardCount: collectedCards.length,
+    },
+    context: subagentContext,
+  });
 
   return {
     ok: true,
@@ -2780,12 +3030,28 @@ async function runAgentTurn(
 ): Promise<void> {
   const controller = new AbortController();
   const runId = nextRunId(tabId);
+  const { runStartId, rootContext: runRootLogContext, childContext: runLogContext } =
+    createMainRunLogContext(tabId, runId);
   const activeRun: ActiveRun = {
     runId,
     controller,
     abortReason: null,
   };
   activeRuns.set(tabId, activeRun);
+  writeRunnerLog({
+    id: runStartId,
+    level: "info",
+    tags: ["frontend", "agent-loop", "messages"],
+    event: "runner.run.start",
+    message: "Agent run started",
+    kind: "start",
+    expandable: true,
+    data: {
+      userMessageLength: userMessage.length,
+      hasAttachments: Boolean(attachments && attachments.length > 0),
+    },
+    context: runRootLogContext,
+  });
 
   let completedCleanly = false;
 
@@ -2829,8 +3095,18 @@ async function runAgentTurn(
         parentModelId: triggerState.config.model,
         providers: triggerProviders,
         debugEnabled: triggerDebug,
+        logContext: runLogContext,
       });
       if (!triggerResult.ok) {
+        writeRunnerLog({
+          level: "error",
+          tags: ["frontend", "agent-loop", "messages"],
+          event: "runner.run.error",
+          message: "Trigger subagent run failed",
+          kind: "error",
+          data: triggerResult.error,
+          context: runLogContext,
+        });
         setAgentErrorState(
           tabId,
           triggerResult.error.message,
@@ -2846,6 +3122,15 @@ async function runAgentTurn(
         return;
       }
       const msg = err instanceof Error ? err.message : String(err);
+      writeRunnerLog({
+        level: "error",
+        tags: ["frontend", "agent-loop", "messages"],
+        event: "runner.run.error",
+        message: "Trigger subagent run threw",
+        kind: "error",
+        data: err,
+        context: runLogContext,
+      });
       setAgentErrorState(tabId, msg, serializeError(err));
       updateLastChatMessage(tabId, (m) =>
         m.role === "assistant" ? { ...m, streaming: false } : m,
@@ -2855,13 +3140,31 @@ async function runAgentTurn(
       clearActiveRun(tabId, activeRun);
       if (activeRun.abortReason !== null) return;
       if (completedCleanly) {
+        writeRunnerLog({
+          level: "info",
+          tags: ["frontend", "agent-loop", "messages"],
+          event: "runner.run.end",
+          message: "Agent run completed",
+          kind: "end",
+          context: runLogContext,
+        });
         patchAgentState(tabId, (prev) => ({
           ...prev,
           status: "idle",
           streamingContent: null,
           queueState: normalizeQueueState(prev.queuedMessages, prev.queueState),
         }));
-        void maybeStartQueuedRun(tabId).catch(console.error);
+        void maybeStartQueuedRun(tabId).catch((error) => {
+          writeRunnerLog({
+            level: "error",
+            tags: ["frontend", "agent-loop", "system"],
+            event: "runner.queue.drain.error",
+            message: "Failed to drain queued messages",
+            kind: "error",
+            data: error,
+            context: runLogContext,
+          });
+        });
       }
     }
     return;
@@ -2874,9 +3177,14 @@ async function runAgentTurn(
   const provider = modelEntry?.owned_by ?? null;
   const providers = jotaiStore.get(providersAtom);
 
-  console.log(
-    `Starting agent with model ${model} (provider: ${provider}) in workspace ${cwd}`,
-  );
+  writeRunnerLog({
+    level: "info",
+    tags: ["frontend", "agent-loop", "system"],
+    event: "runner.model.resolve",
+    message: `Starting agent with model ${model}`,
+    data: { model, provider, cwd },
+    context: runLogContext,
+  });
 
   if (!modelEntry || !provider) {
     setAgentErrorState(
@@ -3031,6 +3339,7 @@ async function runAgentTurn(
       providers,
       debugEnabled,
       runId,
+      runLogContext,
     );
     completedCleanly = !controller.signal.aborted;
   } catch (err) {
@@ -3040,6 +3349,15 @@ async function runAgentTurn(
       return;
     }
     const msg = err instanceof Error ? err.message : String(err);
+    writeRunnerLog({
+      level: "error",
+      tags: ["frontend", "agent-loop", "messages"],
+      event: "runner.run.error",
+      message: "Agent loop failed",
+      kind: "error",
+      data: err,
+      context: runLogContext,
+    });
     setAgentErrorState(tabId, msg, serializeError(err));
     updateLastChatMessage(tabId, (m) =>
       m.role === "assistant" ? { ...m, streaming: false } : m,
@@ -3060,7 +3378,25 @@ async function runAgentTurn(
             queueState: normalizeQueueState(prev.queuedMessages, prev.queueState),
           },
     );
-    void maybeStartQueuedRun(tabId).catch(console.error);
+    writeRunnerLog({
+      level: "info",
+      tags: ["frontend", "agent-loop", "messages"],
+      event: "runner.run.end",
+      message: "Agent run completed",
+      kind: "end",
+      context: runLogContext,
+    });
+    void maybeStartQueuedRun(tabId).catch((error) => {
+      writeRunnerLog({
+        level: "error",
+        tags: ["frontend", "agent-loop", "system"],
+        event: "runner.queue.drain.error",
+        message: "Failed to drain queued messages",
+        kind: "error",
+        data: error,
+        context: runLogContext,
+      });
+    });
   }
 }
 
@@ -3075,6 +3411,7 @@ async function agentLoop(
   providers: ProviderInstance[],
   debugEnabled: boolean,
   runId: string,
+  runLogContext: LogContext,
 ): Promise<void> {
   const languageModel = resolveLanguageModel(modelId, providers);
   const modelEntry = getModelCatalogEntry(modelId);
@@ -3089,6 +3426,7 @@ async function agentLoop(
     tabId,
     runId,
     getAgentState(tabId).config.cwd,
+    runLogContext,
   );
   const toolDefinitions = {
     ...TOOL_DEFINITIONS,
@@ -3102,7 +3440,28 @@ async function agentLoop(
 
       const turnStartedAtMs = Date.now();
       const currentApiMessages = getAgentState(tabId).apiMessages;
-      logStreamDebug(tabId, debugEnabled, "turn:start", {
+      const turnStartId = nextLogId(`turn:${runId}:${iteration}`);
+      const turnContext: LogContext = {
+        ...runLogContext,
+        parentId: turnStartId,
+        depth: (runLogContext.depth ?? 1) + 1,
+      };
+      writeRunnerLog({
+        id: turnStartId,
+        level: "info",
+        tags: ["frontend", "agent-loop", "messages"],
+        event: "runner.turn.start",
+        message: `Turn ${iteration} started`,
+        kind: "start",
+        expandable: true,
+        data: {
+          iteration,
+          apiMessageCount: currentApiMessages.length,
+          modelId,
+        },
+        context: runLogContext,
+      });
+      logStreamDebug(tabId, debugEnabled, "turn:start", turnContext, {
         iteration,
         apiMessageCount: currentApiMessages.length,
         modelId,
@@ -3183,7 +3542,7 @@ async function agentLoop(
         for await (const part of fullStream) {
           if (signal.aborted) return;
           streamPartCount += 1;
-          logStreamDebug(tabId, debugEnabled, "stream:part", part);
+          logStreamDebug(tabId, debugEnabled, "stream:part", turnContext, part);
 
           const streamError = streamPartError(part);
           if (streamError !== null) {
@@ -3192,6 +3551,7 @@ async function agentLoop(
               tabId,
               debugEnabled,
               "stream:error-part",
+              turnContext,
               streamError,
             );
             streamErrors.push(streamError);
@@ -3202,7 +3562,12 @@ async function agentLoop(
             reasoningStartCount += 1;
             ensureReasoningStart();
             reasoningActive = true;
-            logStreamDebug(tabId, debugEnabled, "stream:reasoning-start");
+            logStreamDebug(
+              tabId,
+              debugEnabled,
+              "stream:reasoning-start",
+              turnContext,
+            );
             updateStreamingMessage();
             continue;
           }
@@ -3211,7 +3576,7 @@ async function agentLoop(
             reasoningEndCount += 1;
             reasoningActive = false;
             finalizeReasoningDuration();
-            logStreamDebug(tabId, debugEnabled, "stream:reasoning-end", {
+            logStreamDebug(tabId, debugEnabled, "stream:reasoning-end", turnContext, {
               reasoningDurationMs,
             });
             updateStreamingMessage();
@@ -3223,7 +3588,7 @@ async function agentLoop(
             accText += textDelta;
             textDeltaCount += 1;
             textDeltaChars += textDelta.length;
-            logStreamDebug(tabId, debugEnabled, "stream:text-delta", {
+            logStreamDebug(tabId, debugEnabled, "stream:text-delta", turnContext, {
               delta: textDelta,
               deltaLength: textDelta.length,
               accumulatedLength: accText.length,
@@ -3240,7 +3605,7 @@ async function agentLoop(
             accReasoning += reasoningDelta;
             reasoningDeltaCount += 1;
             reasoningDeltaChars += reasoningDelta.length;
-            logStreamDebug(tabId, debugEnabled, "stream:reasoning-delta", {
+            logStreamDebug(tabId, debugEnabled, "stream:reasoning-delta", turnContext, {
               delta: reasoningDelta,
               deltaLength: reasoningDelta.length,
               accumulatedLength: accReasoning.length,
@@ -3255,7 +3620,7 @@ async function agentLoop(
           accText += delta;
           textDeltaCount += 1;
           textDeltaChars += delta.length;
-          logStreamDebug(tabId, debugEnabled, "stream:text-delta:textStream", {
+          logStreamDebug(tabId, debugEnabled, "stream:text-delta:textStream", turnContext, {
             delta,
             deltaLength: delta.length,
             accumulatedLength: accText.length,
@@ -3266,7 +3631,7 @@ async function agentLoop(
         }
       }
       } catch (err) {
-        logStreamDebug(tabId, debugEnabled, "stream:throw", err);
+        logStreamDebug(tabId, debugEnabled, "stream:throw", turnContext, err);
         // Re-throw if it's not a generic abort
         if (!signal.aborted) throw attachStreamErrors(err, streamErrors);
         return;
@@ -3279,13 +3644,14 @@ async function agentLoop(
           tabId,
           debugEnabled,
           "stream:tool-calls:raw",
+          turnContext,
           sdkToolCalls,
         );
       } catch (err) {
-        logStreamDebug(tabId, debugEnabled, "stream:tool-calls:error", err);
+        logStreamDebug(tabId, debugEnabled, "stream:tool-calls:error", turnContext, err);
         throw attachStreamErrors(err, streamErrors);
       }
-      await logStreamFinishDebug(tabId, debugEnabled, result);
+      await logStreamFinishDebug(tabId, debugEnabled, result, turnContext);
 
       // --- Turn complete ---
       if (reasoningStartedAtMs !== null && reasoningDurationMs === null) {
@@ -3299,14 +3665,15 @@ async function agentLoop(
       )
         .map((tc) => toApiToolCall(tc))
         .filter((tc): tc is ApiToolCall => tc !== null);
-      logStreamDebug(tabId, debugEnabled, "stream:tool-calls:parsed", {
+      logStreamDebug(tabId, debugEnabled, "stream:tool-calls:parsed", turnContext, {
         count: parsedToolCalls.length,
         toolCallIds: parsedToolCalls.map((tc) => tc.id),
         toolNames: parsedToolCalls.map((tc) => tc.function.name),
       });
-      logStreamDebug(tabId, debugEnabled, "stream:summary", {
+      const turnDurationMs = Math.max(0, Date.now() - turnStartedAtMs);
+      logStreamDebug(tabId, debugEnabled, "stream:summary", turnContext, {
         iteration,
-        turnDurationMs: Math.max(0, Date.now() - turnStartedAtMs),
+        turnDurationMs,
         usedFullStream,
         streamPartCount,
         streamErrorPartCount,
@@ -3320,6 +3687,22 @@ async function agentLoop(
         assistantReasoningChars: accReasoning.length,
         toolCallCount: parsedToolCalls.length,
         reasoningDurationMs: reasoningDurationMs ?? undefined,
+      });
+      writeRunnerLog({
+        level: "info",
+        tags: ["frontend", "agent-loop", "messages"],
+        event: "runner.turn.end",
+        message: `Turn ${iteration} completed`,
+        kind: "end",
+        durationMs: turnDurationMs,
+        data: {
+          iteration,
+          toolCallCount: parsedToolCalls.length,
+          assistantTextChars: accText.length,
+          assistantReasoningChars: accReasoning.length,
+          reasoningDurationMs: reasoningDurationMs ?? undefined,
+        },
+        context: turnContext,
       });
 
       const assistantApiMsg: AssistantApiMessage = {
@@ -3374,6 +3757,25 @@ async function agentLoop(
       const toolResults = await Promise.all(
         parsedToolCalls.map(async (tc) => {
         const tcId = tc.id;
+        const toolLog = createToolLogContext(turnContext, tcId, tc.function.name);
+        writeRunnerLog({
+          id: toolLog.startId,
+          level: "info",
+          tags: ["frontend", "agent-loop", "tool-calls"],
+          event: "runner.tool.start",
+          message: `${tc.function.name} queued`,
+          kind: "start",
+          expandable: true,
+          data: {
+            toolName: tc.function.name,
+            args: parseArgs(tc.function.arguments),
+          },
+          context: {
+            ...turnContext,
+            correlationId: tcId,
+            depth: turnContext.depth ?? 2,
+          },
+        });
 
         /** Update this specific tool call (by id) regardless of which message hosts it. */
         function updateToolCallById(patch: Partial<ToolCallDisplay>): void {
@@ -3457,6 +3859,7 @@ async function agentLoop(
             parentModelId: modelId,
             providers,
             debugEnabled,
+            logContext: toolLog.context,
           });
 
           updateToolCallById({
@@ -3552,6 +3955,7 @@ async function agentLoop(
               mcpTool.serverId,
               mcpTool.toolName,
               preArgs,
+              toolLog.context,
             );
             const mcpResult = await maybeArtifactizeMcpToolResult(
               tabId,
@@ -3559,6 +3963,7 @@ async function agentLoop(
               mcpTool,
               rawMcpResult,
               artifactizeReturnedFiles,
+              toolLog.context,
             );
 
             if (mcpResult.isError) {
@@ -3738,13 +4143,28 @@ async function agentLoop(
           args,
           tcId,
           callbacks,
-          { runId, agentId: "agent_main" },
+          {
+            runId,
+            agentId: "agent_main",
+            logContext: toolLog.context,
+          },
         );
 
         // Mark tool call as done/error
         updateToolCallById({
           status: result.ok ? "done" : "error",
           result: result.ok ? result.data : result.error,
+        });
+        writeRunnerLog({
+          level: result.ok ? "info" : "error",
+          tags: ["frontend", "agent-loop", "tool-calls"],
+          event: result.ok ? "runner.tool.end" : "runner.tool.error",
+          message: result.ok
+            ? `${tc.function.name} completed`
+            : `${tc.function.name} failed`,
+          kind: result.ok ? "end" : "error",
+          data: result.ok ? result.data : result.error,
+          context: toolLog.context,
         });
 
         return { tool_call_id: tcId, result };
@@ -3780,9 +4200,17 @@ async function agentLoop(
     setAgentErrorState(tabId, "Reached maximum iteration limit (50 turns)");
   } finally {
     try {
-      await shutdownMcpRun(runId);
+      await shutdownMcpRun(runId, runLogContext);
     } catch (error) {
-      console.error("Failed to shut down MCP run", error);
+      writeRunnerLog({
+        level: "error",
+        tags: ["frontend", "agent-loop", "system"],
+        event: "runner.mcp.shutdown.error",
+        message: "Failed to shut down MCP run",
+        kind: "error",
+        data: error,
+        context: runLogContext,
+      });
     }
   }
 }

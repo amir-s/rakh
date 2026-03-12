@@ -1,4 +1,8 @@
-use serde_json::{json, Value};
+use crate::logging::{
+    tool_log as structured_tool_log, tool_log_with_context as structured_tool_log_with_context,
+    tool_logging_enabled as structured_tool_logging_enabled, LogContext,
+};
+use serde_json::Value;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -48,39 +52,15 @@ pub fn non_empty_env_var(name: &str) -> Option<String> {
 }
 
 pub fn tool_logging_enabled() -> bool {
-    // In dev builds, default to on for easier debugging.
-    // In release builds, require opt-in via env var.
-    if cfg!(debug_assertions) {
-        return true;
-    }
-    std::env::var("RAKH_TOOL_LOG")
-        .map(|v| {
-            let v = v.trim().to_ascii_lowercase();
-            v == "1" || v == "true" || v == "yes" || v == "on"
-        })
-        .unwrap_or(false)
+    structured_tool_logging_enabled()
 }
 
 pub fn tool_log(tool: &str, event: &str, fields: Value) {
-    if !tool_logging_enabled() {
-        return;
-    }
+    structured_tool_log(tool, event, fields);
+}
 
-    let mut obj = serde_json::Map::new();
-    obj.insert("tsMs".to_string(), json!(now_ms()));
-    obj.insert("tool".to_string(), json!(tool));
-    obj.insert("event".to_string(), json!(event));
-
-    if let Value::Object(map) = fields {
-        for (k, v) in map {
-            obj.insert(k, v);
-        }
-    } else {
-        obj.insert("data".to_string(), fields);
-    }
-
-    // JSONL (one object per line) for easy grepping and ingestion.
-    eprintln!("{}", Value::Object(obj).to_string());
+pub fn tool_log_with_context(tool: &str, event: &str, fields: Value, context: Option<&LogContext>) {
+    structured_tool_log_with_context(tool, event, fields, context);
 }
 
 pub fn truncate_bytes(data: &[u8], max: usize) -> (Vec<u8>, bool) {

@@ -1,3 +1,5 @@
+import { logFrontendSoon } from "@/logging/client";
+
 export interface NotificationPayload {
   title: string;
   options?: NotificationOptions;
@@ -30,7 +32,13 @@ export async function ensureNotificationPermission(): Promise<boolean> {
       }
       return granted;
     } catch (err) {
-      console.error("Tauri notification permission error:", err);
+      logFrontendSoon({
+        level: "error",
+        tags: ["frontend", "system"],
+        event: "notifications.permission.error",
+        message: "Failed to query Tauri notification permission.",
+        data: { error: err },
+      });
       return false;
     }
   }
@@ -122,7 +130,13 @@ export async function setAppBadgeCount(count: number | null): Promise<void> {
     }
     await win.setBadgeCount(Math.max(1, Math.trunc(count)));
   } catch (err) {
-    console.error("Failed to update app badge count:", err);
+    logFrontendSoon({
+      level: "error",
+      tags: ["frontend", "system"],
+      event: "notifications.badge.error",
+      message: "Failed to update the app badge count.",
+      data: { error: err, count },
+    });
   }
 }
 

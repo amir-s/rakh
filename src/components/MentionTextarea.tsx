@@ -14,6 +14,7 @@ import {
 } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, TauriEvent } from "@tauri-apps/api/event";
+import { logFrontendSoon } from "@/logging/client";
 import { ContentEditable } from "@lexical/react/LexicalContentEditable";
 import { LexicalComposer } from "@lexical/react/LexicalComposer";
 import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
@@ -652,7 +653,15 @@ export const MentionTextarea = forwardRef<
       .then((result) => {
         setFiles(result.matches);
       })
-      .catch(console.error);
+      .catch((error) => {
+        logFrontendSoon({
+          level: "error",
+          tags: ["frontend", "system"],
+          event: "mention-textarea.search-files.error",
+          message: "Failed to refresh mention autocomplete files.",
+          data: { error, cwd },
+        });
+      });
   }, [cwd]);
 
   useEffect(() => {

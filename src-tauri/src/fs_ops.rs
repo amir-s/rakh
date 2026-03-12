@@ -1,5 +1,6 @@
-use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
-use crate::utils::tool_log;
+use crate::logging::LogContext;
+use crate::utils::{tool_log, tool_log_with_context};
+use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 use serde_json::{json, Value};
 use std::fs;
 use std::io::{self, BufRead, Read};
@@ -7,9 +8,14 @@ use std::path::PathBuf;
 use std::time::{Instant, UNIX_EPOCH};
 
 #[tauri::command]
-pub fn list_dir(path: String, include_hidden: bool, max_entries: usize) -> Result<Value, String> {
+pub fn list_dir(
+    path: String,
+    include_hidden: bool,
+    max_entries: usize,
+    log_context: Option<LogContext>,
+) -> Result<Value, String> {
     let start = Instant::now();
-    tool_log(
+    tool_log_with_context(
         "list_dir",
         "start",
         json!({
@@ -17,6 +23,7 @@ pub fn list_dir(path: String, include_hidden: bool, max_entries: usize) -> Resul
             "includeHidden": include_hidden,
             "maxEntries": max_entries
         }),
+        log_context.as_ref(),
     );
 
     let result: Result<Value, String> = (|| {
@@ -67,7 +74,7 @@ pub fn list_dir(path: String, include_hidden: bool, max_entries: usize) -> Resul
     })();
 
     match &result {
-        Ok(v) => tool_log(
+        Ok(v) => tool_log_with_context(
             "list_dir",
             "ok",
             json!({
@@ -75,14 +82,16 @@ pub fn list_dir(path: String, include_hidden: bool, max_entries: usize) -> Resul
                 "entryCount": v["entries"].as_array().map(|a| a.len()).unwrap_or(0),
                 "truncated": v["truncated"]
             }),
+            log_context.as_ref(),
         ),
-        Err(e) => tool_log(
+        Err(e) => tool_log_with_context(
             "list_dir",
             "err",
             json!({
                 "durationMs": start.elapsed().as_millis() as u64,
                 "error": e
             }),
+            log_context.as_ref(),
         ),
     }
 
@@ -90,9 +99,14 @@ pub fn list_dir(path: String, include_hidden: bool, max_entries: usize) -> Resul
 }
 
 #[tauri::command]
-pub fn stat_file(path: String) -> Result<Value, String> {
+pub fn stat_file(path: String, log_context: Option<LogContext>) -> Result<Value, String> {
     let start = Instant::now();
-    tool_log("stat_file", "start", json!({ "path": path }));
+    tool_log_with_context(
+        "stat_file",
+        "start",
+        json!({ "path": path }),
+        log_context.as_ref(),
+    );
 
     let result: Result<Value, String> = (|| {
         let p = PathBuf::from(&path);
@@ -127,7 +141,7 @@ pub fn stat_file(path: String) -> Result<Value, String> {
     })();
 
     match &result {
-        Ok(v) => tool_log(
+        Ok(v) => tool_log_with_context(
             "stat_file",
             "ok",
             json!({
@@ -135,14 +149,16 @@ pub fn stat_file(path: String) -> Result<Value, String> {
                 "exists": v["exists"],
                 "kind": v.get("kind").cloned().unwrap_or(json!(null))
             }),
+            log_context.as_ref(),
         ),
-        Err(e) => tool_log(
+        Err(e) => tool_log_with_context(
             "stat_file",
             "err",
             json!({
                 "durationMs": start.elapsed().as_millis() as u64,
                 "error": e
             }),
+            log_context.as_ref(),
         ),
     }
 
@@ -155,9 +171,10 @@ pub fn read_file(
     start_line: Option<u64>,
     end_line: Option<u64>,
     max_bytes: u64,
+    log_context: Option<LogContext>,
 ) -> Result<Value, String> {
     let start = Instant::now();
-    tool_log(
+    tool_log_with_context(
         "read_file",
         "start",
         json!({
@@ -166,6 +183,7 @@ pub fn read_file(
             "endLine": end_line,
             "maxBytes": max_bytes
         }),
+        log_context.as_ref(),
     );
 
     let result: Result<Value, String> = (|| {
@@ -231,7 +249,7 @@ pub fn read_file(
     })();
 
     match &result {
-        Ok(v) => tool_log(
+        Ok(v) => tool_log_with_context(
             "read_file",
             "ok",
             json!({
@@ -240,14 +258,16 @@ pub fn read_file(
                 "truncated": v["truncated"],
                 "contentBytes": v["content"].as_str().map(|s| s.len()).unwrap_or(0)
             }),
+            log_context.as_ref(),
         ),
-        Err(e) => tool_log(
+        Err(e) => tool_log_with_context(
             "read_file",
             "err",
             json!({
                 "durationMs": start.elapsed().as_millis() as u64,
                 "error": e
             }),
+            log_context.as_ref(),
         ),
     }
 
@@ -260,9 +280,10 @@ pub fn write_file(
     content: String,
     mode: String,
     create_dirs: bool,
+    log_context: Option<LogContext>,
 ) -> Result<Value, String> {
     let start = Instant::now();
-    tool_log(
+    tool_log_with_context(
         "write_file",
         "start",
         json!({
@@ -271,6 +292,7 @@ pub fn write_file(
             "createDirs": create_dirs,
             "contentBytes": content.as_bytes().len()
         }),
+        log_context.as_ref(),
     );
 
     let result: Result<Value, String> = (|| {
@@ -302,7 +324,7 @@ pub fn write_file(
     })();
 
     match &result {
-        Ok(v) => tool_log(
+        Ok(v) => tool_log_with_context(
             "write_file",
             "ok",
             json!({
@@ -311,14 +333,16 @@ pub fn write_file(
                 "created": v["created"],
                 "overwritten": v["overwritten"]
             }),
+            log_context.as_ref(),
         ),
-        Err(e) => tool_log(
+        Err(e) => tool_log_with_context(
             "write_file",
             "err",
             json!({
                 "durationMs": start.elapsed().as_millis() as u64,
                 "error": e
             }),
+            log_context.as_ref(),
         ),
     }
 
@@ -359,9 +383,10 @@ pub fn glob_files(
     max_matches: usize,
     include_dirs: bool,
     include_hidden: bool,
+    log_context: Option<LogContext>,
 ) -> Result<Value, String> {
     let start = Instant::now();
-    tool_log(
+    tool_log_with_context(
         "glob_files",
         "start",
         json!({
@@ -371,6 +396,7 @@ pub fn glob_files(
             "includeDirs": include_dirs,
             "includeHidden": include_hidden
         }),
+        log_context.as_ref(),
     );
 
     let result: Result<Value, String> = (|| {
@@ -449,7 +475,7 @@ pub fn glob_files(
     })();
 
     match &result {
-        Ok(v) => tool_log(
+        Ok(v) => tool_log_with_context(
             "glob_files",
             "ok",
             json!({
@@ -457,14 +483,16 @@ pub fn glob_files(
                 "matchCount": v["matches"].as_array().map(|a| a.len()).unwrap_or(0),
                 "truncated": v["truncated"]
             }),
+            log_context.as_ref(),
         ),
-        Err(e) => tool_log(
+        Err(e) => tool_log_with_context(
             "glob_files",
             "err",
             json!({
                 "durationMs": start.elapsed().as_millis() as u64,
                 "error": e
             }),
+            log_context.as_ref(),
         ),
     }
 
@@ -548,9 +576,10 @@ pub fn search_files_grep(
     include_hidden: bool,
     context_lines: usize,
     follow_symlinks: bool,
+    log_context: Option<LogContext>,
 ) -> Result<Value, String> {
     let start = Instant::now();
-    tool_log(
+    tool_log_with_context(
         "search_files_grep",
         "start",
         json!({
@@ -564,6 +593,7 @@ pub fn search_files_grep(
             "contextLines": context_lines,
             "followSymlinks": follow_symlinks
         }),
+        log_context.as_ref(),
     );
 
     let result: Result<Value, String> = (|| {
@@ -740,7 +770,7 @@ pub fn search_files_grep(
     })();
 
     match &result {
-        Ok(v) => tool_log(
+        Ok(v) => tool_log_with_context(
             "search_files_grep",
             "ok",
             json!({
@@ -749,14 +779,16 @@ pub fn search_files_grep(
                 "searchedFiles": v["searchedFiles"],
                 "truncated": v["truncated"]
             }),
+            log_context.as_ref(),
         ),
-        Err(e) => tool_log(
+        Err(e) => tool_log_with_context(
             "search_files_grep",
             "err",
             json!({
                 "durationMs": start.elapsed().as_millis() as u64,
                 "error": e
             }),
+            log_context.as_ref(),
         ),
     }
 
@@ -808,6 +840,7 @@ mod tests {
             "hello world\nline2".to_string(),
             "create".to_string(),
             false,
+            None,
         )
         .unwrap();
         assert_eq!(write_res["created"], true);
@@ -820,22 +853,29 @@ mod tests {
             "fail".to_string(),
             "create".to_string(),
             false,
+            None,
         );
         assert!(fail_res.is_err());
 
         // 3. Test reading the entire file
-        let read_res = read_file(path_str.clone(), None, None, 1000).unwrap();
+        let read_res = read_file(path_str.clone(), None, None, 1000, None).unwrap();
         assert_eq!(read_res["content"], "hello world\nline2");
         assert_eq!(read_res["truncated"], false);
 
         // 4. Test reading with line ranges
-        let read_line_res = read_file(path_str.clone(), Some(1), Some(1), 1000).unwrap();
+        let read_line_res = read_file(path_str.clone(), Some(1), Some(1), 1000, None).unwrap();
         assert_eq!(read_line_res["content"], "hello world");
         assert_eq!(read_line_res["lineCount"], 2);
 
         // 5. Test reading a missing file should error
         let missing_path = dir.path().join("does_not_exist.txt");
-        let missing_res = read_file(missing_path.to_string_lossy().to_string(), None, None, 1000);
+        let missing_res = read_file(
+            missing_path.to_string_lossy().to_string(),
+            None,
+            None,
+            1000,
+            None,
+        );
         assert!(missing_res.is_err());
     }
 
@@ -850,13 +890,13 @@ mod tests {
         let path_str = dir.path().to_string_lossy().to_string();
 
         // 1. Without hidden files
-        let res1 = list_dir(path_str.clone(), false, 100).unwrap();
+        let res1 = list_dir(path_str.clone(), false, 100, None).unwrap();
         let entries = res1["entries"].as_array().unwrap();
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0]["name"], "test.txt");
 
         // 2. With hidden files
-        let res2 = list_dir(path_str.clone(), true, 100).unwrap();
+        let res2 = list_dir(path_str.clone(), true, 100, None).unwrap();
         let entries2 = res2["entries"].as_array().unwrap();
         assert_eq!(entries2.len(), 2);
     }
@@ -886,6 +926,7 @@ mod tests {
             100,
             false,
             false,
+            None,
         )
         .unwrap();
         let matches: Vec<&str> = res["matches"]
@@ -912,6 +953,7 @@ mod tests {
             100,
             false,
             false,
+            None,
         )
         .unwrap();
         let all_matches: Vec<&str> = res_all["matches"]
@@ -942,6 +984,7 @@ mod tests {
             100,
             false,
             false,
+            None,
         )
         .unwrap();
         let neg_matches: Vec<&str> = res_neg["matches"]
@@ -957,8 +1000,15 @@ mod tests {
         );
 
         // 4. include_hidden enables hidden file/dir matches
-        let res_hidden =
-            glob_files(vec!["**/*".to_string()], path_str.clone(), 100, false, true).unwrap();
+        let res_hidden = glob_files(
+            vec!["**/*".to_string()],
+            path_str.clone(),
+            100,
+            false,
+            true,
+            None,
+        )
+        .unwrap();
         let hidden_matches: Vec<&str> = res_hidden["matches"]
             .as_array()
             .unwrap()
@@ -975,8 +1025,15 @@ mod tests {
         );
 
         // 5. max_matches truncation
-        let res_trunc =
-            glob_files(vec!["*.rs".to_string()], path_str.clone(), 1, false, false).unwrap();
+        let res_trunc = glob_files(
+            vec!["*.rs".to_string()],
+            path_str.clone(),
+            1,
+            false,
+            false,
+            None,
+        )
+        .unwrap();
         assert_eq!(res_trunc["truncated"], true);
         assert_eq!(res_trunc["matches"].as_array().unwrap().len(), 1);
     }
@@ -1016,6 +1073,7 @@ mod tests {
             false,
             0,
             false,
+            None,
         )
         .unwrap();
         let grep_matches = grep_res["matches"].as_array().unwrap();

@@ -7,6 +7,7 @@ import {
   jotaiStore,
   type AppUpdaterState,
 } from "@/agent/atoms";
+import { logFrontendSoon } from "@/logging/client";
 
 interface CheckForAppUpdatesOptions {
   silent?: boolean;
@@ -138,7 +139,13 @@ export async function checkForAppUpdates(
       return null;
     } catch (error) {
       const message = toErrorMessage(error);
-      console.error("rakh: failed to check for updates", error);
+      logFrontendSoon({
+        level: "error",
+        tags: ["frontend", "system"],
+        event: "updater.check.error",
+        message: "Failed to check for updates.",
+        data: { error },
+      });
 
       patchUpdaterState((prev) => {
         if (previousState.availableVersion) {
@@ -212,7 +219,13 @@ export async function installAppUpdate(
       await relaunch();
     } catch (error) {
       const message = toErrorMessage(error);
-      console.error("rakh: failed to install update", error);
+      logFrontendSoon({
+        level: "error",
+        tags: ["frontend", "system"],
+        event: "updater.install.error",
+        message: "Failed to install the downloaded update.",
+        data: { error },
+      });
 
       patchUpdaterState((prev) =>
         prev.availableVersion
