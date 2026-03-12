@@ -1946,9 +1946,7 @@ describe("runner", () => {
       const result = buildProviderOptions("anthropic");
       expect(result).toBeDefined();
       expect(result!.anthropic.thinking).toEqual({ type: "adaptive" });
-      expect(result!.anthropic.effort).toBe(
-        DEFAULT_ADVANCED_OPTIONS.reasoningEffort,
-      );
+      expect(result!.anthropic).not.toHaveProperty("effort");
       expect(result!.anthropic).not.toHaveProperty("speed");
     });
 
@@ -2054,12 +2052,27 @@ describe("runner", () => {
       });
 
       it.each(["low", "medium", "high"] as const)(
-        "reasoning effort: %s",
+        "reasoning effort on unsupported models is omitted: %s",
         (effort) => {
           const r = buildProviderOptions("anthropic", {
             ...base,
             reasoningEffort: effort,
           });
+          expect(r!.anthropic).not.toHaveProperty("effort");
+        },
+      );
+
+      it.each(["low", "medium", "high"] as const)(
+        "reasoning effort on opus 4.5 is included: %s",
+        (effort) => {
+          const r = buildProviderOptions(
+            "anthropic",
+            {
+              ...base,
+              reasoningEffort: effort,
+            },
+            "claude-opus-4-5",
+          );
           expect(r!.anthropic.effort).toBe(effort);
         },
       );
@@ -2147,7 +2160,7 @@ describe("runner", () => {
     expect(po!.anthropic.speed).toBe("fast");
   });
 
-  it("omits unsupported Anthropic fast mode from streamText", async () => {
+  it("omits unsupported Anthropic effort and fast mode from streamText", async () => {
     const tabId = "tab-provider-options-no-fast-mode";
     registerDynamicModels([
       {
@@ -2186,7 +2199,7 @@ describe("runner", () => {
       type: "enabled",
       budgetTokens: 4096,
     });
-    expect(po!.anthropic.effort).toBe("high");
+    expect(po!.anthropic).not.toHaveProperty("effort");
     expect(po!.anthropic).not.toHaveProperty("speed");
   });
 

@@ -34,6 +34,7 @@ import {
 import type { AgentStatus } from "@/agent/types";
 import { preloadEnvProviderKeys } from "@/agent/useEnvProviderKeys";
 import { logFrontendSoon } from "@/logging/client";
+import { STATIC_MODEL_CATALOG } from "@/agent/modelCatalog";
 import { getThemeSubagentColorVariables } from "@/styles/themes/registry";
 import { checkForAppUpdates } from "@/updater";
 
@@ -205,11 +206,24 @@ export default function App() {
             if (s.model) {
               // Find provider by prefix since model is "{providerName}/{rawId}"
               const [providerName] = s.model.split("/");
-              if (
-                providerName &&
-                !providers.some((p) => p.name === providerName)
-              ) {
+              const provider = providerName
+                ? providers.find((p) => p.name === providerName)
+                : undefined;
+              if (providerName && !provider) {
                 restoreError = `The provider previously driving this session ("${providerName}") was deleted or renamed. Please choose another model.`;
+              } else if (
+                provider &&
+                (provider.type === "openai" || provider.type === "anthropic")
+              ) {
+                const staticModelId = s.model.slice(provider.name.length + 1);
+                const modelStillExists = STATIC_MODEL_CATALOG.some(
+                  (entry) =>
+                    entry.id === staticModelId &&
+                    entry.owned_by === provider.type,
+                );
+                if (!modelStillExists) {
+                  restoreError = `The model previously selected for this session ("${staticModelId}") is no longer in src/agent/models.catalog.json. Please choose another model.`;
+                }
               }
             }
 

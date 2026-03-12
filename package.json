@@ -9,6 +9,7 @@
     "build": "vite build",
     "start": "vite preview",
     "preview": "vite preview",
+    "model-search": "node scripts/model-search.mjs",
     "typecheck": "tsc --noEmit",
     "lint": "eslint",
     "tauri": "tauri",
