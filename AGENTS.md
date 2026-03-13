@@ -56,8 +56,11 @@ cd src-tauri && cargo test
 
 - `src/agent/atoms.ts` - shared Jotai store and per-tab atom families
 - `src/agent/useAgents.ts` - React hooks over per-tab agent state and actions
-- `src/agent/runner.ts` - main agent loop, streaming, tool execution, approval
-  flow, subagents, and artifact-aware runs
+- `src/agent/runner.ts` - public runner facade: queue/run lifecycle,
+  retry/stop helpers, and compatibility exports
+- `src/agent/runner/*` - extracted runner internals: main/subagent loops,
+  shared streaming/tool execution helpers, prompts, logging, MCP/worktree
+  helpers, and leaf unit tests
 - `src/agent/types.ts` - shared API/tool/state types
 - `src/agent/persistence.ts` - frontend session snapshotting and restore helpers
 - `src/agent/subagents/*` - built-in subagents and artifact contracts
@@ -144,6 +147,13 @@ If you add a new `AgentState` field that must survive restarts, update all of:
 ## Testing notes
 
 Frontend tests live next to source files as `*.test.ts`.
+
+Runner coverage is split between:
+
+- `src/agent/runner.test.ts` - orchestration/integration coverage for the public
+  runner facade
+- `src/agent/runner/*.test.ts` - leaf unit coverage for extracted runner
+  helpers such as provider options, prompt construction, and pure utilities
 
 Current frontend mocking conventions:
 

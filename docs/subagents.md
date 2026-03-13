@@ -108,12 +108,12 @@ Flow:
    schema.
 
 Prompt construction happens in
-[`buildSubagentSystemPrompt()`](../src/agent/runner.ts).
+[`buildSubagentSystemPrompt()`](../src/agent/runner/systemPrompt.ts).
 
 ## Subagent Execution Flow
 
 Subagent execution lives in
-[`runSubagentLoop()`](../src/agent/runner.ts).
+[`runSubagentLoop()`](../src/agent/runner/subagentLoop.ts).
 
 High-level flow:
 
