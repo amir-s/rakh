@@ -6,10 +6,11 @@ import {
   useMemo,
   useRef,
   useState,
+  type MouseEvent as ReactMouseEvent,
 } from "react";
 import { createPortal } from "react-dom";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { Button, Badge, TextField } from "@/components/ui";
+import { Badge, Button, IconButton, TextField } from "@/components/ui";
 import { cn } from "@/utils/cn";
 import { exportLogs, listenForLogEntries, queryLogs } from "./client";
 import type {
@@ -41,6 +42,7 @@ const VERBOSITY_LEVELS: LogLevel[] = [
 const SOURCE_OPTIONS: LogSource[] = ["backend", "frontend"];
 const LIMIT_OPTIONS = [100, 250, 500, 1000];
 const NOTICE_AUTO_CLOSE_MS = 3500;
+const COPY_FEEDBACK_MS = 2200;
 
 type ViewerNotice = {
   id: number;
@@ -1121,12 +1123,39 @@ function LogEntryRow({
   depth = 0,
 }: LogEntryRowProps) {
   const hasDetails = entry.data !== undefined || entry.expandable;
+  const detailIndicatorIcon =
+    entry.data !== undefined
+      ? "data_object"
+      : expanded
+        ? "unfold_less"
+        : "unfold_more";
+  const [copyFeedbackToken, setCopyFeedbackToken] = useState(0);
+  const copied = copyFeedbackToken > 0;
   const leftOffset = Math.min(depth, 8) * 14;
   const markerBadgeClass =
     "h-7 w-7 justify-center px-0 text-center font-mono leading-none";
+
   const handleSummaryClick = () => {
     if (hasDetails) {
       onToggleExpanded();
+    }
+  };
+
+  useEffect(() => {
+    if (copyFeedbackToken === 0) return;
+    const timeoutId = window.setTimeout(() => {
+      setCopyFeedbackToken((current) =>
+        current === copyFeedbackToken ? 0 : current,
+      );
+    }, COPY_FEEDBACK_MS);
+    return () => window.clearTimeout(timeoutId);
+  }, [copyFeedbackToken]);
+
+  const handleCopyClick = async (event: ReactMouseEvent<HTMLButtonElement>) => {
+    event.stopPropagation();
+    const didCopy = await copyToClipboard(safePrettyJson(entry));
+    if (didCopy) {
+      setCopyFeedbackToken((current) => current + 1);
     }
   };
 
@@ -1150,7 +1179,7 @@ function LogEntryRow({
         className={cn(
           "flex items-start gap-2.5 px-2.5 py-2",
           hasDetails
-            ? "cursor-pointer focus:outline-none focus:ring-2 focus:ring-primary/35"
+            ? "cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/20"
             : null,
         )}
         onClick={handleSummaryClick}
@@ -1198,7 +1227,7 @@ function LogEntryRow({
               />
             ))}
           </div>
-          <div className="mt-0.5 text-[13px] leading-5 text-text break-words">
+          <div className="mt-0.5 text-[13px] leading-5 text-text warp-break-words">
             {entry.message}
           </div>
           <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
@@ -1220,22 +1249,44 @@ function LogEntryRow({
           </div>
         </div>
 
-        <div className="shrink-0 flex items-center gap-2 self-center">
-          {hasDetails ? (
-            <span className="font-mono text-[11px] text-muted">
-              {expanded ? "▾" : "▸"}
+        <div className="shrink-0 flex items-start gap-1 self-start pt-0.5">
+          <IconButton
+            aria-label={"View details of log row"}
+            title={
+              entry.data !== undefined
+                ? expanded
+                  ? "Structured data shown below"
+                  : "Structured data available"
+                : expanded
+                  ? "Details expanded"
+                  : "Details available"
+            }
+            className={cn(expanded && "text-primary!")}
+          >
+            <span className="material-symbols-outlined" aria-hidden="true">
+              {detailIndicatorIcon}
             </span>
-          ) : null}
-          <Button
-            variant="ghost"
-            size="xxs"
+          </IconButton>
+
+          <IconButton
+            aria-label={
+              copied
+                ? `Copied log row ${entry.id} JSON`
+                : `Copy log row ${entry.id} JSON`
+            }
+            title={copied ? "Row JSON copied" : "Copy row JSON"}
+            className={cn(
+              copied &&
+                "border-[color-mix(in_srgb,var(--color-success)_34%,transparent)]! bg-[color-mix(in_srgb,var(--color-success)_16%,transparent)]! text-success!",
+            )}
             onClick={(event) => {
-              event.stopPropagation();
-              void copyToClipboard(safePrettyJson(entry));
+              void handleCopyClick(event);
             }}
           >
-            COPY JSON
-          </Button>
+            <span className="material-symbols-outlined" aria-hidden="true">
+              {copied ? "check" : "content_copy"}
+            </span>
+          </IconButton>
         </div>
       </div>
 
