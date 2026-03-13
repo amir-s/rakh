@@ -166,6 +166,30 @@
   flex-shrink: 0;
 }
 
+.tab-pin-indicator {
+  position: absolute;
+  top: 6px;
+  left: 4px;
+  font-size: 11px !important;
+  color: var(--color-primary);
+  opacity: 0;
+  pointer-events: none;
+  transform: scale(0.9);
+  transition:
+    opacity var(--t-fast),
+    transform var(--t-fast);
+}
+
+.tab-pin-indicator--active {
+  opacity: 0.78;
+  transform: scale(1);
+}
+
+.tab--active .tab-pin-indicator--active,
+.tab:hover .tab-pin-indicator--active {
+  opacity: 1;
+}
+
 /* ── Tab close button ────────────────────────────────────────────────────── */
 .tab-close {
   display: flex;

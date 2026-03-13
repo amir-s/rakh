@@ -179,6 +179,7 @@ export default function TopChrome() {
     addTabWithId,
     openSettingsTab,
     closeTab,
+    updateTab,
     reorderTabs,
   } = useTabs();
   const appUpdater = useAtomValue(appUpdaterStateAtom);
@@ -485,12 +486,18 @@ export default function TopChrome() {
                   if (dragTabIdRef.current) return; // swallow clicks from drag
                   setActiveTab(tab.id);
                 }}
+                onDoubleClick={(e) => {
+                  e.stopPropagation();
+                  if (tab.mode !== "workspace") return;
+                  updateTab(tab.id, { pinned: !tab.pinned });
+                }}
                 onMouseEnter={() => handleTabMouseEnter(tab.id)}
                 onMouseLeave={handleTabMouseLeave}
                 ref={(el) => {
                   if (el) tabRefs.current.set(tab.id, el);
                   else tabRefs.current.delete(tab.id);
                 }}
+                data-pinned={tab.pinned ? "true" : "false"}
               >
                 <span
                   className={cn("tab-dot", `tab-dot--${tab.status}`)}
@@ -505,12 +512,23 @@ export default function TopChrome() {
                 <span className="tab-label" suppressHydrationWarning>
                   {tab.label || "\u00a0"}
                 </span>
+                <span
+                  className={cn(
+                    "material-symbols-outlined tab-pin-indicator",
+                    tab.pinned && "tab-pin-indicator--active",
+                  )}
+                  aria-hidden
+                  title={tab.pinned ? "Pinned" : undefined}
+                >
+                  keep
+                </span>
                 <button
                   className="tab-close"
                   onClick={(e) => {
                     e.stopPropagation();
                     handleCloseTab(tab.id);
                   }}
+                  onDoubleClick={(e) => e.stopPropagation()}
                   aria-label={tab.label ? `Close ${tab.label}` : "Close tab"}
                   title={tab.label ? `Close ${tab.label}` : "Close tab"}
                 >
