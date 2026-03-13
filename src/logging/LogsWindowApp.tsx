@@ -969,6 +969,8 @@ interface LogEntryRowProps {
   includedTags: Set<string>;
   excludedTags: Set<string>;
   onTagAction: (tag: string, mode: "include" | "exclude") => void;
+  activeTraceId?: string;
+  activeCorrelationId?: string;
   depth?: number;
 }
 
@@ -1120,6 +1122,8 @@ function LogEntryRow({
   includedTags,
   excludedTags,
   onTagAction,
+  activeTraceId,
+  activeCorrelationId,
   depth = 0,
 }: LogEntryRowProps) {
   const hasDetails = entry.data !== undefined || entry.expandable;
@@ -1131,6 +1135,14 @@ function LogEntryRow({
         : "unfold_more";
   const [copyFeedbackToken, setCopyFeedbackToken] = useState(0);
   const copied = copyFeedbackToken > 0;
+  const traceMatchesFilter =
+    typeof activeTraceId === "string" &&
+    activeTraceId.length > 0 &&
+    entry.traceId === activeTraceId;
+  const correlationMatchesFilter =
+    typeof activeCorrelationId === "string" &&
+    activeCorrelationId.length > 0 &&
+    entry.correlationId === activeCorrelationId;
   const leftOffset = Math.min(depth, 8) * 14;
   const markerBadgeClass =
     "h-7 w-7 justify-center px-0 text-center font-mono leading-none";
@@ -1232,12 +1244,24 @@ function LogEntryRow({
           </div>
           <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
             {entry.traceId ? (
-              <span className="font-mono text-[11px] text-muted break-all">
+              <span
+                className={cn(
+                  "font-mono text-[11px] text-muted break-all",
+                  traceMatchesFilter &&
+                    "border-b border-dashed border-primary/70 pb-px",
+                )}
+              >
                 trace: {entry.traceId}
               </span>
             ) : null}
             {entry.correlationId ? (
-              <span className="font-mono text-[11px] text-muted break-all">
+              <span
+                className={cn(
+                  "font-mono text-[11px] text-muted break-all",
+                  correlationMatchesFilter &&
+                    "border-b border-dashed border-primary/70 pb-px",
+                )}
+              >
                 tool: {entry.correlationId}
               </span>
             ) : null}
@@ -1340,6 +1364,8 @@ function LogTree({
   includedTags,
   excludedTags,
   onTagAction,
+  activeTraceId,
+  activeCorrelationId,
 }: {
   nodes: LogTreeNode[];
   expandedIds: Set<string>;
@@ -1347,6 +1373,8 @@ function LogTree({
   includedTags: Set<string>;
   excludedTags: Set<string>;
   onTagAction: (tag: string, mode: "include" | "exclude") => void;
+  activeTraceId?: string;
+  activeCorrelationId?: string;
 }) {
   return (
     <div className="flex flex-col gap-3">
@@ -1360,6 +1388,8 @@ function LogTree({
             includedTags={includedTags}
             excludedTags={excludedTags}
             onTagAction={onTagAction}
+            activeTraceId={activeTraceId}
+            activeCorrelationId={activeCorrelationId}
           />
           {node.children.length > 0 ? (
             <div className="flex flex-col gap-3">
@@ -1370,6 +1400,8 @@ function LogTree({
                 includedTags={includedTags}
                 excludedTags={excludedTags}
                 onTagAction={onTagAction}
+                activeTraceId={activeTraceId}
+                activeCorrelationId={activeCorrelationId}
               />
             </div>
           ) : null}
@@ -1406,6 +1438,8 @@ export default function LogsWindowApp({
   const deferredEntries = useDeferredValue(entries);
 
   const filter = useMemo(() => buildQueryFilter(controls), [controls]);
+  const activeTraceId = filter.traceId?.trim() ?? "";
+  const activeCorrelationId = filter.correlationId?.trim() ?? "";
   const filterRef = useRef(filter);
   useEffect(() => {
     filterRef.current = filter;
@@ -1893,6 +1927,8 @@ export default function LogsWindowApp({
                   includedTags={includedTags}
                   excludedTags={excludedTags}
                   onTagAction={handleTagAction}
+                  activeTraceId={activeTraceId}
+                  activeCorrelationId={activeCorrelationId}
                 />
               ) : (
                 <div className="flex flex-col gap-3">
@@ -1905,6 +1941,8 @@ export default function LogsWindowApp({
                       includedTags={includedTags}
                       excludedTags={excludedTags}
                       onTagAction={handleTagAction}
+                      activeTraceId={activeTraceId}
+                      activeCorrelationId={activeCorrelationId}
                     />
                   ))}
                 </div>
