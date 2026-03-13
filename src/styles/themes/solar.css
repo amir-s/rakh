@@ -27,6 +27,7 @@
 
   /* Semantic */
   --color-success: #3cd18b;
+  --color-info: #89ddff;
   --color-error: #ff6b81;
   --color-warning: #ffb347;
 
@@ -71,6 +72,7 @@
   --color-accent: #7c6cff;
 
   --color-success: #1a8c61;
+  --color-info: #3d91c7;
   --color-error: #c0392b;
   --color-warning: #c97a00;
 

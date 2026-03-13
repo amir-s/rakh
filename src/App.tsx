@@ -34,6 +34,11 @@ import {
 import type { AgentStatus } from "@/agent/types";
 import { preloadEnvProviderKeys } from "@/agent/useEnvProviderKeys";
 import { logFrontendSoon } from "@/logging/client";
+import LogsWindowApp from "@/logging/LogsWindowApp";
+import {
+  LOG_WINDOW_MODE,
+  parseLogNavigatePayloadFromSearch,
+} from "@/logging/window";
 import { STATIC_MODEL_CATALOG } from "@/agent/modelCatalog";
 import { getThemeSubagentColorVariables } from "@/styles/themes/registry";
 import { checkForAppUpdates } from "@/updater";
@@ -166,9 +171,13 @@ function ActiveTabContent() {
 import ThemePreview from "@/ThemePreview";
 
 export default function App() {
+  const searchParams = new URLSearchParams(window.location.search);
+  const isLogsWindow = searchParams.get("window") === LOG_WINDOW_MODE;
+  const initialLogPayload = isLogsWindow
+    ? parseLogNavigatePayloadFromSearch(window.location.search)
+    : null;
   // Check if we are in preview mode
-  const isPreview =
-    new URLSearchParams(window.location.search).get("preview") === "true";
+  const isPreview = searchParams.get("preview") === "true";
 
   // null = still loading, [] / [...] = ready
   const [initialSessions, setInitialSessions] = useState<
@@ -176,7 +185,7 @@ export default function App() {
   >(null);
 
   useEffect(() => {
-    if (isPreview) return; // Skip loading sessions in preview mode
+    if (isPreview || isLogsWindow) return; // Skip app bootstrap for preview/log windows
 
     // Prime provider env keys at startup so settings opens without waiting on backend reads.
     void preloadEnvProviderKeys();
@@ -244,10 +253,21 @@ export default function App() {
         void checkForAppUpdates({ silent: true });
       },
     );
-  }, [isPreview]);
+  }, [isLogsWindow, isPreview]);
 
   if (isPreview) {
     return <ThemePreview />;
+  }
+
+  if (isLogsWindow) {
+    return (
+      <div className="app-root" style={{ height: "100%" }}>
+        <Provider store={jotaiStore}>
+          <ThemeApplier />
+          <LogsWindowApp initialPayload={initialLogPayload} />
+        </Provider>
+      </div>
+    );
   }
 
   // Show nothing while sessions are loading to avoid a flash of empty state

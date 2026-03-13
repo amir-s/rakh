@@ -233,7 +233,13 @@ async function copyToClipboard(text: string): Promise<boolean> {
   }
 }
 
-export default function DebugPane({ tabId }: { tabId: string }) {
+export default function DebugPane({
+  tabId,
+  onOpenLogs,
+}: {
+  tabId: string;
+  onOpenLogs?: () => void;
+}) {
   const { tabs, activeTabId } = useTabs();
   const state = useAtomValue(agentAtomFamily(tabId));
   const persistenceState = useAtomValue(agentSessionPersistenceAtomFamily(tabId));
@@ -460,6 +466,24 @@ export default function DebugPane({ tabId }: { tabId: string }) {
           >
             COPY CONTEXT
           </Button>
+          {isTauri && onOpenLogs ? (
+            <Button
+              variant="ghost"
+              size="xs"
+              onClick={onOpenLogs}
+              title="Open the detached log viewer"
+              leftIcon={
+                <span
+                  aria-hidden="true"
+                  className="material-symbols-outlined text-[14px] leading-none"
+                >
+                  open_in_new
+                </span>
+              }
+            >
+              OPEN LOGS
+            </Button>
+          ) : null}
         </div>
       </div>
 

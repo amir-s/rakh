@@ -24,6 +24,7 @@
 
   /* ── Semantic (harmonized) ─────────────────────────────────── */
   --color-success: #4cc38a;
+  --color-info: #74b7d4;
   --color-error: #d96b5f;
   --color-warning: #e3b23c;
 
@@ -68,6 +69,7 @@
   --color-faint: rgba(0, 0, 0, 0.25);
 
   --color-success: #2f9e6f;
+  --color-info: #2f7fa3;
   --color-error: #c2534c;
   --color-warning: #b8860b;
 

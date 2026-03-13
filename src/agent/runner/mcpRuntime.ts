@@ -49,6 +49,7 @@ export async function prepareMainAgentMcpRuntime(
         content: buildMcpWarningMessage(prepared.failures),
         timestamp: Date.now(),
         badge: "MCP WARNING",
+        traceId: logContext?.traceId,
       });
     }
 
@@ -68,6 +69,7 @@ export async function prepareMainAgentMcpRuntime(
       content: `MCP discovery failed for this run.\n- ${message}`,
       timestamp: Date.now(),
       badge: "MCP WARNING",
+      traceId: logContext?.traceId,
     });
     return { toolDefinitions: {}, toolsByName: {} };
   }

@@ -296,6 +296,7 @@ export function useResetAgent() {
       queuedMessages: [],
       queueState: "idle",
       showDebug: false,
+      lastRunTraceId: undefined,
     }));
   }, []);
 }
@@ -353,6 +354,7 @@ export function useAgent(tabId: string) {
   const queuedMessages = useAgentQueuedMessages(tabId);
   const queueState = useAgentQueueState(tabId);
   const showDebug = useAgentShowDebug(tabId);
+  const lastRunTraceId = useAtomValue(agentAtomFamily(tabId)).lastRunTraceId;
   const sendMessage = useSendMessage();
   const queueMessage = useQueueMessage();
   const steerMessage = useSteerMessage();
@@ -385,6 +387,7 @@ export function useAgent(tabId: string) {
     queuedMessages,
     queueState,
     showDebug,
+    lastRunTraceId,
     sendMessage: useCallback(
       (msg: string, attachments?: AttachedImage[]) =>
         sendMessage(tabId, msg, attachments),

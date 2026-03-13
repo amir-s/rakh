@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui";
 interface GroupedInlineToolCallProps {
   toolCalls: ToolCallDisplay[];
   onInspect: (toolCall: ToolCallDisplay) => void;
+  onOpenLogs?: (toolCall: ToolCallDisplay) => void;
   cwd?: string;
   showDebug: boolean;
 }
@@ -16,6 +17,7 @@ interface GroupedInlineToolCallProps {
 export default function GroupedInlineToolCall({
   toolCalls,
   onInspect,
+  onOpenLogs,
   cwd,
   showDebug,
 }: GroupedInlineToolCallProps) {
@@ -43,7 +45,13 @@ export default function GroupedInlineToolCall({
         tc={latestToolCall}
         expanded={expanded}
         showExpandChevron
+        showOpenLogs={typeof onOpenLogs === "function"}
         onActivate={() => setExpanded((current) => !current)}
+        onOpenLogs={
+          onOpenLogs && latestToolCall
+            ? () => onOpenLogs(latestToolCall)
+            : undefined
+        }
         trailingContent={
           <div className="inline-tool-group__summary-trailing">
             <div
@@ -80,6 +88,9 @@ export default function GroupedInlineToolCall({
               key={toolCall.id}
               tc={toolCall}
               onInspect={() => onInspect(toolCall)}
+              onOpenLogs={
+                onOpenLogs ? () => onOpenLogs(toolCall) : undefined
+              }
               cwd={cwd}
               showDebug={showDebug}
             />

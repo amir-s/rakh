@@ -24,6 +24,7 @@
 
   /* ── Semantic (harmonized cool spectrum) ───────────────────── */
   --color-success: #4fd2c8;
+  --color-info: #7fd1ff;
   --color-error: #ff6a81;
   --color-warning: #f2c14e;
 
@@ -68,6 +69,7 @@
   --color-faint: rgba(0, 0, 0, 0.25);
 
   --color-success: #2f9e9a;
+  --color-info: #5cc8ff;
   --color-error: #c0395a;
   --color-warning: #a67c00;
 

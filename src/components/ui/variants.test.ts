@@ -37,6 +37,8 @@ describe("ui variants", () => {
 
   it("maps badge/status/panel helper variants", () => {
     expect(badgeVariantClass("success")).toBe("ui-badge--success");
+    expect(badgeVariantClass("warning")).toBe("ui-badge--warning");
+    expect(badgeVariantClass("info")).toBe("ui-badge--info");
     expect(statusDotVariantClass("thinking")).toBe("ui-status-dot--thinking");
     expect(panelVariantClass("default")).toBe("");
     expect(panelVariantClass("elevated")).toBe("ui-panel--elevated");

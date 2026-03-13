@@ -8,7 +8,7 @@
 ## Token contract (canonical)
 - Background scale: `--color-window`, `--color-surface`, `--color-inset`, `--color-elevated`, `--color-subtle`, `--color-hover`
 - Text: `--color-text`, `--color-muted`, `--color-faint`
-- Accent and semantic: `--color-primary`, `--color-primary-dim`, `--color-primary-border`, `--color-success`, `--color-error`, `--color-warning`, `--color-accent`
+- Accent and semantic: `--color-primary`, `--color-primary-dim`, `--color-primary-border`, `--color-success`, `--color-info`, `--color-error`, `--color-warning`, `--color-accent`
 - Borders: `--color-border-subtle`, `--color-border-mid`
 - Status dots: `--color-status-idle`, `--color-status-thinking`, `--color-status-working`, `--color-status-done`, `--color-status-error`
 - Syntax: `--color-syn-*`

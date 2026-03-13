@@ -888,6 +888,7 @@ function ExpandedGeneric({ tc }: { tc: ToolCallDisplay }) {
 interface CompactToolCallProps {
   tc: ToolCallDisplay;
   onInspect: () => void;
+  onOpenLogs?: () => void;
   cwd?: string;
   showDebug: boolean;
 }
@@ -895,6 +896,7 @@ interface CompactToolCallProps {
 export default function CompactToolCall({
   tc,
   onInspect,
+  onOpenLogs,
   cwd,
   showDebug,
 }: CompactToolCallProps) {
@@ -911,6 +913,12 @@ export default function CompactToolCall({
     tc.status !== "awaiting_worktree" &&
     tc.status !== "awaiting_branch_release" &&
     tc.status !== "awaiting_setup_action";
+  const canOpenLogs =
+    tc.status !== "awaiting_approval" &&
+    tc.status !== "awaiting_worktree" &&
+    tc.status !== "awaiting_branch_release" &&
+    tc.status !== "awaiting_setup_action" &&
+    typeof onOpenLogs === "function";
 
   /* ── Header row ──────────────────────────────────────────────────────────── */
   const headerRow = (
@@ -919,6 +927,7 @@ export default function CompactToolCall({
       expanded={expanded}
       showExpandChevron={isExpandable}
       showInspect={isInspectable}
+      showOpenLogs={canOpenLogs}
       onActivate={
         isExpandable
           ? () => setExpanded((v) => !v)
@@ -927,6 +936,7 @@ export default function CompactToolCall({
             : undefined
       }
       onInspect={onInspect}
+      onOpenLogs={onOpenLogs}
     />
   );
 

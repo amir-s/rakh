@@ -92,6 +92,7 @@ export async function streamTurn(
     content: "",
     timestamp: Date.now(),
     streaming: true,
+    traceId: logContext.traceId,
     ...(agentName ? { agentName } : {}),
   });
 

@@ -451,6 +451,9 @@ async function runAgentTurn(
     rootContext: runRootLogContext,
     childContext: runLogContext,
   } = createMainRunLogContext(tabId, runId);
+  patchAgentState(tabId, {
+    lastRunTraceId: runRootLogContext.traceId,
+  });
   const activeRun: ActiveRun = {
     runId,
     controller,
