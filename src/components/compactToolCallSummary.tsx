@@ -237,6 +237,9 @@ export interface CompactToolCallSummaryRowProps {
   onOpenLogs?: () => void;
   trailingContent?: ReactNode;
   className?: string;
+  iconOverride?: string;
+  labelOverride?: string;
+  argPreviewOverride?: string | null;
 }
 
 export function CompactToolCallSummaryRow({
@@ -250,10 +253,13 @@ export function CompactToolCallSummaryRow({
   onOpenLogs,
   trailingContent,
   className,
+  iconOverride,
+  labelOverride,
+  argPreviewOverride,
 }: CompactToolCallSummaryRowProps) {
   const interactive = typeof onActivate === "function";
-  const icon = getToolCallIcon(tc);
-  const label = getToolCallLabel(tc);
+  const icon = iconOverride ?? getToolCallIcon(tc);
+  const label = labelOverride ?? getToolCallLabel(tc);
   const dotStatus = STATUS_DOT[tc.status] ?? "pending";
   const statusDotVariant =
     dotStatus === "pending"
@@ -263,7 +269,10 @@ export function CompactToolCallSummaryRow({
         : dotStatus === "done"
           ? "done"
           : "error";
-  const argPreview = buildCollapsedArgPreview(tc);
+  const argPreview =
+    argPreviewOverride === undefined
+      ? buildCollapsedArgPreview(tc)
+      : argPreviewOverride;
   const execBadge = getExecCommandBadge(tc);
 
   return (
