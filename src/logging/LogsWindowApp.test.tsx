@@ -280,6 +280,7 @@ describe("LogsWindowApp", () => {
   it("auto closes regular toasts, keeps export toasts until dismissed, and replaces older notices", async () => {
     vi.useFakeTimers();
     try {
+      vi.setSystemTime(new Date("2024-01-01T12:00:00.000Z"));
       render(
         <LogsWindowApp
           initialPayload={{
@@ -290,8 +291,18 @@ describe("LogsWindowApp", () => {
       );
 
       fireEvent.click(screen.getByRole("button", { name: "CLEAR" }));
+      await act(async () => {
+        await Promise.resolve();
+      });
+      expect(logsMocks.queryLogsMock).toHaveBeenLastCalledWith({
+        sinceMs: Date.now(),
+        limit: 100,
+      });
       expect(
         screen.getByText("Cleared current view. Only new logs will appear."),
+      ).not.toBeNull();
+      expect(
+        screen.getByRole("button", { name: "Remove clear timestamp filter" }),
       ).not.toBeNull();
 
       await act(async () => {
@@ -611,7 +622,8 @@ describe("LogsWindowApp", () => {
   });
 
   it("switches to tree mode for trace filters and clears only the current view", async () => {
-    logsMocks.queryLogsMock.mockResolvedValue([
+    vi.spyOn(Date, "now").mockReturnValue(1_700_000_123_456);
+    const traceEntries = [
       makeEntry({
         id: "child",
         parentId: "root",
@@ -628,7 +640,10 @@ describe("LogsWindowApp", () => {
         kind: "start",
         message: "Root operation",
       }),
-    ]);
+    ];
+    logsMocks.queryLogsMock.mockImplementation(async (filter?: { sinceMs?: number }) =>
+      typeof filter?.sinceMs === "number" ? [] : traceEntries,
+    );
 
     render(
       <LogsWindowApp
@@ -648,6 +663,13 @@ describe("LogsWindowApp", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "CLEAR" }));
     await screen.findByText("Cleared current view. Only new logs will appear.");
+    await waitFor(() => {
+      expect(logsMocks.queryLogsMock).toHaveBeenLastCalledWith({
+        traceId: "trace-1",
+        sinceMs: 1_700_000_123_456,
+        limit: 100,
+      });
+    });
     expect(screen.queryByText("Root operation")).toBeNull();
 
     await act(async () => {
@@ -663,6 +685,50 @@ describe("LogsWindowApp", () => {
     });
 
     await screen.findByText("New live log after clear");
+  });
+
+  it("keeps the clear timestamp filter when other filters change", async () => {
+    vi.spyOn(Date, "now").mockReturnValue(1_700_000_123_456);
+    logsMocks.queryLogsMock.mockResolvedValue([]);
+
+    render(
+      <LogsWindowApp
+        initialPayload={{
+          origin: "manual",
+          filter: { limit: 100 },
+        }}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "CLEAR" }));
+
+    await waitFor(() => {
+      expect(logsMocks.queryLogsMock).toHaveBeenLastCalledWith({
+        sinceMs: 1_700_000_123_456,
+        limit: 100,
+      });
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Source filter backend" }));
+
+    await waitFor(() => {
+      expect(logsMocks.queryLogsMock).toHaveBeenLastCalledWith({
+        source: "backend",
+        sinceMs: 1_700_000_123_456,
+        limit: 100,
+      });
+    });
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Remove clear timestamp filter" }),
+    );
+
+    await waitFor(() => {
+      expect(logsMocks.queryLogsMock).toHaveBeenLastCalledWith({
+        source: "backend",
+        limit: 100,
+      });
+    });
   });
 
   it("pauses tailing when the user scrolls away from live output", async () => {
