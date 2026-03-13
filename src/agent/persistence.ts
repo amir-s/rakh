@@ -59,6 +59,7 @@ export interface PersistedSession {
   /** Queue drain state for persisted follow-ups */
   queueState: AgentQueueState;
   archived: boolean;
+  pinned: boolean;
   createdAt: number;
   updatedAt: number;
   /** Absolute path to the git worktree (empty string = none) */
@@ -110,6 +111,7 @@ function getPersistedSessionComparableValue(session: PersistedSession) {
     reviewEdits: session.reviewEdits,
     queuedMessages: session.queuedMessages,
     queueState: session.queueState,
+    pinned: session.pinned,
     worktreePath: session.worktreePath,
     worktreeBranch: session.worktreeBranch,
     worktreeDeclined: session.worktreeDeclined,
@@ -188,6 +190,7 @@ export function buildPersistedSession(
     queuedMessages: JSON.stringify(state.queuedMessages),
     queueState: state.queueState,
     archived: false,
+    pinned: tab.pinned ?? false,
     worktreePath: state.config.worktreePath ?? "",
     worktreeBranch: state.config.worktreeBranch ?? "",
     worktreeDeclined: state.config.worktreeDeclined ?? false,
@@ -308,6 +311,26 @@ export async function restoreSession(session: PersistedSession): Promise<void> {
       message: "Failed to restore session",
       kind: "error",
       data: { sessionId: session.id, error: e },
+    });
+  }
+}
+
+/** Toggle whether a persisted session is pinned in recent-tabs UIs. */
+export async function setSessionPinned(
+  id: string,
+  pinned: boolean,
+): Promise<void> {
+  if (!isTauri()) return;
+  try {
+    await invoke("db_set_session_pinned", { id, pinned });
+  } catch (e) {
+    logFrontendSoon({
+      level: "error",
+      tags: ["frontend", "db", "system"],
+      event: "persistence.pin.error",
+      message: "Failed to update pinned session state",
+      kind: "error",
+      data: { sessionId: id, pinned, error: e },
     });
   }
 }

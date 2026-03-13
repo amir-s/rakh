@@ -3,6 +3,7 @@ import {
   useRef,
   useEffect,
   useCallback,
+  useMemo,
   type ChangeEvent,
   type KeyboardEvent,
 } from "react";
@@ -36,6 +37,17 @@ import {
 } from "@/projects";
 import { writeProjectScriptsConfig } from "@/projectScripts";
 import { logFrontendSoon } from "@/logging/client";
+import {
+  loadArchivedSessions,
+  setSessionPinned,
+  type PersistedSession,
+} from "@/agent/persistence";
+import { restoreArchivedTab } from "@/agent/sessionRestore";
+import {
+  buildArchivedSessionItems,
+  partitionArchivedSessionItems,
+  type ArchivedSessionItem,
+} from "@/components/archivedTabsMenuModel";
 
 /* ─────────────────────────────────────────────────────────────────────────────
    Advanced options — localStorage helpers
@@ -95,9 +107,69 @@ interface NewSessionProps {
   ) => void;
 }
 
+function relativeTime(ms: number): string {
+  const diff = Date.now() - ms;
+  const secs = Math.floor(diff / 1000);
+  if (secs < 60) return "just now";
+  const mins = Math.floor(secs / 60);
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
+}
+
+function RecentTabRow({
+  item,
+  onRestore,
+  onTogglePinned,
+}: {
+  item: ArchivedSessionItem;
+  onRestore: (session: PersistedSession) => Promise<void>;
+  onTogglePinned: (id: string, pinned: boolean) => Promise<void>;
+}) {
+  const label = item.session.label || "Untitled";
+  const pinLabel = item.session.pinned ? `Unpin ${label}` : `Pin ${label}`;
+
+  return (
+    <div className="ns-recent-item">
+      <button
+        className="ns-recent-item-main"
+        onClick={() => void onRestore(item.session)}
+        title={`Restore: ${label}`}
+      >
+        <span
+          className="material-symbols-outlined ns-recent-item-icon"
+          aria-hidden
+        >
+          {item.session.icon || "chat_bubble_outline"}
+        </span>
+        <span className="ns-recent-item-body">
+          <span className="ns-recent-item-label">{label}</span>
+        </span>
+        <span className="ns-recent-item-time">
+          {relativeTime(item.session.updatedAt)}
+        </span>
+      </button>
+      <button
+        className={cn(
+          "ns-recent-item-pin",
+          item.session.pinned && "ns-recent-item-pin--active",
+        )}
+        aria-label={pinLabel}
+        title={item.session.pinned ? "Unpin" : "Pin"}
+        onClick={() => void onTogglePinned(item.session.id, !item.session.pinned)}
+      >
+        <span className="material-symbols-outlined text-lg">keep</span>
+      </button>
+    </div>
+  );
+}
+
 export default function NewSession({ onSubmit }: NewSessionProps) {
   const [input, setInput] = useState("");
   const [projects, setProjects] = useState<SavedProject[]>(loadSavedProjects);
+  const [recentSessions, setRecentSessions] = useState<PersistedSession[]>([]);
   const [selectedProject, setSelectedProject] = useState<SavedProject | null>(
     null,
   );
@@ -118,7 +190,7 @@ export default function NewSession({ onSubmit }: NewSessionProps) {
   const { models, loading: modelsLoading, error: modelsError } = useModels();
   const [selectedModel, setSelectedModel] = useSelectedModel(models);
   const [providers, setProviders] = useAtom(providersAtom);
-  const { openSettingsTab } = useTabs();
+  const { activeTabId, addTabWithId, closeTab, openSettingsTab } = useTabs();
   const hasAnyProviderKey = providers.length > 0;
 
   const providerModels = models;
@@ -148,6 +220,34 @@ export default function NewSession({ onSubmit }: NewSessionProps) {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    void loadArchivedSessions().then((sessions) => {
+      if (cancelled) return;
+      setRecentSessions(sessions);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const archivedItems = useMemo(
+    () => buildArchivedSessionItems(recentSessions),
+    [recentSessions],
+  );
+  const { pinned: pinnedRecentItems, unpinned: unpinnedRecentItems } = useMemo(
+    () => partitionArchivedSessionItems(archivedItems),
+    [archivedItems],
+  );
+  const recentUnpinnedItems = useMemo(
+    () => unpinnedRecentItems.slice(0, 8),
+    [unpinnedRecentItems],
+  );
+  const showRecentTabs =
+    pinnedRecentItems.length > 0 || recentUnpinnedItems.length > 0;
 
   /* ── Auto-resize textarea ──────────────────────────────────────────────── */
   const handleChange = (e: ChangeEvent<HTMLTextAreaElement>) => {
@@ -325,6 +425,24 @@ export default function NewSession({ onSubmit }: NewSessionProps) {
       });
     }
   };
+
+  const handleRestoreRecentTab = useCallback(
+    async (session: PersistedSession) => {
+      await restoreArchivedTab(session, addTabWithId);
+      setRecentSessions((prev) => prev.filter((entry) => entry.id !== session.id));
+      closeTab(activeTabId);
+    },
+    [activeTabId, addTabWithId, closeTab],
+  );
+
+  const handleTogglePinned = useCallback(async (id: string, pinned: boolean) => {
+    await setSessionPinned(id, pinned);
+    setRecentSessions((prev) =>
+      prev.map((session) =>
+        session.id === id ? { ...session, pinned } : session,
+      ),
+    );
+  }, []);
 
   /* ── Listen to Tauri drag-drop events ───────────────────────────────────── */
   useEffect(() => {
@@ -561,6 +679,49 @@ export default function NewSession({ onSubmit }: NewSessionProps) {
             </div>
           )}
         </div>
+
+        {showRecentTabs ? (
+          <section className="ns-recent-panel" aria-label="Recent tabs">
+            <div className="ns-recent-header">
+              <span className="material-symbols-outlined text-md" aria-hidden>
+                history
+              </span>
+              <span>Recent tabs</span>
+            </div>
+
+            {pinnedRecentItems.length > 0 ? (
+              <div className="ns-recent-section">
+                <div className="ns-recent-section-label">Pinned</div>
+                <div className="ns-recent-list">
+                  {pinnedRecentItems.map((item) => (
+                    <RecentTabRow
+                      key={item.session.id}
+                      item={item}
+                      onRestore={handleRestoreRecentTab}
+                      onTogglePinned={handleTogglePinned}
+                    />
+                  ))}
+                </div>
+              </div>
+            ) : null}
+
+            {recentUnpinnedItems.length > 0 ? (
+              <div className="ns-recent-section">
+                <div className="ns-recent-section-label">Recent</div>
+                <div className="ns-recent-list">
+                  {recentUnpinnedItems.map((item) => (
+                    <RecentTabRow
+                      key={item.session.id}
+                      item={item}
+                      onRestore={handleRestoreRecentTab}
+                      onTogglePinned={handleTogglePinned}
+                    />
+                  ))}
+                </div>
+              </div>
+            ) : null}
+          </section>
+        ) : null}
       </div>
 
       {/* ── Footer ───────────────────────────────────────────────────────── */}

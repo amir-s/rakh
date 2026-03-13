@@ -522,6 +522,17 @@
   gap: 8px;
 }
 
+.archived-item--compact {
+  gap: 6px;
+}
+
+.archived-item--pinned {
+  padding: 3px 6px 3px 3px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--color-primary) 10%, var(--color-surface));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-primary) 24%, transparent);
+}
+
 .archived-item-main {
   display: flex;
   align-items: center;
@@ -539,6 +550,10 @@
   cursor: pointer;
   transition: background var(--t-fast);
   flex: 1;
+}
+
+.archived-item-main--compact {
+  padding-block: 7px;
 }
 
 .archived-item:hover .archived-item-main,
@@ -576,20 +591,20 @@
   white-space: nowrap;
 }
 
-.archived-item-subtitle {
-  font-size: var(--text-xxs);
-  color: var(--color-muted);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .archived-item-time {
   font-size: var(--text-xxs);
   color: var(--color-muted);
   flex-shrink: 0;
 }
 
+.archived-item-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.archived-item-pin,
 .archived-item-trash {
   display: flex;
   align-items: center;
@@ -608,11 +623,27 @@
     color var(--t-fast),
     background var(--t-fast);
 }
+.archived-item:hover .archived-item-pin,
 .archived-item:hover .archived-item-trash {
   opacity: 0.5;
 }
+.archived-item-pin:hover,
 .archived-item-trash:hover {
   opacity: 1 !important;
+}
+
+.archived-item-pin:hover {
+  color: var(--color-primary) !important;
+  background: color-mix(in srgb, var(--color-primary) 12%, transparent);
+}
+
+.archived-item-pin--active {
+  opacity: 1;
+  color: var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 12%, transparent);
+}
+
+.archived-item-trash:hover {
   color: var(--color-error) !important;
   background: color-mix(in srgb, var(--color-error) 12%, transparent);
 }

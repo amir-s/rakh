@@ -11,6 +11,7 @@ import { restoreArchivedTab } from "@/agent/sessionRestore";
 import {
   loadArchivedSessions,
   deleteSession,
+  setSessionPinned,
   type PersistedSession,
 } from "@/agent/persistence";
 import { useTabs } from "@/contexts/TabsContext";
@@ -18,6 +19,7 @@ import { Badge, TextField } from "@/components/ui";
 import {
   buildArchivedSessionItems,
   groupArchivedSessionItems,
+  partitionArchivedSessionItems,
   searchArchivedSessionItems,
   type ArchivedSessionItem,
 } from "@/components/archivedTabsMenuModel";
@@ -35,37 +37,34 @@ function relativeTime(ms: number): string {
   return `${days}d ago`;
 }
 
-function getGroupedSubtitle(item: ArchivedSessionItem): string | null {
-  const subtitle = item.session.tabTitle.trim();
-  return subtitle || null;
-}
-
-function getSearchSubtitle(item: ArchivedSessionItem): string {
-  const parts = [item.projectLabel];
-  const tabTitle = item.session.tabTitle.trim();
-  if (tabTitle) {
-    parts.push(tabTitle);
-  }
-  return parts.join(" · ");
-}
-
 function ArchivedSessionRow({
   item,
-  subtitle,
   onDelete,
   onRestore,
+  onTogglePinned,
+  compact = false,
+  hideDelete = false,
 }: {
   item: ArchivedSessionItem;
-  subtitle: string | null;
   onDelete: (id: string) => Promise<void>;
   onRestore: (session: PersistedSession) => Promise<void>;
+  onTogglePinned: (id: string, pinned: boolean) => Promise<void>;
+  compact?: boolean;
+  hideDelete?: boolean;
 }) {
   const label = item.session.label || "Untitled";
+  const pinLabel = item.session.pinned ? `Unpin ${label}` : `Pin ${label}`;
 
   return (
-    <div className="archived-item">
+    <div
+      className={cn(
+        "archived-item",
+        compact && "archived-item--compact",
+        item.session.pinned && "archived-item--pinned",
+      )}
+    >
       <button
-        className="archived-item-main"
+        className={cn("archived-item-main", compact && "archived-item-main--compact")}
         onClick={() => void onRestore(item.session)}
         title={`Restore: ${label}`}
       >
@@ -77,23 +76,34 @@ function ArchivedSessionRow({
         </span>
         <span className="archived-item-body">
           <span className="archived-item-label">{label}</span>
-          {subtitle ? (
-            <span className="archived-item-subtitle">{subtitle}</span>
-          ) : null}
         </span>
         <span className="archived-item-time">
           {relativeTime(item.session.updatedAt)}
         </span>
       </button>
-
-      <button
-        className="archived-item-trash"
-        aria-label={`Delete ${label}`}
-        title="Delete permanently"
-        onClick={() => void onDelete(item.session.id)}
-      >
-        <span className="material-symbols-outlined text-lg">delete</span>
-      </button>
+      <div className="archived-item-actions">
+        <button
+          className={cn(
+            "archived-item-pin",
+            item.session.pinned && "archived-item-pin--active",
+          )}
+          aria-label={pinLabel}
+          title={item.session.pinned ? "Unpin" : "Pin"}
+          onClick={() => void onTogglePinned(item.session.id, !item.session.pinned)}
+        >
+          <span className="material-symbols-outlined text-lg">keep</span>
+        </button>
+        {!hideDelete ? (
+          <button
+            className="archived-item-trash"
+            aria-label={`Delete ${label}`}
+            title="Delete permanently"
+            onClick={() => void onDelete(item.session.id)}
+          >
+            <span className="material-symbols-outlined text-lg">delete</span>
+          </button>
+        ) : null}
+      </div>
     </div>
   );
 }
@@ -115,9 +125,13 @@ export default function ArchivedTabsMenu() {
     () => buildArchivedSessionItems(sessions),
     [sessions],
   );
-  const archivedGroups = useMemo(
-    () => groupArchivedSessionItems(archivedItems),
+  const { pinned: pinnedItems, unpinned: unpinnedItems } = useMemo(
+    () => partitionArchivedSessionItems(archivedItems),
     [archivedItems],
+  );
+  const archivedGroups = useMemo(
+    () => groupArchivedSessionItems(unpinnedItems),
+    [unpinnedItems],
   );
   const trimmedQuery = query.trim();
   const searchResults = useMemo(
@@ -186,6 +200,15 @@ export default function ArchivedTabsMenu() {
   const handleDelete = useCallback(async (id: string) => {
     await deleteSession(id);
     setSessions((prev) => prev.filter((s) => s.id !== id));
+  }, []);
+
+  const handleTogglePinned = useCallback(async (id: string, pinned: boolean) => {
+    await setSessionPinned(id, pinned);
+    setSessions((prev) =>
+      prev.map((session) =>
+        session.id === id ? { ...session, pinned } : session,
+      ),
+    );
   }, []);
 
   const handleProjectToggle = useCallback((key: string) => {
@@ -282,15 +305,26 @@ export default function ArchivedTabsMenu() {
                     <ArchivedSessionRow
                       key={item.session.id}
                       item={item}
-                      subtitle={getSearchSubtitle(item)}
                       onDelete={handleDelete}
                       onRestore={handleRestore}
+                      onTogglePinned={handleTogglePinned}
                     />
                   ))}
                 </div>
               )
             ) : (
               <div className="archived-list archived-list--grouped">
+                {pinnedItems.map((item) => (
+                  <ArchivedSessionRow
+                    key={item.session.id}
+                    item={item}
+                    onDelete={handleDelete}
+                    onRestore={handleRestore}
+                    onTogglePinned={handleTogglePinned}
+                    compact
+                    hideDelete
+                  />
+                ))}
                 {archivedGroups.map((group) => {
                   const collapsed = collapsedProjectKeys.has(group.key);
 
@@ -332,9 +366,9 @@ export default function ArchivedTabsMenu() {
                             <ArchivedSessionRow
                               key={item.session.id}
                               item={item}
-                              subtitle={getGroupedSubtitle(item)}
                               onDelete={handleDelete}
                               onRestore={handleRestore}
+                              onTogglePinned={handleTogglePinned}
                             />
                           ))}
                         </div>

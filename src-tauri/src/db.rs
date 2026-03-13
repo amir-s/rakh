@@ -47,6 +47,7 @@ pub struct PersistedSession {
     /// Queue drain state for persisted follow-ups
     pub queue_state: String,
     pub archived: bool,
+    pub pinned: bool,
     pub created_at: i64,
     pub updated_at: i64,
     /// Absolute path to the git worktree for this session (empty = none)
@@ -686,6 +687,7 @@ pub fn init_db() -> Result<Connection, String> {
             queued_messages  TEXT    NOT NULL DEFAULT '[]',
             queue_state      TEXT    NOT NULL DEFAULT 'idle',
             archived         INTEGER NOT NULL DEFAULT 0,
+            pinned           INTEGER NOT NULL DEFAULT 0,
             created_at       INTEGER NOT NULL,
             updated_at       INTEGER NOT NULL,
             show_debug          INTEGER NOT NULL DEFAULT 0,
@@ -716,6 +718,8 @@ pub fn init_db() -> Result<Connection, String> {
     );
     let _ = conn
         .execute_batch("ALTER TABLE sessions ADD COLUMN queue_state TEXT NOT NULL DEFAULT 'idle';");
+    let _ = conn
+        .execute_batch("ALTER TABLE sessions ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0;");
     let _ = conn.execute_batch(
         "ALTER TABLE sessions ADD COLUMN communication_profile TEXT NOT NULL DEFAULT 'pragmatic';",
     );
@@ -805,7 +809,7 @@ pub fn db_load_sessions(state: State<'_, AppState>) -> Result<Vec<PersistedSessi
                 plan_markdown, plan_version, plan_updated_at,
                 chat_messages, api_messages, todos, review_edits,
                 queued_messages, queue_state,
-                archived, created_at, updated_at,
+                archived, pinned, created_at, updated_at,
                 worktree_path, worktree_branch, worktree_declined, show_debug,
                 advanced_options, communication_profile
          FROM sessions
@@ -836,15 +840,16 @@ pub fn db_load_sessions(state: State<'_, AppState>) -> Result<Vec<PersistedSessi
                     queued_messages: row.get(16)?,
                     queue_state: row.get(17)?,
                     archived: row.get::<_, i64>(18)? != 0,
-                    created_at: row.get(19)?,
-                    updated_at: row.get(20)?,
-                    worktree_path: row.get(21)?,
-                    worktree_branch: row.get(22)?,
-                    worktree_declined: row.get::<_, i64>(23)? != 0,
-                    show_debug: row.get::<_, i64>(24)? != 0,
-                    advanced_options: row.get::<_, String>(25).unwrap_or_default(),
+                    pinned: row.get::<_, i64>(19)? != 0,
+                    created_at: row.get(20)?,
+                    updated_at: row.get(21)?,
+                    worktree_path: row.get(22)?,
+                    worktree_branch: row.get(23)?,
+                    worktree_declined: row.get::<_, i64>(24)? != 0,
+                    show_debug: row.get::<_, i64>(25)? != 0,
+                    advanced_options: row.get::<_, String>(26).unwrap_or_default(),
                     communication_profile: row
-                        .get::<_, String>(26)
+                        .get::<_, String>(27)
                         .unwrap_or_else(|_| "pragmatic".to_string()),
                 })
             })
@@ -902,9 +907,9 @@ pub fn db_upsert_session(
             plan_markdown, plan_version, plan_updated_at,
             chat_messages, api_messages, todos, review_edits,
             queued_messages, queue_state,
-            archived, created_at, updated_at,
+            archived, pinned, created_at, updated_at,
             worktree_path, worktree_branch, worktree_declined, show_debug, advanced_options, communication_profile
-         ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25,?26,?27)
+         ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25,?26,?27,?28)
          ON CONFLICT(id) DO UPDATE SET
             label             = excluded.label,
             icon              = excluded.icon,
@@ -924,13 +929,14 @@ pub fn db_upsert_session(
             queued_messages   = excluded.queued_messages,
             queue_state       = excluded.queue_state,
             archived          = excluded.archived,
+            pinned            = excluded.pinned,
             worktree_path     = excluded.worktree_path,
             worktree_branch   = excluded.worktree_branch,
             worktree_declined = excluded.worktree_declined,
             show_debug        = excluded.show_debug,
             advanced_options  = excluded.advanced_options,
             communication_profile = excluded.communication_profile,
-            updated_at        = ?21",
+            updated_at        = ?22",
             rusqlite::params![
                 session.id,
                 session.label,
@@ -951,6 +957,7 @@ pub fn db_upsert_session(
                 session.queued_messages,
                 session.queue_state,
                 session.archived as i64,
+                session.pinned as i64,
                 session.created_at,
                 now,
                 session.worktree_path,
@@ -982,6 +989,15 @@ pub fn db_upsert_session(
     }
 
     result
+}
+
+fn set_session_pinned(db: &Connection, id: &str, pinned: bool) -> Result<(), String> {
+    db.execute(
+        "UPDATE sessions SET pinned = ?1 WHERE id = ?2",
+        rusqlite::params![pinned as i64, id],
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 #[tauri::command]
@@ -1020,6 +1036,43 @@ pub fn db_archive_session(id: String, state: State<'_, AppState>) -> Result<(), 
 }
 
 #[tauri::command]
+pub fn db_set_session_pinned(
+    id: String,
+    pinned: bool,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let start = Instant::now();
+    tool_log(
+        "db_set_session_pinned",
+        "start",
+        json!({ "id": id, "pinned": pinned }),
+    );
+
+    let result: Result<(), String> = (|| {
+        let db = state.db.lock().unwrap();
+        set_session_pinned(&db, &id, pinned)
+    })();
+
+    match &result {
+        Ok(()) => tool_log(
+            "db_set_session_pinned",
+            "ok",
+            json!({ "durationMs": start.elapsed().as_millis() as u64 }),
+        ),
+        Err(e) => tool_log(
+            "db_set_session_pinned",
+            "err",
+            json!({
+                "durationMs": start.elapsed().as_millis() as u64,
+                "error": e
+            }),
+        ),
+    }
+
+    result
+}
+
+#[tauri::command]
 pub fn db_load_archived_sessions(
     state: State<'_, AppState>,
 ) -> Result<Vec<PersistedSession>, String> {
@@ -1034,7 +1087,7 @@ pub fn db_load_archived_sessions(
                 plan_markdown, plan_version, plan_updated_at,
                 chat_messages, api_messages, todos, review_edits,
                 queued_messages, queue_state,
-                archived, created_at, updated_at,
+                archived, pinned, created_at, updated_at,
                 worktree_path, worktree_branch, worktree_declined, show_debug,
                 advanced_options, communication_profile
          FROM sessions
@@ -1065,15 +1118,16 @@ pub fn db_load_archived_sessions(
                     queued_messages: row.get(16)?,
                     queue_state: row.get(17)?,
                     archived: row.get::<_, i64>(18)? != 0,
-                    created_at: row.get(19)?,
-                    updated_at: row.get(20)?,
-                    worktree_path: row.get(21)?,
-                    worktree_branch: row.get(22)?,
-                    worktree_declined: row.get::<_, i64>(23)? != 0,
-                    show_debug: row.get::<_, i64>(24)? != 0,
-                    advanced_options: row.get::<_, String>(25).unwrap_or_default(),
+                    pinned: row.get::<_, i64>(19)? != 0,
+                    created_at: row.get(20)?,
+                    updated_at: row.get(21)?,
+                    worktree_path: row.get(22)?,
+                    worktree_branch: row.get(23)?,
+                    worktree_declined: row.get::<_, i64>(24)? != 0,
+                    show_debug: row.get::<_, i64>(25)? != 0,
+                    advanced_options: row.get::<_, String>(26).unwrap_or_default(),
                     communication_profile: row
-                        .get::<_, String>(26)
+                        .get::<_, String>(27)
                         .unwrap_or_else(|_| "pragmatic".to_string()),
                 })
             })
@@ -2138,11 +2192,7 @@ mod tests {
         .unwrap();
     }
 
-    #[test]
-    fn test_db_session_lifecycle() {
-        // Use an in-memory SQLite database for testing
-        let conn = Connection::open_in_memory().unwrap();
-        // Create the schema
+    fn init_session_schema(conn: &Connection) {
         conn.execute_batch(
             "
             CREATE TABLE IF NOT EXISTS sessions (
@@ -2161,12 +2211,13 @@ mod tests {
                 chat_messages    TEXT    NOT NULL DEFAULT '[]',
                 api_messages     TEXT    NOT NULL DEFAULT '[]',
                 todos            TEXT    NOT NULL DEFAULT '[]',
+                review_edits     TEXT    NOT NULL DEFAULT '[]',
                 queued_messages  TEXT    NOT NULL DEFAULT '[]',
                 queue_state      TEXT    NOT NULL DEFAULT 'idle',
                 archived         INTEGER NOT NULL DEFAULT 0,
+                pinned           INTEGER NOT NULL DEFAULT 0,
                 created_at       INTEGER NOT NULL,
                 updated_at       INTEGER NOT NULL,
-                review_edits     TEXT    NOT NULL DEFAULT '[]',
                 worktree_path    TEXT    NOT NULL DEFAULT '',
                 worktree_branch  TEXT    NOT NULL DEFAULT '',
                 worktree_declined INTEGER NOT NULL DEFAULT 0,
@@ -2177,6 +2228,42 @@ mod tests {
         ",
         )
         .unwrap();
+    }
+
+    #[test]
+    fn test_init_db_adds_pinned_column() {
+        let _guard = HOME_TEST_LOCK
+            .get_or_init(|| Mutex::new(()))
+            .lock()
+            .unwrap();
+        let tmp = tempdir().unwrap();
+        let prev_home = std::env::var("HOME").ok();
+        std::env::set_var("HOME", tmp.path());
+
+        let conn = init_db().expect("init_db should succeed");
+        let mut stmt = conn
+            .prepare("PRAGMA table_info(sessions)")
+            .expect("pragma table_info should prepare");
+        let columns = stmt
+            .query_map([], |row| row.get::<_, String>(1))
+            .expect("pragma table_info query should succeed")
+            .collect::<Result<Vec<_>, _>>()
+            .expect("pragma table_info rows should collect");
+
+        assert!(columns.iter().any(|column| column == "pinned"));
+
+        match prev_home {
+            Some(v) => std::env::set_var("HOME", v),
+            None => std::env::remove_var("HOME"),
+        }
+    }
+
+    #[test]
+    fn test_db_session_lifecycle() {
+        // Use an in-memory SQLite database for testing
+        let conn = Connection::open_in_memory().unwrap();
+        // Create the schema
+        init_session_schema(&conn);
 
         // Simulate AppState
         let state = AppState {
@@ -2210,6 +2297,7 @@ mod tests {
             queued_messages: "[]".to_string(),
             queue_state: "idle".to_string(),
             archived: false,
+            pinned: false,
             created_at: 1000,
             updated_at: 1000,
             worktree_path: "".to_string(),
@@ -2226,9 +2314,9 @@ mod tests {
                 plan_markdown, plan_version, plan_updated_at,
                 chat_messages, api_messages, todos, review_edits,
                 queued_messages, queue_state,
-                archived, created_at, updated_at,
+                archived, pinned, created_at, updated_at,
                 worktree_path, worktree_branch, worktree_declined, show_debug
-             ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25)",
+             ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25,?26)",
             rusqlite::params![
                 session.id,
                 session.label,
@@ -2249,6 +2337,7 @@ mod tests {
                 session.queued_messages,
                 session.queue_state,
                 session.archived as i64,
+                session.pinned as i64,
                 session.created_at,
                 session.updated_at,
                 session.worktree_path,
@@ -2290,6 +2379,33 @@ mod tests {
             .unwrap();
         let count: i64 = count_stmt.query_row([], |row| row.get(0)).unwrap();
         assert_eq!(count, 0);
+    }
+
+    #[test]
+    fn test_set_session_pinned_toggles_without_touching_updated_at() {
+        let conn = Connection::open_in_memory().unwrap();
+        init_session_schema(&conn);
+
+        conn.execute(
+            "INSERT INTO sessions (
+                id, label, icon, mode, updated_at, created_at
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            rusqlite::params!["session_1", "Pinned Session", "chat", "workspace", 123_i64, 100_i64],
+        )
+        .expect("session insert should succeed");
+
+        set_session_pinned(&conn, "session_1", true).expect("pin should succeed");
+
+        let (pinned, updated_at): (i64, i64) = conn
+            .query_row(
+                "SELECT pinned, updated_at FROM sessions WHERE id = ?1",
+                rusqlite::params!["session_1"],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("session row should load");
+
+        assert_eq!(pinned, 1);
+        assert_eq!(updated_at, 123);
     }
 
     #[test]

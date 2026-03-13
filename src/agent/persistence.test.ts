@@ -39,6 +39,7 @@ import {
   loadArchivedSessions,
   loadSessions,
   restoreSession,
+  setSessionPinned,
   upsertSession,
   upsertWorkspaceSessions,
   type PersistedSession,
@@ -111,6 +112,7 @@ describe("persistence", () => {
     expect(session.projectPath).toBe("");
     expect(session.setupCommand).toBe("");
     expect(session.worktreeDeclined).toBe(false);
+    expect(session.pinned).toBe(false);
     expect(session.showDebug).toBe(false);
   });
 
@@ -264,6 +266,7 @@ describe("persistence", () => {
       id: "tab-w",
       label: "Workspace",
       icon: "folder",
+      pinned: true,
       mode: "workspace",
     } as never);
 
@@ -279,6 +282,7 @@ describe("persistence", () => {
     expect(payload.session.worktreePath).toBe("/wt");
     expect(payload.session.worktreeBranch).toBe("codex/branch");
     expect(payload.session.worktreeDeclined).toBe(true);
+    expect(payload.session.pinned).toBe(true);
     expect(payload.session.queuedMessages).toBe(
       JSON.stringify([{ id: "q1", content: "check logs", createdAtMs: 10 }]),
     );
@@ -324,15 +328,17 @@ describe("persistence", () => {
     expect(payload.session.mode).toBe("workspace");
   });
 
-  it("archive/loadArchived/restore/delete call the right db commands", async () => {
+  it("archive/pin/loadArchived/restore/delete call the right db commands", async () => {
     setTauriAvailable(true);
     invokeMock
       .mockResolvedValueOnce(undefined) // archive
+      .mockResolvedValueOnce(undefined) // pin
       .mockResolvedValueOnce([{ id: "archived-1" }]) // load archived
       .mockResolvedValueOnce(undefined) // restore
       .mockResolvedValueOnce(undefined); // delete
 
     await archiveSession("s-1");
+    await setSessionPinned("s-1", true);
     const archived = await loadArchivedSessions();
     await restoreSession({
       id: "s-restore",
@@ -352,6 +358,7 @@ describe("persistence", () => {
       queuedMessages: "[]",
       queueState: "idle",
       archived: true,
+      pinned: true,
       createdAt: 1,
       updatedAt: 1,
       projectPath: "",
@@ -368,16 +375,24 @@ describe("persistence", () => {
     expect(invokeMock).toHaveBeenNthCalledWith(1, "db_archive_session", {
       id: "s-1",
     });
+    expect(invokeMock).toHaveBeenNthCalledWith(2, "db_set_session_pinned", {
+      id: "s-1",
+      pinned: true,
+    });
     expect(invokeMock).toHaveBeenNthCalledWith(
-      2,
+      3,
       "db_load_archived_sessions",
       undefined,
     );
     expect(archived).toEqual([{ id: "archived-1" }]);
-    expect(invokeMock).toHaveBeenNthCalledWith(3, "db_upsert_session", {
-      session: expect.objectContaining({ id: "s-restore", archived: false }),
+    expect(invokeMock).toHaveBeenNthCalledWith(4, "db_upsert_session", {
+      session: expect.objectContaining({
+        id: "s-restore",
+        archived: false,
+        pinned: true,
+      }),
     });
-    expect(invokeMock).toHaveBeenNthCalledWith(4, "db_delete_session", {
+    expect(invokeMock).toHaveBeenNthCalledWith(5, "db_delete_session", {
       id: "s-del",
     });
   });

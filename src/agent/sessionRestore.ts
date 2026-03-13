@@ -45,6 +45,7 @@ function buildTabFromSession(session: PersistedSession): Tab {
     id: session.id,
     label: session.label,
     icon: session.icon,
+    pinned: session.pinned,
     status: "idle",
     mode: session.mode as Tab["mode"],
   };
