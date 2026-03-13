@@ -227,4 +227,31 @@ describe("toolCallRenderItems", () => {
       }),
     ]);
   });
+
+  it("ignores hidden trace actions as message boundaries when debug mode is off", () => {
+    const itemsByMessage = buildToolCallRenderItemsByMessage(
+      [
+        makeMessage("msg-1", {
+          toolCalls: [makeToolCall("tc-1", "workspace_listDir")],
+          traceId: "trace-1",
+        }),
+        makeMessage("msg-2", {
+          toolCalls: [makeToolCall("tc-2", "workspace_readFile")],
+        }),
+      ],
+      true,
+      false,
+    );
+
+    expect(itemsByMessage["msg-1"]).toBeUndefined();
+    expect(itemsByMessage["msg-2"]).toEqual([
+      {
+        kind: "group",
+        toolCalls: [
+          expect.objectContaining({ id: "tc-1" }),
+          expect.objectContaining({ id: "tc-2" }),
+        ],
+      },
+    ]);
+  });
 });

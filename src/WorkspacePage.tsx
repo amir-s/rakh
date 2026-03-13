@@ -1298,6 +1298,7 @@ export default function WorkspacePage() {
                 buildToolCallRenderItemsByMessage(
                   groupMessages,
                   agent.groupInlineToolCalls,
+                  agent.showDebug ?? false,
                 );
 
               return (
@@ -1333,7 +1334,7 @@ export default function WorkspacePage() {
                         showThinkingDots ||
                         showStreamingCursor ||
                         toolCallRenderItems.length > 0 ||
-                        !!msg.traceId;
+                        ((agent.showDebug ?? false) && !!msg.traceId);
 
                       if (!hasRenderableSegmentContent) {
                         return null;
@@ -1410,16 +1411,24 @@ export default function WorkspacePage() {
                             </div>
                           )}
 
-                          {msg.traceId ? (
+                          {agent.showDebug && msg.traceId ? (
                             <div className="mt-2 flex justify-end">
                               <Button
                                 variant="ghost"
                                 size="xxs"
+                                className="px-1.5"
+                                aria-label="View trace logs"
+                                title="View trace logs"
                                 onClick={() =>
                                   handleOpenAssistantLogs(msg.traceId as string)
                                 }
                               >
-                                VIEW TRACE LOGS
+                                <span
+                                  className="material-symbols-outlined text-sm"
+                                  aria-hidden="true"
+                                >
+                                  timeline
+                                </span>
                               </Button>
                             </div>
                           ) : null}

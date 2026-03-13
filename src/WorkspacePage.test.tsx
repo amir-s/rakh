@@ -801,6 +801,10 @@ describe("WorkspacePage chat input", () => {
   });
 
   it("opens assistant trace logs from the chat bubble action", async () => {
+    workspaceMocks.agentState = {
+      ...workspaceMocks.agentState,
+      showDebug: true,
+    };
     workspaceMocks.chatBubbleGroups = [
       {
         kind: "assistant",
@@ -819,7 +823,7 @@ describe("WorkspacePage chat input", () => {
 
     render(<WorkspacePage />);
 
-    fireEvent.click(screen.getByRole("button", { name: "VIEW TRACE LOGS" }));
+    fireEvent.click(screen.getByRole("button", { name: "View trace logs" }));
 
     await waitFor(() => {
       expect(workspaceMocks.openLogViewerWindowMock).toHaveBeenCalledWith({
@@ -829,7 +833,33 @@ describe("WorkspacePage chat input", () => {
     });
   });
 
-  it("opens tool correlation logs from grouped tool call rows without debug mode", async () => {
+  it("hides assistant trace log actions when debug mode is off", () => {
+    workspaceMocks.agentState = {
+      ...workspaceMocks.agentState,
+      showDebug: false,
+    };
+    workspaceMocks.chatBubbleGroups = [
+      {
+        kind: "assistant",
+        key: "assistant:msg-trace-hidden",
+        messages: [
+          {
+            id: "msg-trace-hidden",
+            role: "assistant",
+            content: "Finished the run.",
+            timestamp: 1,
+            traceId: "trace-assistant-hidden",
+          },
+        ],
+      },
+    ];
+
+    render(<WorkspacePage />);
+
+    expect(screen.queryByRole("button", { name: "View trace logs" })).toBeNull();
+  });
+
+  it("hides tool correlation logs from grouped tool call rows when debug mode is off", async () => {
     workspaceMocks.agentState = {
       ...workspaceMocks.agentState,
       showDebug: false,
@@ -841,6 +871,46 @@ describe("WorkspacePage chat input", () => {
         messages: [
           {
             id: "msg-2",
+            role: "assistant",
+            content: "Checked the workspace.",
+            timestamp: 2,
+            toolCalls: [
+              {
+                id: "tc-1",
+                tool: "workspace_listDir",
+                args: { path: "src" },
+                status: "done",
+              },
+              {
+                id: "tc-2",
+                tool: "workspace_readFile",
+                args: { path: "README.md" },
+                status: "done",
+              },
+            ],
+          },
+        ],
+      },
+    ];
+
+    render(<WorkspacePage />);
+
+    expect(screen.queryByRole("button", { name: "Open logs" })).toBeNull();
+    expect(workspaceMocks.openLogViewerWindowMock).not.toHaveBeenCalled();
+  });
+
+  it("opens tool correlation logs from grouped tool call rows when debug mode is on", async () => {
+    workspaceMocks.agentState = {
+      ...workspaceMocks.agentState,
+      showDebug: true,
+    };
+    workspaceMocks.chatBubbleGroups = [
+      {
+        kind: "assistant",
+        key: "assistant:msg-2-debug",
+        messages: [
+          {
+            id: "msg-2-debug",
             role: "assistant",
             content: "Checked the workspace.",
             timestamp: 2,
@@ -919,17 +989,7 @@ describe("WorkspacePage chat input", () => {
 
     render(<WorkspacePage />);
 
-    const openLogsButtons = screen.getAllByRole("button", { name: "Open logs" });
-    expect(openLogsButtons).toHaveLength(1);
-
-    fireEvent.click(openLogsButtons[0]);
-
-    await waitFor(() => {
-      expect(workspaceMocks.openLogViewerWindowMock).toHaveBeenCalledWith({
-        origin: "tool-call",
-        filter: { correlationId: "tc-2" },
-      });
-    });
+    expect(screen.queryByRole("button", { name: "Open logs" })).toBeNull();
   });
 
   it("keeps the send button available while busy when text is queued", async () => {
