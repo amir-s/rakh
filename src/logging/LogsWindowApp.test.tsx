@@ -577,6 +577,72 @@ describe("LogsWindowApp", () => {
     });
   });
 
+  it("lets trace id row chips add a trace filter", async () => {
+    logsMocks.queryLogsMock.mockResolvedValue([
+      makeEntry({
+        id: "trace-chip-entry",
+        traceId: "trace-1",
+        message: "Trace chip row",
+        data: { ok: true },
+      }),
+    ]);
+
+    render(
+      <LogsWindowApp
+        initialPayload={{
+          origin: "manual",
+          filter: { limit: 100 },
+        }}
+      />,
+    );
+
+    await screen.findByText("Trace chip row");
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Add trace filter trace-1" }),
+    );
+
+    await waitFor(() => {
+      expect(logsMocks.queryLogsMock).toHaveBeenLastCalledWith({
+        traceId: "trace-1",
+        limit: 100,
+      });
+    });
+    expect(screen.queryByText("Metadata")).toBeNull();
+  });
+
+  it("lets tool id row chips add a tool correlation filter", async () => {
+    logsMocks.queryLogsMock.mockResolvedValue([
+      makeEntry({
+        id: "tool-chip-entry",
+        correlationId: "tool-1",
+        message: "Tool chip row",
+      }),
+    ]);
+
+    render(
+      <LogsWindowApp
+        initialPayload={{
+          origin: "manual",
+          filter: { limit: 100 },
+        }}
+      />,
+    );
+
+    await screen.findByText("Tool chip row");
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Add tool filter tool-1" }),
+    );
+
+    await waitFor(() => {
+      expect(logsMocks.queryLogsMock).toHaveBeenLastCalledWith({
+        correlationId: "tool-1",
+        limit: 100,
+      });
+    });
+  });
+
   it("toggles row details when the summary row is clicked", async () => {
     logsMocks.queryLogsMock.mockResolvedValue([
       makeEntry({
