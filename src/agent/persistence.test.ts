@@ -46,9 +46,10 @@ import {
   isSessionEmpty,
   listenForSessionChanges,
   loadArchivedSessions,
+  loadRecentSessions,
   loadSessions,
   restoreSession,
-  sessionChangeAffectsArchivedSessions,
+  sessionChangeAffectsRecentSessionSurfaces,
   setSessionPinned,
   upsertSession,
   upsertWorkspaceSessions,
@@ -417,6 +418,25 @@ describe("persistence", () => {
     });
   });
 
+  it("loadRecentSessions merges archived sessions with active pinned sessions", async () => {
+    setTauriAvailable(true);
+    invokeMock
+      .mockResolvedValueOnce([
+        { id: "archived-1", pinned: false, archived: true },
+      ])
+      .mockResolvedValueOnce([
+        { id: "active-pinned", pinned: true, archived: false },
+        { id: "active-unpinned", pinned: false, archived: false },
+      ]);
+
+    const sessions = await loadRecentSessions();
+
+    expect(sessions).toEqual([
+      { id: "archived-1", pinned: false, archived: true },
+      { id: "active-pinned", pinned: true, archived: false },
+    ]);
+  });
+
   it("listens for session changes only in Tauri and forwards payloads", async () => {
     const onChange = vi.fn();
 
@@ -455,9 +475,9 @@ describe("persistence", () => {
     expect(eventHandlers.has("session_changed")).toBe(false);
   });
 
-  it("detects which session changes affect archived-session UIs", () => {
+  it("detects which session changes affect recent-session surfaces", () => {
     expect(
-      sessionChangeAffectsArchivedSessions({
+      sessionChangeAffectsRecentSessionSurfaces({
         sessionId: "s-1",
         change: "upserted",
         archived: false,
@@ -468,7 +488,7 @@ describe("persistence", () => {
     ).toBe(false);
 
     expect(
-      sessionChangeAffectsArchivedSessions({
+      sessionChangeAffectsRecentSessionSurfaces({
         sessionId: "s-2",
         change: "upserted",
         archived: false,
@@ -479,24 +499,35 @@ describe("persistence", () => {
     ).toBe(true);
 
     expect(
-      sessionChangeAffectsArchivedSessions({
+      sessionChangeAffectsRecentSessionSurfaces({
         sessionId: "s-3",
         change: "pinned",
-        archived: true,
-        previousArchived: true,
+        archived: false,
+        previousArchived: false,
         pinned: true,
         changedAt: 3,
       }),
     ).toBe(true);
 
     expect(
-      sessionChangeAffectsArchivedSessions({
+      sessionChangeAffectsRecentSessionSurfaces({
         sessionId: "s-4",
         change: "deleted",
         archived: null,
         previousArchived: false,
-        pinned: false,
+        pinned: true,
         changedAt: 4,
+      }),
+    ).toBe(true);
+
+    expect(
+      sessionChangeAffectsRecentSessionSurfaces({
+        sessionId: "s-5",
+        change: "deleted",
+        archived: null,
+        previousArchived: false,
+        pinned: false,
+        changedAt: 5,
       }),
     ).toBe(false);
   });

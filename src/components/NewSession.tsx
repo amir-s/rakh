@@ -39,12 +39,12 @@ import { writeProjectScriptsConfig } from "@/projectScripts";
 import { logFrontendSoon } from "@/logging/client";
 import {
   listenForSessionChanges,
-  loadArchivedSessions,
-  sessionChangeAffectsArchivedSessions,
+  loadRecentSessions,
+  sessionChangeAffectsRecentSessionSurfaces,
   setSessionPinned,
   type PersistedSession,
 } from "@/agent/persistence";
-import { restoreArchivedTab } from "@/agent/sessionRestore";
+import { focusOrOpenPersistedSession } from "@/agent/sessionRestore";
 import {
   buildArchivedSessionItems,
   partitionArchivedSessionItems,
@@ -138,7 +138,7 @@ function RecentTabRow({
       <button
         className="ns-recent-item-main"
         onClick={() => void onRestore(item.session)}
-        title={`Restore: ${label}`}
+        title={`Open: ${label}`}
       >
         <span
           className="material-symbols-outlined ns-recent-item-icon"
@@ -194,12 +194,18 @@ export default function NewSession({ onSubmit }: NewSessionProps) {
   const { models, loading: modelsLoading, error: modelsError } = useModels();
   const [selectedModel, setSelectedModel] = useSelectedModel(models);
   const [providers, setProviders] = useAtom(providersAtom);
-  const { activeTabId, addTabWithId, closeTab, openSettingsTab } = useTabs();
+  const { activeTabId, addTabWithId, closeTab, openSettingsTab, setActiveTab, tabs } =
+    useTabs();
   const hasAnyProviderKey = providers.length > 0;
 
   const providerModels = models;
   const selectedModelObj = providerModels.find((m) => m.id === selectedModel);
   const hasProviderModels = providerModels.length > 0;
+
+  const refreshRecentSessions = useCallback(async () => {
+    const sessions = await loadRecentSessions();
+    setRecentSessions(sessions);
+  }, []);
 
   /* ── Keep selected model valid for currently configured providers ─────────── */
   useEffect(() => {
@@ -228,17 +234,16 @@ export default function NewSession({ onSubmit }: NewSessionProps) {
   useEffect(() => {
     let cancelled = false;
     let unlisten: (() => void) | null = null;
-
-    const refreshRecentSessions = async () => {
-      const sessions = await loadArchivedSessions();
+    const refreshForEffect = async () => {
+      const sessions = await loadRecentSessions();
       if (cancelled) return;
       setRecentSessions(sessions);
     };
 
-    void refreshRecentSessions();
+    void refreshForEffect();
     void listenForSessionChanges((event) => {
-      if (!sessionChangeAffectsArchivedSessions(event)) return;
-      void refreshRecentSessions();
+      if (!sessionChangeAffectsRecentSessionSurfaces(event)) return;
+      void refreshForEffect();
     }).then((nextUnlisten) => {
       if (cancelled) {
         nextUnlisten?.();
@@ -251,7 +256,7 @@ export default function NewSession({ onSubmit }: NewSessionProps) {
       cancelled = true;
       unlisten?.();
     };
-  }, []);
+  }, [refreshRecentSessions]);
 
   const archivedItems = useMemo(
     () => buildArchivedSessionItems(recentSessions),
@@ -478,21 +483,20 @@ export default function NewSession({ onSubmit }: NewSessionProps) {
 
   const handleRestoreRecentTab = useCallback(
     async (session: PersistedSession) => {
-      await restoreArchivedTab(session, addTabWithId);
-      setRecentSessions((prev) => prev.filter((entry) => entry.id !== session.id));
+      await focusOrOpenPersistedSession(session, {
+        addTabWithId,
+        setActiveTab,
+        tabs,
+      });
       closeTab(activeTabId);
     },
-    [activeTabId, addTabWithId, closeTab],
+    [activeTabId, addTabWithId, closeTab, setActiveTab, tabs],
   );
 
   const handleTogglePinned = useCallback(async (id: string, pinned: boolean) => {
     await setSessionPinned(id, pinned);
-    setRecentSessions((prev) =>
-      prev.map((session) =>
-        session.id === id ? { ...session, pinned } : session,
-      ),
-    );
-  }, []);
+    await refreshRecentSessions();
+  }, [refreshRecentSessions]);
 
   /* ── Listen to Tauri drag-drop events ───────────────────────────────────── */
   useEffect(() => {

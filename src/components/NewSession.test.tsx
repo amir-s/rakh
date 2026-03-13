@@ -2,7 +2,6 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { atom } from "jotai";
 import NewSession from "./NewSession";
 import type { PersistedSession, SessionChangeEvent } from "@/agent/persistence";
 
@@ -12,11 +11,20 @@ const tabsContextMock = vi.hoisted(() => ({
     addTabWithId: vi.fn(),
     closeTab: vi.fn(),
     openSettingsTab: vi.fn(),
+    setActiveTab: vi.fn(),
+    tabs: [] as Array<{
+      id: string;
+      label: string;
+      icon: string;
+      status: "idle";
+      pinned?: boolean;
+      mode: "workspace";
+    }>,
   },
 }));
 
 const persistenceMock = vi.hoisted(() => ({
-  loadArchivedSessions: vi.fn(),
+  loadRecentSessions: vi.fn(),
   setSessionPinned: vi.fn(),
 }));
 
@@ -25,16 +33,28 @@ const tauriEventMock = vi.hoisted(() => ({
   listenMock: vi.fn(),
 }));
 
+const jotaiMock = vi.hoisted(() => ({
+  useAtomMock: vi.fn(() => [[{ name: "OpenAI", type: "openai" }], vi.fn()]),
+}));
+
 const sessionRestoreMock = vi.hoisted(() => ({
-  restoreArchivedTab: vi.fn(),
+  focusOrOpenPersistedSession: vi.fn(),
 }));
 
 vi.mock("@/contexts/TabsContext", () => ({
   useTabs: () => tabsContextMock.value,
 }));
 
+vi.mock("jotai", async () => {
+  const actual = await vi.importActual<typeof import("jotai")>("jotai");
+  return {
+    ...actual,
+    useAtom: () => jotaiMock.useAtomMock(),
+  };
+});
+
 vi.mock("@/agent/db", () => ({
-  providersAtom: atom([{ name: "OpenAI", type: "openai" }]),
+  providersAtom: Symbol("providersAtom"),
 }));
 
 vi.mock("@/agent/useModels", async () => {
@@ -78,16 +98,16 @@ vi.mock("@/agent/persistence", async () => {
 
   return {
     ...actual,
-    loadArchivedSessions: (...args: unknown[]) =>
-      persistenceMock.loadArchivedSessions(...args),
+    loadRecentSessions: (...args: unknown[]) =>
+      persistenceMock.loadRecentSessions(...args),
     setSessionPinned: (...args: unknown[]) =>
       persistenceMock.setSessionPinned(...args),
   };
 });
 
 vi.mock("@/agent/sessionRestore", () => ({
-  restoreArchivedTab: (...args: unknown[]) =>
-    sessionRestoreMock.restoreArchivedTab(...args),
+  focusOrOpenPersistedSession: (...args: unknown[]) =>
+    sessionRestoreMock.focusOrOpenPersistedSession(...args),
 }));
 
 function makeSession(
@@ -140,13 +160,20 @@ describe("NewSession recent tabs", () => {
     tabsContextMock.value.addTabWithId.mockReset();
     tabsContextMock.value.closeTab.mockReset();
     tabsContextMock.value.openSettingsTab.mockReset();
-    persistenceMock.loadArchivedSessions.mockReset();
+    tabsContextMock.value.setActiveTab.mockReset();
+    tabsContextMock.value.tabs = [];
+    persistenceMock.loadRecentSessions.mockReset();
     persistenceMock.setSessionPinned.mockReset();
-    sessionRestoreMock.restoreArchivedTab.mockReset();
+    sessionRestoreMock.focusOrOpenPersistedSession.mockReset();
+    jotaiMock.useAtomMock.mockReset();
     tauriEventMock.listenMock.mockReset();
     tauriEventMock.eventHandlers.clear();
     persistenceMock.setSessionPinned.mockResolvedValue(undefined);
-    sessionRestoreMock.restoreArchivedTab.mockResolvedValue(undefined);
+    sessionRestoreMock.focusOrOpenPersistedSession.mockResolvedValue("restored");
+    jotaiMock.useAtomMock.mockReturnValue([
+      [{ name: "OpenAI", type: "openai" }],
+      vi.fn(),
+    ]);
     Object.defineProperty(window, "__TAURI_INTERNALS__", {
       value: {},
       configurable: true,
@@ -172,7 +199,7 @@ describe("NewSession recent tabs", () => {
   });
 
   it("renders pinned tabs first and limits the recent list to five unpinned sessions", async () => {
-    persistenceMock.loadArchivedSessions.mockResolvedValue([
+    persistenceMock.loadRecentSessions.mockResolvedValue([
       makeSession("pinned-1", {
         label: "Pinned Workspace",
         projectPath: "/repo/pinned",
@@ -201,14 +228,24 @@ describe("NewSession recent tabs", () => {
   });
 
   it("pins recent tabs from the landing page", async () => {
-    persistenceMock.loadArchivedSessions.mockResolvedValue([
-      makeSession("recent-1", {
-        label: "Recent Workspace",
-        projectPath: "/repo/recent",
-        cwd: "/repo/recent",
-        updatedAt: 250,
-      }),
-    ]);
+    persistenceMock.loadRecentSessions
+      .mockResolvedValueOnce([
+        makeSession("recent-1", {
+          label: "Recent Workspace",
+          projectPath: "/repo/recent",
+          cwd: "/repo/recent",
+          updatedAt: 250,
+        }),
+      ])
+      .mockResolvedValueOnce([
+        makeSession("recent-1", {
+          label: "Recent Workspace",
+          projectPath: "/repo/recent",
+          cwd: "/repo/recent",
+          updatedAt: 250,
+          pinned: true,
+        }),
+      ]);
 
     render(<NewSession onSubmit={vi.fn()} />);
 
@@ -221,10 +258,53 @@ describe("NewSession recent tabs", () => {
         true,
       );
     });
+    await waitFor(() => {
+      expect(persistenceMock.loadRecentSessions).toHaveBeenCalledTimes(2);
+    });
     expect(screen.queryByText("Pinned")).toBeNull();
     expect(
       screen.getByRole("button", { name: "Unpin Recent Workspace" }),
     ).not.toBeNull();
+  });
+
+  it("keeps active pinned tabs visible and focuses them when clicked", async () => {
+    const session = makeSession("open-pinned", {
+      label: "Open Pinned Workspace",
+      projectPath: "/repo/open",
+      cwd: "/repo/open",
+      pinned: true,
+      archived: false,
+      updatedAt: 320,
+    });
+    tabsContextMock.value.tabs = [
+      {
+        id: "open-pinned",
+        label: "Open Pinned Workspace",
+        icon: "chat_bubble_outline",
+        status: "idle",
+        pinned: true,
+        mode: "workspace",
+      },
+    ];
+    sessionRestoreMock.focusOrOpenPersistedSession.mockResolvedValue("focused");
+    persistenceMock.loadRecentSessions.mockResolvedValue([session]);
+
+    render(<NewSession onSubmit={vi.fn()} />);
+
+    await screen.findByText("Open Pinned Workspace");
+    fireEvent.click(screen.getByTitle("Open: Open Pinned Workspace"));
+
+    await waitFor(() => {
+      expect(sessionRestoreMock.focusOrOpenPersistedSession).toHaveBeenCalledWith(
+        session,
+        {
+          addTabWithId: tabsContextMock.value.addTabWithId,
+          setActiveTab: tabsContextMock.value.setActiveTab,
+          tabs: tabsContextMock.value.tabs,
+        },
+      );
+    });
+    expect(tabsContextMock.value.closeTab).toHaveBeenCalledWith("new-tab-1");
   });
 
   it("restores a recent tab and closes the current new-session tab", async () => {
@@ -235,17 +315,21 @@ describe("NewSession recent tabs", () => {
       pinned: true,
       updatedAt: 300,
     });
-    persistenceMock.loadArchivedSessions.mockResolvedValue([session]);
+    persistenceMock.loadRecentSessions.mockResolvedValue([session]);
 
     render(<NewSession onSubmit={vi.fn()} />);
 
     await screen.findByText("Restore Me");
-    fireEvent.click(screen.getByTitle("Restore: Restore Me"));
+    fireEvent.click(screen.getByTitle("Open: Restore Me"));
 
     await waitFor(() => {
-      expect(sessionRestoreMock.restoreArchivedTab).toHaveBeenCalledWith(
+      expect(sessionRestoreMock.focusOrOpenPersistedSession).toHaveBeenCalledWith(
         session,
-        tabsContextMock.value.addTabWithId,
+        {
+          addTabWithId: tabsContextMock.value.addTabWithId,
+          setActiveTab: tabsContextMock.value.setActiveTab,
+          tabs: tabsContextMock.value.tabs,
+        },
       );
     });
     expect(tabsContextMock.value.closeTab).toHaveBeenCalledWith("new-tab-1");
@@ -264,7 +348,7 @@ describe("NewSession recent tabs", () => {
       cwd: "/repo/fresh",
       updatedAt: 260,
     });
-    persistenceMock.loadArchivedSessions
+    persistenceMock.loadRecentSessions
       .mockResolvedValueOnce([initial])
       .mockResolvedValueOnce([added, initial]);
 
@@ -284,6 +368,6 @@ describe("NewSession recent tabs", () => {
     await waitFor(() => {
       expect(screen.getByText("Freshly Archived")).not.toBeNull();
     });
-    expect(persistenceMock.loadArchivedSessions).toHaveBeenCalledTimes(2);
+    expect(persistenceMock.loadRecentSessions).toHaveBeenCalledTimes(2);
   });
 });

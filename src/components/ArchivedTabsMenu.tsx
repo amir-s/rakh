@@ -7,12 +7,12 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { restoreArchivedTab } from "@/agent/sessionRestore";
+import { focusOrOpenPersistedSession } from "@/agent/sessionRestore";
 import {
-  loadArchivedSessions,
+  loadRecentSessions,
   deleteSession,
   listenForSessionChanges,
-  sessionChangeAffectsArchivedSessions,
+  sessionChangeAffectsRecentSessionSurfaces,
   setSessionPinned,
   type PersistedSession,
 } from "@/agent/persistence";
@@ -68,7 +68,7 @@ function ArchivedSessionRow({
       <button
         className={cn("archived-item-main", compact && "archived-item-main--compact")}
         onClick={() => void onRestore(item.session)}
-        title={`Restore: ${label}`}
+        title={`Open: ${label}`}
       >
         <span
           className="material-symbols-outlined archived-item-icon"
@@ -111,7 +111,7 @@ function ArchivedSessionRow({
 }
 
 export default function ArchivedTabsMenu() {
-  const { addTabWithId } = useTabs();
+  const { addTabWithId, setActiveTab, tabs } = useTabs();
 
   const [open, setOpen] = useState(false);
   const [sessions, setSessions] = useState<PersistedSession[]>([]);
@@ -148,7 +148,7 @@ export default function ArchivedTabsMenu() {
   }, []);
 
   const loadArchived = useCallback(async () => {
-    const list = await loadArchivedSessions();
+    const list = await loadRecentSessions();
     setSessions(list);
   }, []);
 
@@ -196,13 +196,13 @@ export default function ArchivedTabsMenu() {
     let cancelled = false;
     let unlisten: (() => void) | null = null;
     const refreshArchivedSessions = async () => {
-      const nextSessions = await loadArchivedSessions();
+      const nextSessions = await loadRecentSessions();
       if (cancelled) return;
       setSessions(nextSessions);
     };
 
     void listenForSessionChanges((event) => {
-      if (!sessionChangeAffectsArchivedSessions(event)) return;
+      if (!sessionChangeAffectsRecentSessionSurfaces(event)) return;
       void refreshArchivedSessions();
     }).then((nextUnlisten) => {
       if (cancelled) {
@@ -220,26 +220,25 @@ export default function ArchivedTabsMenu() {
 
   const handleRestore = useCallback(
     async (session: PersistedSession) => {
-      await restoreArchivedTab(session, addTabWithId);
+      await focusOrOpenPersistedSession(session, {
+        addTabWithId,
+        setActiveTab,
+        tabs,
+      });
       setOpen(false);
-      setSessions((prev) => prev.filter((s) => s.id !== session.id));
     },
-    [addTabWithId],
+    [addTabWithId, setActiveTab, tabs],
   );
 
   const handleDelete = useCallback(async (id: string) => {
     await deleteSession(id);
-    setSessions((prev) => prev.filter((s) => s.id !== id));
-  }, []);
+    await loadArchived();
+  }, [loadArchived]);
 
   const handleTogglePinned = useCallback(async (id: string, pinned: boolean) => {
     await setSessionPinned(id, pinned);
-    setSessions((prev) =>
-      prev.map((session) =>
-        session.id === id ? { ...session, pinned } : session,
-      ),
-    );
-  }, []);
+    await loadArchived();
+  }, [loadArchived]);
 
   const handleProjectToggle = useCallback((key: string) => {
     setCollapsedProjectKeys((prev) => {

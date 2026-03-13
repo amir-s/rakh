@@ -9,12 +9,21 @@ import { PROJECTS_STORAGE_KEY } from "@/projects";
 const tabsContextMock = vi.hoisted(() => ({
   value: {
     addTabWithId: vi.fn(),
+    setActiveTab: vi.fn(),
+    tabs: [] as Array<{
+      id: string;
+      label: string;
+      icon: string;
+      status: "idle";
+      pinned?: boolean;
+      mode: "workspace";
+    }>,
   },
 }));
 
 const persistenceMock = vi.hoisted(() => ({
   deleteSession: vi.fn(),
-  loadArchivedSessions: vi.fn(),
+  loadRecentSessions: vi.fn(),
   setSessionPinned: vi.fn(),
 }));
 
@@ -24,7 +33,7 @@ const tauriEventMock = vi.hoisted(() => ({
 }));
 
 const sessionRestoreMock = vi.hoisted(() => ({
-  restoreArchivedTab: vi.fn(),
+  focusOrOpenPersistedSession: vi.fn(),
 }));
 
 vi.mock("@/contexts/TabsContext", () => ({
@@ -32,8 +41,8 @@ vi.mock("@/contexts/TabsContext", () => ({
 }));
 
 vi.mock("@/agent/sessionRestore", () => ({
-  restoreArchivedTab: (...args: unknown[]) =>
-    sessionRestoreMock.restoreArchivedTab(...args),
+  focusOrOpenPersistedSession: (...args: unknown[]) =>
+    sessionRestoreMock.focusOrOpenPersistedSession(...args),
 }));
 
 vi.mock("@/agent/persistence", async () => {
@@ -44,8 +53,8 @@ vi.mock("@/agent/persistence", async () => {
   return {
     ...actual,
     deleteSession: (...args: unknown[]) => persistenceMock.deleteSession(...args),
-    loadArchivedSessions: (...args: unknown[]) =>
-      persistenceMock.loadArchivedSessions(...args),
+    loadRecentSessions: (...args: unknown[]) =>
+      persistenceMock.loadRecentSessions(...args),
     setSessionPinned: (...args: unknown[]) =>
       persistenceMock.setSessionPinned(...args),
   };
@@ -142,16 +151,18 @@ describe("ArchivedTabsMenu", () => {
   beforeEach(() => {
     cleanup();
     localStorage.clear();
-    persistenceMock.loadArchivedSessions.mockReset();
+    persistenceMock.loadRecentSessions.mockReset();
     persistenceMock.deleteSession.mockReset();
     persistenceMock.setSessionPinned.mockReset();
-    sessionRestoreMock.restoreArchivedTab.mockReset();
+    sessionRestoreMock.focusOrOpenPersistedSession.mockReset();
     tabsContextMock.value.addTabWithId.mockReset();
+    tabsContextMock.value.setActiveTab.mockReset();
+    tabsContextMock.value.tabs = [];
     tauriEventMock.listenMock.mockReset();
     tauriEventMock.eventHandlers.clear();
     persistenceMock.deleteSession.mockResolvedValue(undefined);
     persistenceMock.setSessionPinned.mockResolvedValue(undefined);
-    sessionRestoreMock.restoreArchivedTab.mockResolvedValue(undefined);
+    sessionRestoreMock.focusOrOpenPersistedSession.mockResolvedValue("restored");
     Object.defineProperty(window, "__TAURI_INTERNALS__", {
       value: {},
       configurable: true,
@@ -182,7 +193,7 @@ describe("ArchivedTabsMenu", () => {
       JSON.stringify([{ path: "/repo/platform", name: "Platform API" }]),
     );
 
-    persistenceMock.loadArchivedSessions.mockResolvedValue([
+    persistenceMock.loadRecentSessions.mockResolvedValue([
       makeSession("platform-pinned", {
         label: "Pinned platform tab",
         tabTitle: "Hold rollout notes",
@@ -242,7 +253,7 @@ describe("ArchivedTabsMenu", () => {
     const groupLabels = Array.from(
       document.querySelectorAll(".archived-group-label"),
     ).map((node) => node.textContent);
-    expect(groupLabels).toEqual(["Platform API", "docs", "Unknown Project"]);
+    expect(groupLabels).toEqual(["platform", "docs", "Unknown Project"]);
 
     const firstGroupItems = Array.from(
       document.querySelectorAll(".archived-group-list")[0]?.querySelectorAll(
@@ -262,21 +273,37 @@ describe("ArchivedTabsMenu", () => {
       JSON.stringify([{ path: "/repo/platform", name: "Platform API" }]),
     );
 
-    persistenceMock.loadArchivedSessions.mockResolvedValue([
-      makeSession("platform-pinned", {
-        label: "Pinned platform tab",
-        projectPath: "/repo/platform",
-        cwd: "/repo/platform",
-        updatedAt: 300,
-        pinned: true,
-      }),
-      makeSession("platform-regular", {
-        label: "Regular platform tab",
-        projectPath: "/repo/platform",
-        cwd: "/repo/platform",
-        updatedAt: 200,
-      }),
-    ]);
+    persistenceMock.loadRecentSessions
+      .mockResolvedValueOnce([
+        makeSession("platform-pinned", {
+          label: "Pinned platform tab",
+          projectPath: "/repo/platform",
+          cwd: "/repo/platform",
+          updatedAt: 300,
+          pinned: true,
+        }),
+        makeSession("platform-regular", {
+          label: "Regular platform tab",
+          projectPath: "/repo/platform",
+          cwd: "/repo/platform",
+          updatedAt: 200,
+        }),
+      ])
+      .mockResolvedValueOnce([
+        makeSession("platform-pinned", {
+          label: "Pinned platform tab",
+          projectPath: "/repo/platform",
+          cwd: "/repo/platform",
+          updatedAt: 300,
+          pinned: false,
+        }),
+        makeSession("platform-regular", {
+          label: "Regular platform tab",
+          projectPath: "/repo/platform",
+          cwd: "/repo/platform",
+          updatedAt: 200,
+        }),
+      ]);
 
     render(<ArchivedTabsMenu />);
     await openMenu();
@@ -290,6 +317,7 @@ describe("ArchivedTabsMenu", () => {
       );
     });
     await waitFor(() => {
+      expect(persistenceMock.loadRecentSessions).toHaveBeenCalledTimes(2);
       expect(
         screen.queryByRole("button", { name: "Delete Pinned platform tab" }),
       ).not.toBeNull();
@@ -304,13 +332,54 @@ describe("ArchivedTabsMenu", () => {
     });
   });
 
+  it("shows active pinned tabs and focuses them when clicked", async () => {
+    const session = makeSession("open-pinned", {
+      label: "Open Pinned Workspace",
+      projectPath: "/repo/open",
+      cwd: "/repo/open",
+      updatedAt: 320,
+      pinned: true,
+      archived: false,
+    });
+    tabsContextMock.value.tabs = [
+      {
+        id: "open-pinned",
+        label: "Open Pinned Workspace",
+        icon: "chat_bubble_outline",
+        status: "idle",
+        pinned: true,
+        mode: "workspace",
+      },
+    ];
+    sessionRestoreMock.focusOrOpenPersistedSession.mockResolvedValue("focused");
+    persistenceMock.loadRecentSessions.mockResolvedValue([session]);
+
+    render(<ArchivedTabsMenu />);
+    await openMenu();
+
+    expect(screen.getByText("Open Pinned Workspace")).not.toBeNull();
+
+    fireEvent.click(screen.getByTitle("Open: Open Pinned Workspace"));
+
+    await waitFor(() => {
+      expect(
+        sessionRestoreMock.focusOrOpenPersistedSession,
+      ).toHaveBeenCalledWith(session, {
+        addTabWithId: tabsContextMock.value.addTabWithId,
+        setActiveTab: tabsContextMock.value.setActiveTab,
+        tabs: tabsContextMock.value.tabs,
+      });
+    });
+    expect(screen.queryByText("Archived Tabs")).toBeNull();
+  });
+
   it("collapses and expands project groups", async () => {
     localStorage.setItem(
       PROJECTS_STORAGE_KEY,
       JSON.stringify([{ path: "/repo/platform", name: "Platform API" }]),
     );
 
-    persistenceMock.loadArchivedSessions.mockResolvedValue([
+    persistenceMock.loadRecentSessions.mockResolvedValue([
       makeSession("platform", {
         label: "Platform work",
         projectPath: "/repo/platform",
@@ -353,7 +422,7 @@ describe("ArchivedTabsMenu", () => {
       JSON.stringify([{ path: "/repo/platform", name: "Platform API" }]),
     );
 
-    persistenceMock.loadArchivedSessions.mockResolvedValue([
+    persistenceMock.loadRecentSessions.mockResolvedValue([
       makeSession("auth", {
         label: "Auth tokens",
         tabTitle: "Refresh rotation",
@@ -426,10 +495,9 @@ describe("ArchivedTabsMenu", () => {
       pinned: false,
     });
 
-    persistenceMock.loadArchivedSessions.mockResolvedValue([
-      platformSession,
-      docsSession,
-    ]);
+    persistenceMock.loadRecentSessions
+      .mockResolvedValueOnce([platformSession, docsSession])
+      .mockResolvedValueOnce([platformSession]);
 
     render(<ArchivedTabsMenu />);
     await openMenu();
@@ -445,12 +513,15 @@ describe("ArchivedTabsMenu", () => {
     });
     expect(screen.queryByText("Docs notes")).toBeNull();
 
-    fireEvent.click(screen.getByTitle("Restore: Platform work"));
+    fireEvent.click(screen.getByTitle("Open: Platform work"));
     await waitFor(() => {
-      expect(sessionRestoreMock.restoreArchivedTab).toHaveBeenCalledWith(
-        platformSession,
-        tabsContextMock.value.addTabWithId,
-      );
+      expect(
+        sessionRestoreMock.focusOrOpenPersistedSession,
+      ).toHaveBeenCalledWith(platformSession, {
+        addTabWithId: tabsContextMock.value.addTabWithId,
+        setActiveTab: tabsContextMock.value.setActiveTab,
+        tabs: tabsContextMock.value.tabs,
+      });
     });
     expect(screen.queryByText("Archived Tabs")).toBeNull();
   });
@@ -470,7 +541,7 @@ describe("ArchivedTabsMenu", () => {
       }),
     ];
 
-    persistenceMock.loadArchivedSessions.mockResolvedValue(sessions);
+    persistenceMock.loadRecentSessions.mockResolvedValue(sessions);
 
     render(<ArchivedTabsMenu />);
     const input = await openMenu();
@@ -548,7 +619,7 @@ describe("ArchivedTabsMenu", () => {
       pinned: true,
     });
 
-    persistenceMock.loadArchivedSessions
+    persistenceMock.loadRecentSessions
       .mockResolvedValueOnce([original])
       .mockResolvedValueOnce([added, original]);
 
@@ -568,6 +639,6 @@ describe("ArchivedTabsMenu", () => {
     await waitFor(() => {
       expect(screen.getByText("Freshly Archived")).not.toBeNull();
     });
-    expect(persistenceMock.loadArchivedSessions).toHaveBeenCalledTimes(2);
+    expect(persistenceMock.loadRecentSessions).toHaveBeenCalledTimes(2);
   });
 });
