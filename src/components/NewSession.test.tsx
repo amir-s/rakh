@@ -140,7 +140,7 @@ describe("NewSession recent tabs", () => {
     cleanup();
   });
 
-  it("renders pinned tabs first and limits the recent list to eight unpinned sessions", async () => {
+  it("renders pinned tabs first and limits the recent list to five unpinned sessions", async () => {
     persistenceMock.loadArchivedSessions.mockResolvedValue([
       makeSession("pinned-1", {
         label: "Pinned Workspace",
@@ -165,8 +165,8 @@ describe("NewSession recent tabs", () => {
     expect(screen.queryByText("Pinned")).toBeNull();
     expect(screen.getByText("Pinned Workspace")).not.toBeNull();
     expect(screen.getByText("Recent 1")).not.toBeNull();
-    expect(screen.getByText("Recent 8")).not.toBeNull();
-    expect(screen.queryByText("Recent 9")).toBeNull();
+    expect(screen.getByText("Recent 5")).not.toBeNull();
+    expect(screen.queryByText("Recent 6")).toBeNull();
   });
 
   it("pins recent tabs from the landing page", async () => {

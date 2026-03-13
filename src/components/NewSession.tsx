@@ -176,6 +176,7 @@ export default function NewSession({ onSubmit }: NewSessionProps) {
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [focused, setFocused] = useState(false);
+  const [recentScrollbarVisible, setRecentScrollbarVisible] = useState(false);
   const [advancedOptions, setAdvancedOptions] =
     useState<AdvancedModelOptions>(loadAdvancedOptions);
   const [projectSettingsProject, setProjectSettingsProject] =
@@ -186,6 +187,7 @@ export default function NewSession({ onSubmit }: NewSessionProps) {
 
   const dropdownRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const recentScrollbarTimeoutRef = useRef<number | null>(null);
 
   const { models, loading: modelsLoading, error: modelsError } = useModels();
   const [selectedModel, setSelectedModel] = useSelectedModel(models);
@@ -243,11 +245,42 @@ export default function NewSession({ onSubmit }: NewSessionProps) {
     [archivedItems],
   );
   const recentUnpinnedItems = useMemo(
-    () => unpinnedRecentItems.slice(0, 8),
+    () => unpinnedRecentItems.slice(0, 5),
     [unpinnedRecentItems],
   );
   const showRecentTabs =
     pinnedRecentItems.length > 0 || recentUnpinnedItems.length > 0;
+
+  const clearRecentScrollbarTimeout = useCallback(() => {
+    if (recentScrollbarTimeoutRef.current !== null) {
+      window.clearTimeout(recentScrollbarTimeoutRef.current);
+      recentScrollbarTimeoutRef.current = null;
+    }
+  }, []);
+
+  const showRecentScrollbarTemporarily = useCallback(() => {
+    setRecentScrollbarVisible(true);
+    clearRecentScrollbarTimeout();
+    recentScrollbarTimeoutRef.current = window.setTimeout(() => {
+      setRecentScrollbarVisible(false);
+      recentScrollbarTimeoutRef.current = null;
+    }, 700);
+  }, [clearRecentScrollbarTimeout]);
+
+  const handleRecentScrollbarMouseEnter = useCallback(() => {
+    clearRecentScrollbarTimeout();
+    setRecentScrollbarVisible(true);
+  }, [clearRecentScrollbarTimeout]);
+
+  const handleRecentScrollbarMouseLeave = useCallback(() => {
+    showRecentScrollbarTemporarily();
+  }, [showRecentScrollbarTemporarily]);
+
+  useEffect(() => {
+    return () => {
+      clearRecentScrollbarTimeout();
+    };
+  }, [clearRecentScrollbarTimeout]);
 
   /* ── Auto-resize textarea ──────────────────────────────────────────────── */
   const handleChange = (e: ChangeEvent<HTMLTextAreaElement>) => {
@@ -492,196 +525,210 @@ export default function NewSession({ onSubmit }: NewSessionProps) {
 
       {/* ── Centered content ────────────────────────────────────────────────── */}
       <div className="ns-center">
-        {/* ── Selector row: project + model ────────────────────────────── */}
-        <div className="ns-selectors-row">
-          {/* Project selector pill */}
-          <div className="ns-project-control">
-            <div className="ns-project-wrap" ref={dropdownRef}>
-              <Button
-                className="ns-project-btn"
-                variant="secondary"
-                size="sm"
-                onClick={() => setDropdownOpen((v) => !v)}
-              >
-                <span className="material-symbols-outlined text-lg">
-                  account_tree
-                </span>
-                <span>
-                  {selectedProject ? selectedProject.name : "Select Project"}
-                </span>
-                <span
-                  className={cn(
-                    "material-symbols-outlined text-md transition-transform duration-200",
-                    dropdownOpen ? "rotate-180" : "rotate-0",
-                  )}
+        <div className="ns-hero">
+          {/* ── Selector row: project + model ────────────────────────────── */}
+          <div className="ns-selectors-row">
+            {/* Project selector pill */}
+            <div className="ns-project-control">
+              <div className="ns-project-wrap" ref={dropdownRef}>
+                <Button
+                  className="ns-project-btn"
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => setDropdownOpen((v) => !v)}
                 >
-                  expand_more
-                </span>
-              </Button>
-
-            {/* Project dropdown */}
-            {dropdownOpen && (
-              <div className="ns-dropdown">
-                {/* Recent projects */}
-                <div className="ns-dropdown-section">
-                  <div className="ns-dropdown-label">RECENT PROJECTS</div>
-                  {projects.length === 0 ? (
-                    <div className="px-[14px] py-[10px] text-sm text-muted">
-                      No projects yet. Add a folder below.
-                    </div>
-                  ) : (
-                    projects.map((p) => (
-                      <button
-                        key={p.path}
-                        className="ns-dropdown-item relative"
-                        onClick={() => selectProject(p)}
-                      >
-                        <span className="material-symbols-outlined text-muted text-lg">
-                          folder
-                        </span>
-                        <span className="ns-dropdown-item-name">{p.name}</span>
-                        <span className="ns-dropdown-item-path">{p.path}</span>
-                        <div
-                          role="button"
-                          tabIndex={0}
-                          className="ns-dropdown-item-remove ml-auto flex items-center justify-center px-1 py-0.5 border-none bg-transparent cursor-pointer opacity-50 transition-opacity hover:opacity-100"
-                          onClick={(e) => removeProject(e, p.path)}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter" || e.key === " ") {
-                              e.preventDefault();
-                              removeProject(e, p.path);
-                            }
-                          }}
-                          title="Remove project"
-                        >
-                          <span className="material-symbols-outlined text-muted text-md">
-                            close
-                          </span>
-                        </div>
-                      </button>
-                    ))
-                  )}
-                </div>
-
-                <div className="ns-dropdown-divider" />
-
-                {/* Drag-and-drop hint */}
-                <div className="px-[14px] py-2 text-xs text-muted opacity-55 italic tracking-wider">
-                  Drag &amp; drop a folder to a project!
-                </div>
-
-                <div className="ns-dropdown-divider" />
-
-                {/* Actions */}
-                <div className="ns-dropdown-section">
-                  <button
-                    className="ns-dropdown-item opacity-45 cursor-not-allowed"
-                    disabled
-                  >
-                    <span className="material-symbols-outlined text-primary text-lg">
-                      add_box
-                    </span>
-                    <span>Create new project...</span>
-                    <span className="shrink-0 text-xxs font-semibold tracking-[0.04em] uppercase px-1.5 py-0.5 rounded bg-inset text-muted">
-                      Coming soon
-                    </span>
-                  </button>
-                  <button
-                    className="ns-dropdown-item"
-                    onClick={handleAddExistingFolder}
-                  >
-                    <span className="material-symbols-outlined text-primary text-lg">
-                      file_upload
-                    </span>
-                    <span>Add existing folder...</span>
-                  </button>
-                </div>
-              </div>
-            )}
-            </div>
-            {selectedProject ? (
-              <IconButton
-                className="ns-project-settings-btn"
-                onClick={() => setProjectSettingsProject(selectedProject)}
-                title={`Project settings for ${selectedProject.name}`}
-                type="button"
-              >
-                <span className="material-symbols-outlined text-md">tune</span>
-              </IconButton>
-            ) : null}
-          </div>
-
-          <NewSessionModelSelector
-            models={providerModels}
-            selectedModel={selectedModel}
-            onSelectModel={setSelectedModel}
-            onModelSelected={() => textareaRef.current?.focus()}
-            loading={modelsLoading}
-            error={modelsError}
-            hasAnyProviderKey={hasAnyProviderKey}
-            advancedOptions={advancedOptions}
-            onAdvancedOptionsChange={updateAdvancedOptions}
-            communicationProfile={communicationProfile}
-            onCommunicationProfileChange={setCommunicationProfile}
-          />
-        </div>
-        {/* end ns-selectors-row */}
-
-        {/* Main input */}
-        <div className="ns-input-wrap">
-          <textarea
-            ref={textareaRef}
-            className="ns-input"
-            placeholder="What are we building?"
-            value={input}
-            onChange={handleChange}
-            onKeyDown={handleKeyDown}
-            onFocus={() => setFocused(true)}
-            onBlur={() => setFocused(false)}
-            rows={1}
-            autoFocus
-          />
-          {/* Focus underline */}
-          <div className="ns-underline" />
-
-          {!hasAnyProviderKey ? (
-            <ProviderSetupHint
-              className="mt-2"
-              providers={providers}
-              onProvidersChange={setProviders}
-              onOpenSettings={() => openSettingsTab("providers")}
-            />
-          ) : (
-            <div className="flex justify-between items-baseline mt-2">
-              {!hasProviderModels ? (
-                <button
-                  className="ns-hint flex items-center gap-1 text-sm text-error opacity-90 bg-transparent border-none p-0 cursor-pointer"
-                  onClick={() => openSettingsTab("providers")}
-                >
-                  <span className="material-symbols-outlined text-md">
-                    warning
+                  <span className="material-symbols-outlined text-lg">
+                    account_tree
                   </span>
                   <span>
-                    No tool-capable OpenAI/Claude models are available for your
-                    configured keys.
+                    {selectedProject ? selectedProject.name : "Select Project"}
                   </span>
-                </button>
-              ) : (
-                <p
-                  className={cn(
-                    "ns-hint pointer-events-none not-italic ns-hint--skip",
-                    focused && !input && "ns-hint--skip-visible",
-                  )}
-                >
-                  Press <kbd className="ns-kbd align-middle">↵</kbd> to skip
-                </p>
+                  <span
+                    className={cn(
+                      "material-symbols-outlined text-md transition-transform duration-200",
+                      dropdownOpen ? "rotate-180" : "rotate-0",
+                    )}
+                  >
+                    expand_more
+                  </span>
+                </Button>
+
+              {/* Project dropdown */}
+              {dropdownOpen && (
+                <div className="ns-dropdown">
+                  {/* Recent projects */}
+                  <div className="ns-dropdown-section">
+                    <div className="ns-dropdown-label">RECENT PROJECTS</div>
+                    {projects.length === 0 ? (
+                      <div className="px-[14px] py-[10px] text-sm text-muted">
+                        No projects yet. Add a folder below.
+                      </div>
+                    ) : (
+                      projects.map((p) => (
+                        <button
+                          key={p.path}
+                          className="ns-dropdown-item relative"
+                          onClick={() => selectProject(p)}
+                        >
+                          <span className="material-symbols-outlined text-muted text-lg">
+                            folder
+                          </span>
+                          <span className="ns-dropdown-item-name">{p.name}</span>
+                          <span className="ns-dropdown-item-path">{p.path}</span>
+                          <div
+                            role="button"
+                            tabIndex={0}
+                            className="ns-dropdown-item-remove ml-auto flex items-center justify-center px-1 py-0.5 border-none bg-transparent cursor-pointer opacity-50 transition-opacity hover:opacity-100"
+                            onClick={(e) => removeProject(e, p.path)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter" || e.key === " ") {
+                                e.preventDefault();
+                                removeProject(e, p.path);
+                              }
+                            }}
+                            title="Remove project"
+                          >
+                            <span className="material-symbols-outlined text-muted text-md">
+                              close
+                            </span>
+                          </div>
+                        </button>
+                      ))
+                    )}
+                  </div>
+
+                  <div className="ns-dropdown-divider" />
+
+                  {/* Drag-and-drop hint */}
+                  <div className="px-[14px] py-2 text-xs text-muted opacity-55 italic tracking-wider">
+                    Drag &amp; drop a folder to a project!
+                  </div>
+
+                  <div className="ns-dropdown-divider" />
+
+                  {/* Actions */}
+                  <div className="ns-dropdown-section">
+                    <button
+                      className="ns-dropdown-item opacity-45 cursor-not-allowed"
+                      disabled
+                    >
+                      <span className="material-symbols-outlined text-primary text-lg">
+                        add_box
+                      </span>
+                      <span>Create new project...</span>
+                      <span className="shrink-0 text-xxs font-semibold tracking-[0.04em] uppercase px-1.5 py-0.5 rounded bg-inset text-muted">
+                        Coming soon
+                      </span>
+                    </button>
+                    <button
+                      className="ns-dropdown-item"
+                      onClick={handleAddExistingFolder}
+                    >
+                      <span className="material-symbols-outlined text-primary text-lg">
+                        file_upload
+                      </span>
+                      <span>Add existing folder...</span>
+                    </button>
+                  </div>
+                </div>
               )}
+              </div>
+              {selectedProject ? (
+                <IconButton
+                  className="ns-project-settings-btn"
+                  onClick={() => setProjectSettingsProject(selectedProject)}
+                  title={`Project settings for ${selectedProject.name}`}
+                  type="button"
+                >
+                  <span className="material-symbols-outlined text-md">tune</span>
+                </IconButton>
+              ) : null}
             </div>
-          )}
+
+            <NewSessionModelSelector
+              models={providerModels}
+              selectedModel={selectedModel}
+              onSelectModel={setSelectedModel}
+              onModelSelected={() => textareaRef.current?.focus()}
+              loading={modelsLoading}
+              error={modelsError}
+              hasAnyProviderKey={hasAnyProviderKey}
+              advancedOptions={advancedOptions}
+              onAdvancedOptionsChange={updateAdvancedOptions}
+              communicationProfile={communicationProfile}
+              onCommunicationProfileChange={setCommunicationProfile}
+            />
+          </div>
+          {/* end ns-selectors-row */}
+
+          {/* Main input */}
+          <div className="ns-input-wrap">
+            <textarea
+              ref={textareaRef}
+              className="ns-input"
+              placeholder="What are we building?"
+              value={input}
+              onChange={handleChange}
+              onKeyDown={handleKeyDown}
+              onFocus={() => setFocused(true)}
+              onBlur={() => setFocused(false)}
+              rows={1}
+              autoFocus
+            />
+            {/* Focus underline */}
+            <div className="ns-underline" />
+
+            {!hasAnyProviderKey ? (
+              <ProviderSetupHint
+                className="mt-2"
+                providers={providers}
+                onProvidersChange={setProviders}
+                onOpenSettings={() => openSettingsTab("providers")}
+              />
+            ) : (
+              <div className="flex justify-between items-baseline mt-2">
+                {!hasProviderModels ? (
+                  <button
+                    className="ns-hint flex items-center gap-1 text-sm text-error opacity-90 bg-transparent border-none p-0 cursor-pointer"
+                    onClick={() => openSettingsTab("providers")}
+                  >
+                    <span className="material-symbols-outlined text-md">
+                      warning
+                    </span>
+                    <span>
+                      No tool-capable OpenAI/Claude models are available for your
+                      configured keys.
+                    </span>
+                  </button>
+                ) : (
+                  <p
+                    className={cn(
+                      "ns-hint pointer-events-none not-italic ns-hint--skip",
+                      focused && !input && "ns-hint--skip-visible",
+                    )}
+                  >
+                    Press <kbd className="ns-kbd align-middle">↵</kbd> to skip
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
         </div>
 
-        {showRecentTabs ? (
-          <section className="ns-recent-panel" aria-label="Recent tabs">
+      </div>
+
+      {showRecentTabs ? (
+        <div className="ns-recent-dock">
+          <section
+            className={cn(
+              "ns-recent-panel",
+              recentScrollbarVisible && "ns-recent-panel--scrollbar-visible",
+            )}
+            aria-label="Recent tabs"
+            onScroll={showRecentScrollbarTemporarily}
+            onMouseEnter={handleRecentScrollbarMouseEnter}
+            onMouseLeave={handleRecentScrollbarMouseLeave}
+          >
             {pinnedRecentItems.length > 0 ? (
               <div className="ns-recent-section">
                 <div className="ns-recent-list">
@@ -699,17 +746,15 @@ export default function NewSession({ onSubmit }: NewSessionProps) {
 
             {recentUnpinnedItems.length > 0 ? (
               <div className="ns-recent-section">
-                {pinnedRecentItems.length > 0 || recentUnpinnedItems.length > 0 ? (
-                  <div className="ns-recent-section-label">
-                    <span
-                      className="material-symbols-outlined ns-recent-section-icon"
-                      aria-hidden
-                    >
-                      history
-                    </span>
-                    <span>Recent tabs</span>
-                  </div>
-                ) : null}
+                <div className="ns-recent-section-label">
+                  <span
+                    className="material-symbols-outlined ns-recent-section-icon"
+                    aria-hidden
+                  >
+                    history
+                  </span>
+                  <span>Recent tabs</span>
+                </div>
                 <div className="ns-recent-list">
                   {recentUnpinnedItems.map((item) => (
                     <RecentTabRow
@@ -723,8 +768,8 @@ export default function NewSession({ onSubmit }: NewSessionProps) {
               </div>
             ) : null}
           </section>
-        ) : null}
-      </div>
+        </div>
+      ) : null}
 
       {/* ── Footer ───────────────────────────────────────────────────────── */}
       {/* TODO(issue #55): ⌘+K doesn't work yet, hide footer message for now
