@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Contribution guide
+    url: https://github.com/amir-s/rakh/blob/main/CONTRIBUTING.md
+    about: Review local setup, testing commands, and commit conventions before opening a PR.
+  - name: Logging guide
+    url: https://github.com/amir-s/rakh/blob/main/docs/logging.md
+    about: Collect and interpret desktop logs before filing runtime or Tauri bugs.

@@ -1,0 +1,86 @@
+name: Feature request
+description: Propose a product, UX, or developer-experience improvement for Rakh.
+title: "[Feature]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this form for concrete improvements to the app, agent runtime, tooling, or docs.
+        Keep the request focused on a real workflow or limitation.
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Pre-flight checks
+      options:
+        - label: I searched existing issues and feature requests first.
+          required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - App shell and tabs
+        - Agent runtime or subagents
+        - Tool approvals or tool execution
+        - Filesystem, git, or worktrees
+        - Artifacts, plans, or persistence
+        - Terminal or PTY
+        - Logging or diagnostics
+        - Provider setup or model selection
+        - Tauri or Rust backend
+        - Build, packaging, or updater
+        - Documentation
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem to solve
+      description: What workflow, pain point, or gap is this request addressing?
+      placeholder: When an agent run fails mid-edit, it is hard to understand which tool call caused the failure without manually inspecting logs.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: Describe the behavior, UI, or API you want.
+      placeholder: Add a per-run trace summary panel in the review/debug pane that groups tool calls and links directly into the log viewer.
+    validations:
+      required: true
+
+  - type: textarea
+    id: value
+    attributes:
+      label: Why this matters
+      description: Explain who benefits and what becomes easier, safer, or faster.
+      placeholder: This would make failed runs much easier to debug and reduce the need to grep JSONL logs manually.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Workarounds, competing ideas, or reasons the current behavior is insufficient.
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria or examples
+      description: Mockups, sample commands, UX expectations, or concrete success criteria.
+      placeholder: |
+        - Failed runs show a trace summary in the debug pane
+        - Each tool call entry links to the matching logs view
+        - The feature works in both restored and live sessions
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Include screenshots, prior art, related docs, or implementation notes.
