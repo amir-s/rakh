@@ -51,6 +51,7 @@ async function snapshotOriginal(
   tabId: string,
   cwd: string,
   filePath: string,
+  logContext?: LogContext,
 ): Promise<string | undefined> {
   const existing = getAgentState(tabId).reviewEdits.find(
     (e) => e.filePath === filePath,
@@ -58,7 +59,7 @@ async function snapshotOriginal(
   if (existing) return undefined; // already tracked
 
   try {
-    const r = await readFile(cwd, { path: filePath });
+    const r = await readFile(cwd, { path: filePath }, logContext);
     return r.ok ? r.data.content : undefined;
   } catch {
     return undefined;
@@ -144,7 +145,7 @@ export async function dispatchTool(
       const wfOverwrite = a.overwrite === true;
       // Snapshot original for overwrite (new files have no original)
       const wfOriginal = wfOverwrite
-        ? await snapshotOriginal(tabId, cwd, wfPath)
+        ? await snapshotOriginal(tabId, cwd, wfPath, runtime?.logContext)
         : undefined;
 
       const wfResult = await writeFile(cwd, {
@@ -165,7 +166,12 @@ export async function dispatchTool(
     case "workspace_editFile": {
       const efInput = a as EditFileInput;
       // Snapshot original before editing
-      const efOriginal = await snapshotOriginal(tabId, cwd, efInput.path);
+      const efOriginal = await snapshotOriginal(
+        tabId,
+        cwd,
+        efInput.path,
+        runtime?.logContext,
+      );
 
       const efResult = await editFile(cwd, efInput, runtime?.logContext);
 

@@ -969,9 +969,55 @@ interface LogEntryRowProps {
   includedTags: Set<string>;
   excludedTags: Set<string>;
   onTagAction: (tag: string, mode: "include" | "exclude") => void;
+  onTraceIdAction: (traceId: string) => void;
+  onCorrelationIdAction: (correlationId: string) => void;
   activeTraceId?: string;
   activeCorrelationId?: string;
   depth?: number;
+}
+
+function LogTokenFilterChip({
+  prefix,
+  value,
+  active,
+  onActivate,
+}: {
+  prefix: "trace" | "tool";
+  value: string;
+  active: boolean;
+  onActivate?: (value: string) => void;
+}) {
+  const className = cn(
+    "font-mono text-[11px] break-all",
+    active
+      ? "border-b border-dashed border-primary/70 pb-px text-muted"
+      : onActivate
+        ? "rounded-full border border-border-subtle bg-surface px-2 py-0.5 text-text transition-colors hover:border-primary/30 hover:bg-inset/50"
+        : "text-muted",
+  );
+
+  if (!onActivate) {
+    return (
+      <span className={className}>
+        {prefix}: {value}
+      </span>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      aria-label={`Add ${prefix} filter ${value}`}
+      title={`Filter by ${prefix} id ${value}`}
+      className={className}
+      onClick={(event) => {
+        event.stopPropagation();
+        onActivate(value);
+      }}
+    >
+      {prefix}: {value}
+    </button>
+  );
 }
 
 function LogTagChip({
@@ -1122,6 +1168,8 @@ function LogEntryRow({
   includedTags,
   excludedTags,
   onTagAction,
+  onTraceIdAction,
+  onCorrelationIdAction,
   activeTraceId,
   activeCorrelationId,
   depth = 0,
@@ -1143,6 +1191,14 @@ function LogEntryRow({
     typeof activeCorrelationId === "string" &&
     activeCorrelationId.length > 0 &&
     entry.correlationId === activeCorrelationId;
+  const canFilterTrace =
+    typeof entry.traceId === "string" &&
+    entry.traceId.length > 0 &&
+    (!activeTraceId || activeTraceId.length === 0);
+  const canFilterCorrelation =
+    typeof entry.correlationId === "string" &&
+    entry.correlationId.length > 0 &&
+    (!activeCorrelationId || activeCorrelationId.length === 0);
   const leftOffset = Math.min(depth, 8) * 14;
   const markerBadgeClass =
     "h-7 w-7 justify-center px-0 text-center font-mono leading-none";
@@ -1244,26 +1300,22 @@ function LogEntryRow({
           </div>
           <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
             {entry.traceId ? (
-              <span
-                className={cn(
-                  "font-mono text-[11px] text-muted break-all",
-                  traceMatchesFilter &&
-                    "border-b border-dashed border-primary/70 pb-px",
-                )}
-              >
-                trace: {entry.traceId}
-              </span>
+              <LogTokenFilterChip
+                prefix="trace"
+                value={entry.traceId}
+                active={traceMatchesFilter}
+                onActivate={canFilterTrace ? onTraceIdAction : undefined}
+              />
             ) : null}
             {entry.correlationId ? (
-              <span
-                className={cn(
-                  "font-mono text-[11px] text-muted break-all",
-                  correlationMatchesFilter &&
-                    "border-b border-dashed border-primary/70 pb-px",
-                )}
-              >
-                tool: {entry.correlationId}
-              </span>
+              <LogTokenFilterChip
+                prefix="tool"
+                value={entry.correlationId}
+                active={correlationMatchesFilter}
+                onActivate={
+                  canFilterCorrelation ? onCorrelationIdAction : undefined
+                }
+              />
             ) : null}
             {typeof entry.durationMs === "number" ? (
               <span className="font-mono text-[11px] text-muted">
@@ -1364,6 +1416,8 @@ function LogTree({
   includedTags,
   excludedTags,
   onTagAction,
+  onTraceIdAction,
+  onCorrelationIdAction,
   activeTraceId,
   activeCorrelationId,
 }: {
@@ -1373,6 +1427,8 @@ function LogTree({
   includedTags: Set<string>;
   excludedTags: Set<string>;
   onTagAction: (tag: string, mode: "include" | "exclude") => void;
+  onTraceIdAction: (traceId: string) => void;
+  onCorrelationIdAction: (correlationId: string) => void;
   activeTraceId?: string;
   activeCorrelationId?: string;
 }) {
@@ -1388,6 +1444,8 @@ function LogTree({
             includedTags={includedTags}
             excludedTags={excludedTags}
             onTagAction={onTagAction}
+            onTraceIdAction={onTraceIdAction}
+            onCorrelationIdAction={onCorrelationIdAction}
             activeTraceId={activeTraceId}
             activeCorrelationId={activeCorrelationId}
           />
@@ -1400,6 +1458,8 @@ function LogTree({
                 includedTags={includedTags}
                 excludedTags={excludedTags}
                 onTagAction={onTagAction}
+                onTraceIdAction={onTraceIdAction}
+                onCorrelationIdAction={onCorrelationIdAction}
                 activeTraceId={activeTraceId}
                 activeCorrelationId={activeCorrelationId}
               />
@@ -1727,6 +1787,20 @@ export default function LogsWindowApp({
     }));
   };
 
+  const handleTraceIdAction = (traceId: string) => {
+    updateControls((current) => ({
+      ...current,
+      traceId,
+    }));
+  };
+
+  const handleCorrelationIdAction = (correlationId: string) => {
+    updateControls((current) => ({
+      ...current,
+      correlationId,
+    }));
+  };
+
   const handleCycleTagState = (tag: LogTag) => {
     updateControls((current) => ({
       ...current,
@@ -1927,6 +2001,8 @@ export default function LogsWindowApp({
                   includedTags={includedTags}
                   excludedTags={excludedTags}
                   onTagAction={handleTagAction}
+                  onTraceIdAction={handleTraceIdAction}
+                  onCorrelationIdAction={handleCorrelationIdAction}
                   activeTraceId={activeTraceId}
                   activeCorrelationId={activeCorrelationId}
                 />
@@ -1941,6 +2017,8 @@ export default function LogsWindowApp({
                       includedTags={includedTags}
                       excludedTags={excludedTags}
                       onTagAction={handleTagAction}
+                      onTraceIdAction={handleTraceIdAction}
+                      onCorrelationIdAction={handleCorrelationIdAction}
                       activeTraceId={activeTraceId}
                       activeCorrelationId={activeCorrelationId}
                     />

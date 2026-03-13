@@ -275,6 +275,12 @@ describe("tools/index dispatchTool", () => {
 
   it("handles workspace_editFile success and updates reviewEdits", async () => {
     setState("tab-edit");
+    const logContext = {
+      sessionId: "tab-edit",
+      tabId: "tab-edit",
+      traceId: "trace:run-edit:main",
+      correlationId: "tc-4",
+    };
 
     readFileMock
       .mockResolvedValueOnce({ ok: true, data: { content: "original content" } }) // snapshotOriginal
@@ -302,13 +308,27 @@ describe("tools/index dispatchTool", () => {
       "workspace_editFile",
       { path: "file.txt", changes: [{ oldString: "original", newString: "edited" }] },
       "tc-4",
+      undefined,
+      { runId: "run_edit", agentId: "agent_main", logContext },
     );
 
     expect(result).toMatchObject({ ok: true });
     expect(editFileMock).toHaveBeenCalledWith("/cwd", {
       path: "file.txt",
       changes: [{ oldString: "original", newString: "edited" }],
-    }, undefined);
+    }, logContext);
+    expect(readFileMock).toHaveBeenNthCalledWith(
+      1,
+      "/cwd",
+      { path: "file.txt" },
+      logContext,
+    );
+    expect(readFileMock).toHaveBeenNthCalledWith(
+      2,
+      "/cwd",
+      { path: "file.txt" },
+      logContext,
+    );
     expect(computeDiffFileMock).toHaveBeenCalledWith(
       "file.txt",
       "original content",
@@ -393,6 +413,67 @@ describe("tools/index dispatchTool", () => {
     );
     const editPaths = states["tab-write"].reviewEdits.map((e) => e.filePath);
     expect(editPaths).toContain("new.ts");
+  });
+
+  it("preserves log context when snapshotting workspace_writeFile overwrite", async () => {
+    setState("tab-write-overwrite");
+    const logContext = {
+      sessionId: "tab-write-overwrite",
+      tabId: "tab-write-overwrite",
+      traceId: "trace:run-write:main",
+      correlationId: "tc-7",
+    };
+
+    readFileMock.mockResolvedValueOnce({
+      ok: true,
+      data: { content: "previous content" },
+    });
+    writeFileMock.mockResolvedValue({
+      ok: true,
+      data: {
+        path: "existing.ts",
+        bytesWritten: 18,
+        created: false,
+        overwritten: true,
+      },
+    });
+    computeDiffFileMock.mockImplementation(
+      (filename: string, originalContent: string, currentContent: string) => ({
+        filename,
+        originalContent,
+        currentContent,
+        adds: 1,
+        removes: 1,
+        lines: [],
+      }),
+    );
+
+    const result = await dispatchTool(
+      "tab-write-overwrite",
+      "/cwd",
+      "workspace_writeFile",
+      { path: "existing.ts", content: "next content", overwrite: true },
+      "tc-7",
+      undefined,
+      { runId: "run_write", agentId: "agent_main", logContext },
+    );
+
+    expect(result).toMatchObject({ ok: true });
+    expect(readFileMock).toHaveBeenCalledWith(
+      "/cwd",
+      { path: "existing.ts" },
+      logContext,
+    );
+    expect(writeFileMock).toHaveBeenCalledWith(
+      "/cwd",
+      {
+        path: "existing.ts",
+        content: "next content",
+        mode: "create_or_overwrite",
+        createDirs: true,
+      },
+      logContext,
+    );
   });
 
   it("passes toolCallId to git_worktree_init", async () => {
