@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.12.0](https://github.com/amir-s/rakh/compare/rakh-v0.11.0...rakh-v0.12.0) (2026-03-13)
+
+
+### Features
+
+* **logging:** revamp logs window controls ([f05d458](https://github.com/amir-s/rakh/commit/f05d45843da2b4f1c99db804974623bc97076cd9))
+
+
+### Bug Fixes
+
+* emit session_changed for archived session sync ([58eb620](https://github.com/amir-s/rakh/commit/58eb620cdd741e7176f0e26c1d5a233d16492e22))
+* gate trace log actions behind debug mode ([32f50fa](https://github.com/amir-s/rakh/commit/32f50fa3e71e09c05358a1ffc6ec17f5ad24778d))
+* highlight filtered log row ids ([dda74f6](https://github.com/amir-s/rakh/commit/dda74f6db2ee53e1394f4394e06d1af73c8aa1f9))
+* keep pinned tabs visible while open ([7fbbdf6](https://github.com/amir-s/rakh/commit/7fbbdf661ca7825dde31ce7efeec5e4283e6f675))
+* **logging:** persist clear as a since filter ([254500c](https://github.com/amir-s/rakh/commit/254500c9cdb5da7b12ffd0d995550ed969c68e91))
+* **logging:** polish detached logs window behavior ([c1fde2b](https://github.com/amir-s/rakh/commit/c1fde2b99dfec4f9a162cf73206df7631647fc91))
+* polish log row actions ([019e207](https://github.com/amir-s/rakh/commit/019e20731da7de2d3aa51424a4492af144a99cd1))
+* restore log row id filters ([493d5dd](https://github.com/amir-s/rakh/commit/493d5ddcf5e0bd1a5159f53bed6f9ce275d0be26))
+* simplify expanded grouped tool call header ([63c4771](https://github.com/amir-s/rakh/commit/63c4771bd65f97bd7e00fc5ac7c6c72e6e6bbad1))
+
 ## [0.11.0](https://github.com/amir-s/rakh/compare/rakh-v0.10.0...rakh-v0.11.0) (2026-03-13)
 
 
