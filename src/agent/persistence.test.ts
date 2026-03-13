@@ -7,6 +7,8 @@ const {
   defaultModel,
   stateByTab,
   logFrontendSoonMock,
+  listenMock,
+  eventHandlers,
 } = vi.hoisted(() => ({
   invokeMock: vi.fn(),
   getAgentStateMock: vi.fn(),
@@ -14,10 +16,16 @@ const {
   defaultModel: "openai/gpt-5.2",
   stateByTab: {} as Record<string, unknown>,
   logFrontendSoonMock: vi.fn(),
+  listenMock: vi.fn(),
+  eventHandlers: new Map<string, (event: { payload: unknown }) => void>(),
 }));
 
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: (...args: unknown[]) => invokeMock(...args),
+}));
+
+vi.mock("@tauri-apps/api/event", () => ({
+  listen: (...args: unknown[]) => listenMock(...args),
 }));
 
 vi.mock("./atoms", () => ({
@@ -36,9 +44,11 @@ import {
   buildPersistedSession,
   deleteSession,
   isSessionEmpty,
+  listenForSessionChanges,
   loadArchivedSessions,
   loadSessions,
   restoreSession,
+  sessionChangeAffectsArchivedSessions,
   setSessionPinned,
   upsertSession,
   upsertWorkspaceSessions,
@@ -62,11 +72,21 @@ describe("persistence", () => {
     getAgentStateMock.mockReset();
     patchSessionPersistenceStateMock.mockReset();
     logFrontendSoonMock.mockReset();
+    listenMock.mockReset();
+    eventHandlers.clear();
     for (const key of Object.keys(stateByTab)) {
       delete stateByTab[key];
     }
     getAgentStateMock.mockImplementation(
       (tabId: unknown) => stateByTab[String(tabId)],
+    );
+    listenMock.mockImplementation(
+      async (event: string, handler: (event: { payload: unknown }) => void) => {
+        eventHandlers.set(event, handler);
+        return () => {
+          eventHandlers.delete(event);
+        };
+      },
     );
     setTauriAvailable(false);
   });
@@ -395,5 +415,89 @@ describe("persistence", () => {
     expect(invokeMock).toHaveBeenNthCalledWith(5, "db_delete_session", {
       id: "s-del",
     });
+  });
+
+  it("listens for session changes only in Tauri and forwards payloads", async () => {
+    const onChange = vi.fn();
+
+    expect(await listenForSessionChanges(onChange)).toBeNull();
+    expect(listenMock).not.toHaveBeenCalled();
+
+    setTauriAvailable(true);
+    const unlisten = await listenForSessionChanges(onChange);
+    expect(typeof unlisten).toBe("function");
+    expect(listenMock).toHaveBeenCalledWith(
+      "session_changed",
+      expect.any(Function),
+    );
+
+    eventHandlers.get("session_changed")?.({
+      payload: {
+        sessionId: "archived-1",
+        change: "archived",
+        archived: true,
+        previousArchived: false,
+        pinned: false,
+        changedAt: 42,
+      },
+    });
+
+    expect(onChange).toHaveBeenCalledWith({
+      sessionId: "archived-1",
+      change: "archived",
+      archived: true,
+      previousArchived: false,
+      pinned: false,
+      changedAt: 42,
+    });
+
+    unlisten?.();
+    expect(eventHandlers.has("session_changed")).toBe(false);
+  });
+
+  it("detects which session changes affect archived-session UIs", () => {
+    expect(
+      sessionChangeAffectsArchivedSessions({
+        sessionId: "s-1",
+        change: "upserted",
+        archived: false,
+        previousArchived: false,
+        pinned: false,
+        changedAt: 1,
+      }),
+    ).toBe(false);
+
+    expect(
+      sessionChangeAffectsArchivedSessions({
+        sessionId: "s-2",
+        change: "upserted",
+        archived: false,
+        previousArchived: true,
+        pinned: false,
+        changedAt: 2,
+      }),
+    ).toBe(true);
+
+    expect(
+      sessionChangeAffectsArchivedSessions({
+        sessionId: "s-3",
+        change: "pinned",
+        archived: true,
+        previousArchived: true,
+        pinned: true,
+        changedAt: 3,
+      }),
+    ).toBe(true);
+
+    expect(
+      sessionChangeAffectsArchivedSessions({
+        sessionId: "s-4",
+        change: "deleted",
+        archived: null,
+        previousArchived: false,
+        pinned: false,
+        changedAt: 4,
+      }),
+    ).toBe(false);
   });
 });

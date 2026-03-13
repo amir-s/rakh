@@ -118,6 +118,26 @@ pub struct ArtifactChangeEvent {
     pub created_at: i64,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum SessionChangeKind {
+    Upserted,
+    Archived,
+    Pinned,
+    Deleted,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionChangeEvent {
+    pub session_id: String,
+    pub change: SessionChangeKind,
+    pub archived: Option<bool>,
+    pub previous_archived: Option<bool>,
+    pub pinned: Option<bool>,
+    pub changed_at: i64,
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ArtifactCreateInput {
@@ -512,6 +532,10 @@ pub struct AppState {
     pub db: Mutex<Connection>,
 }
 
+fn emit_session_changed(app_handle: &AppHandle, payload: &SessionChangeEvent) {
+    let _ = app_handle.emit("session_changed", payload);
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 struct ProviderEnvApiKeys {
     openai_api_key: Option<String>,
@@ -718,8 +742,8 @@ pub fn init_db() -> Result<Connection, String> {
     );
     let _ = conn
         .execute_batch("ALTER TABLE sessions ADD COLUMN queue_state TEXT NOT NULL DEFAULT 'idle';");
-    let _ = conn
-        .execute_batch("ALTER TABLE sessions ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0;");
+    let _ =
+        conn.execute_batch("ALTER TABLE sessions ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0;");
     let _ = conn.execute_batch(
         "ALTER TABLE sessions ADD COLUMN communication_profile TEXT NOT NULL DEFAULT 'pragmatic';",
     );
@@ -885,6 +909,7 @@ pub fn db_load_sessions(state: State<'_, AppState>) -> Result<Vec<PersistedSessi
 #[tauri::command]
 pub fn db_upsert_session(
     session: PersistedSession,
+    app_handle: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     let start = Instant::now();
@@ -898,9 +923,13 @@ pub fn db_upsert_session(
         }),
     );
 
-    let result: Result<(), String> = (|| {
+    let result: Result<SessionChangeEvent, String> = (|| {
         let db = state.db.lock().unwrap();
         let now = now_ms();
+        let session_id = session.id.clone();
+        let archived = session.archived;
+        let pinned = session.pinned;
+        let previous_archived = load_session_flags(&db, &session.id)?.map(|(archived, _)| archived);
         db.execute(
             "INSERT INTO sessions (
             id, label, icon, mode, tab_title, cwd, project_path, setup_command, model,
@@ -969,11 +998,18 @@ pub fn db_upsert_session(
             ],
         )
         .map_err(|e| e.to_string())?;
-        Ok(())
+        Ok(SessionChangeEvent {
+            session_id,
+            change: SessionChangeKind::Upserted,
+            archived: Some(archived),
+            previous_archived,
+            pinned: Some(pinned),
+            changed_at: now,
+        })
     })();
 
     match &result {
-        Ok(()) => tool_log(
+        Ok(_) => tool_log(
             "db_upsert_session",
             "ok",
             json!({ "durationMs": start.elapsed().as_millis() as u64 }),
@@ -988,7 +1024,11 @@ pub fn db_upsert_session(
         ),
     }
 
-    result
+    if let Ok(payload) = &result {
+        emit_session_changed(&app_handle, payload);
+    }
+
+    result.map(|_| ())
 }
 
 fn set_session_pinned(db: &Connection, id: &str, pinned: bool) -> Result<(), String> {
@@ -1000,24 +1040,46 @@ fn set_session_pinned(db: &Connection, id: &str, pinned: bool) -> Result<(), Str
     Ok(())
 }
 
+fn load_session_flags(db: &Connection, id: &str) -> Result<Option<(bool, bool)>, String> {
+    db.query_row(
+        "SELECT archived, pinned FROM sessions WHERE id = ?1",
+        rusqlite::params![id],
+        |row| Ok((row.get::<_, i64>(0)? != 0, row.get::<_, i64>(1)? != 0)),
+    )
+    .optional()
+    .map_err(|e| e.to_string())
+}
+
 #[tauri::command]
-pub fn db_archive_session(id: String, state: State<'_, AppState>) -> Result<(), String> {
+pub fn db_archive_session(
+    id: String,
+    app_handle: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
     let start = Instant::now();
     tool_log("db_archive_session", "start", json!({ "id": id }));
 
-    let result: Result<(), String> = (|| {
+    let result: Result<Option<SessionChangeEvent>, String> = (|| {
         let db = state.db.lock().unwrap();
         let now = now_ms();
+        let previous_archived = load_session_flags(&db, &id)?.map(|(archived, _)| archived);
         db.execute(
             "UPDATE sessions SET archived = 1, updated_at = ?1 WHERE id = ?2",
-            rusqlite::params![now, id],
+            rusqlite::params![now, &id],
         )
         .map_err(|e| e.to_string())?;
-        Ok(())
+        Ok(previous_archived.map(|archived| SessionChangeEvent {
+            session_id: id.clone(),
+            change: SessionChangeKind::Archived,
+            archived: Some(true),
+            previous_archived: Some(archived),
+            pinned: None,
+            changed_at: now,
+        }))
     })();
 
     match &result {
-        Ok(()) => tool_log(
+        Ok(_) => tool_log(
             "db_archive_session",
             "ok",
             json!({ "durationMs": start.elapsed().as_millis() as u64 }),
@@ -1032,13 +1094,18 @@ pub fn db_archive_session(id: String, state: State<'_, AppState>) -> Result<(), 
         ),
     }
 
-    result
+    if let Ok(Some(payload)) = &result {
+        emit_session_changed(&app_handle, payload);
+    }
+
+    result.map(|_| ())
 }
 
 #[tauri::command]
 pub fn db_set_session_pinned(
     id: String,
     pinned: bool,
+    app_handle: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     let start = Instant::now();
@@ -1048,13 +1115,22 @@ pub fn db_set_session_pinned(
         json!({ "id": id, "pinned": pinned }),
     );
 
-    let result: Result<(), String> = (|| {
+    let result: Result<Option<SessionChangeEvent>, String> = (|| {
         let db = state.db.lock().unwrap();
-        set_session_pinned(&db, &id, pinned)
+        let session_flags = load_session_flags(&db, &id)?;
+        set_session_pinned(&db, &id, pinned)?;
+        Ok(session_flags.map(|(archived, _)| SessionChangeEvent {
+            session_id: id.clone(),
+            change: SessionChangeKind::Pinned,
+            archived: Some(archived),
+            previous_archived: Some(archived),
+            pinned: Some(pinned),
+            changed_at: now_ms(),
+        }))
     })();
 
     match &result {
-        Ok(()) => tool_log(
+        Ok(_) => tool_log(
             "db_set_session_pinned",
             "ok",
             json!({ "durationMs": start.elapsed().as_millis() as u64 }),
@@ -1069,7 +1145,11 @@ pub fn db_set_session_pinned(
         ),
     }
 
-    result
+    if let Ok(Some(payload)) = &result {
+        emit_session_changed(&app_handle, payload);
+    }
+
+    result.map(|_| ())
 }
 
 #[tauri::command]
@@ -1636,12 +1716,17 @@ pub fn db_artifact_list(
 }
 
 #[tauri::command]
-pub fn db_delete_session(id: String, state: State<'_, AppState>) -> Result<(), String> {
+pub fn db_delete_session(
+    id: String,
+    app_handle: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
     let start = Instant::now();
     tool_log("db_delete_session", "start", json!({ "id": id }));
 
-    let result: Result<(), String> = (|| {
+    let result: Result<Option<SessionChangeEvent>, String> = (|| {
         let db = state.db.lock().unwrap();
+        let session_flags = load_session_flags(&db, &id)?;
         db.execute(
             "DELETE FROM artifact_manifests WHERE session_id = ?1",
             params![&id],
@@ -1650,11 +1735,20 @@ pub fn db_delete_session(id: String, state: State<'_, AppState>) -> Result<(), S
         db.execute("DELETE FROM sessions WHERE id = ?1", rusqlite::params![&id])
             .map_err(|e| e.to_string())?;
         let _ = gc_orphaned_artifact_blobs(&db);
-        Ok(())
+        Ok(
+            session_flags.map(|(archived, was_pinned)| SessionChangeEvent {
+                session_id: id.clone(),
+                change: SessionChangeKind::Deleted,
+                archived: None,
+                previous_archived: Some(archived),
+                pinned: Some(was_pinned),
+                changed_at: now_ms(),
+            }),
+        )
     })();
 
     match &result {
-        Ok(()) => tool_log(
+        Ok(_) => tool_log(
             "db_delete_session",
             "ok",
             json!({ "durationMs": start.elapsed().as_millis() as u64 }),
@@ -1669,7 +1763,11 @@ pub fn db_delete_session(id: String, state: State<'_, AppState>) -> Result<(), S
         ),
     }
 
-    result
+    if let Ok(Some(payload)) = &result {
+        emit_session_changed(&app_handle, payload);
+    }
+
+    result.map(|_| ())
 }
 
 /* ── Provider config (disk-backed) ───────────────────────────────────────── */
@@ -2390,7 +2488,14 @@ mod tests {
             "INSERT INTO sessions (
                 id, label, icon, mode, updated_at, created_at
              ) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-            rusqlite::params!["session_1", "Pinned Session", "chat", "workspace", 123_i64, 100_i64],
+            rusqlite::params![
+                "session_1",
+                "Pinned Session",
+                "chat",
+                "workspace",
+                123_i64,
+                100_i64
+            ],
         )
         .expect("session insert should succeed");
 

@@ -1,10 +1,10 @@
 // @vitest-environment jsdom
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { atom } from "jotai";
 import NewSession from "./NewSession";
-import type { PersistedSession } from "@/agent/persistence";
+import type { PersistedSession, SessionChangeEvent } from "@/agent/persistence";
 
 const tabsContextMock = vi.hoisted(() => ({
   value: {
@@ -18,6 +18,11 @@ const tabsContextMock = vi.hoisted(() => ({
 const persistenceMock = vi.hoisted(() => ({
   loadArchivedSessions: vi.fn(),
   setSessionPinned: vi.fn(),
+}));
+
+const tauriEventMock = vi.hoisted(() => ({
+  eventHandlers: new Map<string, (event: { payload: unknown }) => void>(),
+  listenMock: vi.fn(),
 }));
 
 const sessionRestoreMock = vi.hoisted(() => ({
@@ -59,7 +64,7 @@ vi.mock("@/components/ProjectSettingsModal", () => ({
 }));
 
 vi.mock("@tauri-apps/api/event", () => ({
-  listen: vi.fn(async () => () => undefined),
+  listen: (...args: unknown[]) => tauriEventMock.listenMock(...args),
 }));
 
 vi.mock("@tauri-apps/plugin-dialog", () => ({
@@ -122,6 +127,12 @@ function makeSession(
   };
 }
 
+function emitSessionChange(event: SessionChangeEvent) {
+  act(() => {
+    tauriEventMock.eventHandlers.get("session_changed")?.({ payload: event });
+  });
+}
+
 describe("NewSession recent tabs", () => {
   beforeEach(() => {
     cleanup();
@@ -132,8 +143,28 @@ describe("NewSession recent tabs", () => {
     persistenceMock.loadArchivedSessions.mockReset();
     persistenceMock.setSessionPinned.mockReset();
     sessionRestoreMock.restoreArchivedTab.mockReset();
+    tauriEventMock.listenMock.mockReset();
+    tauriEventMock.eventHandlers.clear();
     persistenceMock.setSessionPinned.mockResolvedValue(undefined);
     sessionRestoreMock.restoreArchivedTab.mockResolvedValue(undefined);
+    Object.defineProperty(window, "__TAURI_INTERNALS__", {
+      value: {},
+      configurable: true,
+    });
+    tauriEventMock.listenMock.mockImplementation(
+      async (
+        event: string,
+        handler: (event: { payload: SessionChangeEvent }) => void,
+      ) => {
+        tauriEventMock.eventHandlers.set(
+          event,
+          handler as (event: { payload: unknown }) => void,
+        );
+        return () => {
+          tauriEventMock.eventHandlers.delete(event);
+        };
+      },
+    );
   });
 
   afterEach(() => {
@@ -218,5 +249,41 @@ describe("NewSession recent tabs", () => {
       );
     });
     expect(tabsContextMock.value.closeTab).toHaveBeenCalledWith("new-tab-1");
+  });
+
+  it("reloads recent tabs when archived-session events arrive", async () => {
+    const initial = makeSession("recent-1", {
+      label: "Recent Workspace",
+      projectPath: "/repo/recent",
+      cwd: "/repo/recent",
+      updatedAt: 250,
+    });
+    const added = makeSession("recent-2", {
+      label: "Freshly Archived",
+      projectPath: "/repo/fresh",
+      cwd: "/repo/fresh",
+      updatedAt: 260,
+    });
+    persistenceMock.loadArchivedSessions
+      .mockResolvedValueOnce([initial])
+      .mockResolvedValueOnce([added, initial]);
+
+    render(<NewSession onSubmit={vi.fn()} />);
+
+    await screen.findByText("Recent Workspace");
+
+    emitSessionChange({
+      sessionId: "recent-2",
+      change: "archived",
+      archived: true,
+      previousArchived: false,
+      pinned: false,
+      changedAt: 260,
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("Freshly Archived")).not.toBeNull();
+    });
+    expect(persistenceMock.loadArchivedSessions).toHaveBeenCalledTimes(2);
   });
 });
