@@ -18,6 +18,10 @@ const logsMocks = vi.hoisted(() => ({
   windowListenMock: vi.fn(),
 }));
 
+const clipboardMock = vi.hoisted(() => ({
+  writeText: vi.fn<() => Promise<void>>(),
+}));
+
 vi.mock("@tauri-apps/api/window", () => ({
   getCurrentWindow: () => ({
     listen: (...args: unknown[]) => logsMocks.windowListenMock(...args),
@@ -67,6 +71,8 @@ describe("LogsWindowApp", () => {
     logsMocks.listenForLogEntriesMock.mockReset();
     logsMocks.exportLogsMock.mockReset();
     logsMocks.windowListenMock.mockReset();
+    clipboardMock.writeText.mockReset();
+    clipboardMock.writeText.mockResolvedValue(undefined);
     logsMocks.windowListenMock.mockResolvedValue(() => {});
     logsMocks.queryLogsMock.mockResolvedValue([]);
     logsMocks.listenForLogEntriesMock.mockImplementation(async (handler) => {
@@ -76,6 +82,10 @@ describe("LogsWindowApp", () => {
     logsMocks.exportLogsMock.mockResolvedValue({
       path: "/tmp/rakh-logs.json",
       count: 2,
+    });
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText: clipboardMock.writeText },
     });
     delete (window as typeof window & { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__;
   });
@@ -580,6 +590,11 @@ describe("LogsWindowApp", () => {
     expect(screen.getByLabelText("event").className.includes("w-7")).toBe(true);
     expect(screen.getByLabelText("Level warn").className.includes("h-7")).toBe(true);
     expect(screen.getByLabelText("Level warn").className.includes("w-7")).toBe(true);
+    expect(screen.getByText("data_object")).not.toBeNull();
+    expect(
+      screen.getByRole("button", { name: "Copy log row expandable-row JSON" }),
+    ).not.toBeNull();
+    expect(screen.getByText("content_copy")).not.toBeNull();
     expect(screen.queryByText("Metadata")).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: "Expand log row expandable-row" }));
@@ -591,6 +606,53 @@ describe("LogsWindowApp", () => {
     await waitFor(() => {
       expect(screen.queryByText("Metadata")).toBeNull();
     });
+  });
+
+  it("shows temporary success feedback after copying row JSON", async () => {
+    logsMocks.queryLogsMock.mockResolvedValue([
+      makeEntry({
+        id: "copy-row",
+        message: "Copyable log row",
+        data: { ok: true },
+      }),
+    ]);
+
+    render(
+      <LogsWindowApp
+        initialPayload={{
+          origin: "manual",
+          filter: { limit: 100 },
+        }}
+      />,
+    );
+
+    await screen.findByText("Copyable log row");
+    vi.useFakeTimers();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Copy log row copy-row JSON" }),
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(clipboardMock.writeText).toHaveBeenCalledTimes(1);
+    expect(clipboardMock.writeText).toHaveBeenCalledWith(
+      expect.stringContaining('"id": "copy-row"'),
+    );
+    expect(
+      screen.getByRole("button", { name: "Copied log row copy-row JSON" }),
+    ).not.toBeNull();
+    expect(screen.getByText("check")).not.toBeNull();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2500);
+    });
+
+    expect(
+      screen.getByRole("button", { name: "Copy log row copy-row JSON" }),
+    ).not.toBeNull();
+    expect(screen.getByText("content_copy")).not.toBeNull();
   });
 
   it("renders an icon for error kind entries", async () => {
