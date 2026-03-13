@@ -31,6 +31,7 @@ const tabsContextMock = vi.hoisted(() => ({
     addTabWithId: vi.fn(),
     openSettingsTab: vi.fn(),
     closeTab: vi.fn(),
+    updateTab: vi.fn(),
     reorderTabs: vi.fn(),
   },
 }));
@@ -174,6 +175,7 @@ describe("TopChrome", () => {
     tabsContextMock.value.addTabWithId.mockReset();
     tabsContextMock.value.openSettingsTab.mockReset();
     tabsContextMock.value.closeTab.mockReset();
+    tabsContextMock.value.updateTab.mockReset();
     tabsContextMock.value.reorderTabs.mockReset();
     sessionRestoreMock.restoreMostRecentArchivedTab.mockReset();
     setAgentState("tab-1");
@@ -256,6 +258,35 @@ describe("TopChrome", () => {
 
     expect(tabsContextMock.value.closeTab).toHaveBeenCalledWith("tab-2");
     expect(tabsContextMock.value.setActiveTab).not.toHaveBeenCalled();
+  });
+
+  it("double-click toggles pinning for workspace tabs", () => {
+    renderTopChrome();
+
+    fireEvent.doubleClick(screen.getByRole("tab", { name: /workspace/i }));
+
+    expect(tabsContextMock.value.updateTab).toHaveBeenCalledWith("tab-1", {
+      pinned: true,
+    });
+  });
+
+  it("shows a pinned indicator for pinned tabs", () => {
+    tabsContextMock.value.tabs = [
+      {
+        id: "tab-1",
+        label: "Workspace",
+        icon: "chat_bubble_outline",
+        status: "idle",
+        mode: "workspace",
+        pinned: true,
+      },
+    ];
+
+    renderTopChrome();
+
+    const workspaceTab = screen.getByRole("tab", { name: /workspace/i });
+    expect(workspaceTab.getAttribute("data-pinned")).toBe("true");
+    expect(workspaceTab.querySelector(".tab-pin-indicator--active")).not.toBeNull();
   });
 
   it("middle-button presses do not start drag reorder", () => {
