@@ -161,10 +161,9 @@ describe("NewSession recent tabs", () => {
 
     render(<NewSession onSubmit={vi.fn()} />);
 
-    await screen.findByText("Recent tabs");
-    expect(screen.getByText("Pinned")).not.toBeNull();
+    expect(await screen.findAllByText("Recent tabs")).toHaveLength(1);
+    expect(screen.queryByText("Pinned")).toBeNull();
     expect(screen.getByText("Pinned Workspace")).not.toBeNull();
-    expect(screen.getByText("Recent")).not.toBeNull();
     expect(screen.getByText("Recent 1")).not.toBeNull();
     expect(screen.getByText("Recent 8")).not.toBeNull();
     expect(screen.queryByText("Recent 9")).toBeNull();
@@ -191,7 +190,7 @@ describe("NewSession recent tabs", () => {
         true,
       );
     });
-    expect(screen.getByText("Pinned")).not.toBeNull();
+    expect(screen.queryByText("Pinned")).toBeNull();
     expect(
       screen.getByRole("button", { name: "Unpin Recent Workspace" }),
     ).not.toBeNull();
