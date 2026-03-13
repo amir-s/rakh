@@ -69,6 +69,10 @@ describe("GroupedInlineToolCall", () => {
     expect(
       container.querySelector(".inline-tool-group__body--expanded"),
     ).not.toBeNull();
+    expect(screen.getByText("construction")).not.toBeNull();
+    expect(screen.getByText("2 TOOL CALLS")).not.toBeNull();
+    expect(screen.queryByText("READ FILE")).toBeNull();
+    expect(screen.queryByText("README.md")).toBeNull();
     expect(screen.getAllByTestId("grouped-tool-child")).toHaveLength(2);
   });
 

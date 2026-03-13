@@ -23,6 +23,7 @@ export default function GroupedInlineToolCall({
 }: GroupedInlineToolCallProps) {
   const [expanded, setExpanded] = useState(false);
   const latestToolCall = toolCalls[toolCalls.length - 1];
+  const groupLabel = `${toolCalls.length} TOOL CALL${toolCalls.length === 1 ? "" : "S"}`;
   const uniqueToolTypes = toolCalls.filter((toolCall, index, allToolCalls) => {
     const typeKey = toolCall.mcp
       ? `mcp:${toolCall.mcp.serverId}:${toolCall.mcp.toolName}`
@@ -46,6 +47,9 @@ export default function GroupedInlineToolCall({
         expanded={expanded}
         showExpandChevron
         showOpenLogs={showDebug && typeof onOpenLogs === "function"}
+        iconOverride={expanded ? "construction" : undefined}
+        labelOverride={expanded ? groupLabel : undefined}
+        argPreviewOverride={expanded ? null : undefined}
         onActivate={() => setExpanded((current) => !current)}
         onOpenLogs={
           onOpenLogs && latestToolCall
