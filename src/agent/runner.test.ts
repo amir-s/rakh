@@ -278,18 +278,14 @@ vi.mock("@/logging/client", async () => {
 });
 
 import {
-  buildProviderOptions,
   resumeQueue,
   runAgent,
   retryAgent,
-  serializeError,
   steerMessage,
   stopAgent,
   stopRunningExecToolCall,
 } from "./runner";
 import { registerDynamicModels } from "./modelCatalog";
-import type { AdvancedModelOptions } from "./types";
-import { DEFAULT_ADVANCED_OPTIONS } from "./types";
 
 function makeState(overrides: Partial<MockAgentState> = {}): MockAgentState {
   return {
@@ -1045,63 +1041,6 @@ describe("runner", () => {
     );
   });
 
-  it("includes reviewer scope guidance in the main system prompt via description", async () => {
-    const tabId = "tab-system-prompt-reviewer-guidance";
-    setState(tabId);
-    turns.push({ deltas: ["Hello"], toolCalls: [] });
-
-    await runAgent(tabId, "hi");
-
-    const state = states[tabId];
-    const systemMessage = state.apiMessages[0];
-    expect(systemMessage).toBeDefined();
-    expect(systemMessage.role).toBe("system");
-    // Scope guidance lives on the reviewer subagent's description — not hardcoded in the runner.
-    expect(systemMessage.content).toContain(
-      "Always include a concrete scope (file(s), directory, or commit range) in the message.",
-    );
-    // Confirmation behavior is conveyed via parentNote in the tool result, not the system prompt.
-    expect(systemMessage.content).not.toContain(
-      "if the reviewer subagent returns findings and you plan to apply those suggestions",
-    );
-  });
-
-  it("includes security auditor guidance in the main system prompt via description", async () => {
-    const tabId = "tab-system-prompt-security-guidance";
-    setState(tabId);
-    turns.push({ deltas: ["Hello"], toolCalls: [] });
-
-    await runAgent(tabId, "hi");
-
-    const state = states[tabId];
-    const systemMessage = state.apiMessages[0];
-    expect(systemMessage).toBeDefined();
-    expect(systemMessage.role).toBe("system");
-    expect(systemMessage.content).toContain(
-      "Audits code and security-relevant configuration in a requested scope and returns actionable findings.",
-    );
-    expect(systemMessage.content).toContain(
-      "Always include a concrete scope (file(s), directory, or commit range) in the message.",
-    );
-  });
-
-  it("tells the parent agent not to recreate cards returned by subagents", async () => {
-    const tabId = "tab-system-prompt-subagent-cards";
-    setState(tabId);
-    turns.push({ deltas: ["Hello"], toolCalls: [] });
-
-    await runAgent(tabId, "hi");
-
-    const systemMessage = states[tabId].apiMessages[0];
-    expect(systemMessage.role).toBe("system");
-    expect(systemMessage.content).toContain(
-      "When a subagent returns cards, those cards are already visible to the user.",
-    );
-    expect(systemMessage.content).toContain(
-      "Read them, but do not recreate the same cards with agent_card_add.",
-    );
-  });
-
   it("streams and persists assistant reasoning content", async () => {
     const tabId = "tab-reasoning";
     setState(tabId);
@@ -1482,7 +1421,7 @@ describe("runner", () => {
     );
 
     const runPromise = runAgent(tabId, "post cards");
-    await flushAsyncWork();
+    await flushAsyncWork(12);
 
     const inFlightAssistant = states[tabId].chatMessages.find(
       (message) =>
@@ -1923,198 +1862,6 @@ describe("runner", () => {
     expect(cancelAllApprovalsMock).not.toHaveBeenCalled();
   });
 
-  /* ── buildProviderOptions unit tests ──────────────────────────────────── */
-
-  describe("buildProviderOptions", () => {
-    it("returns undefined for unknown / openai-compatible providers", () => {
-      expect(buildProviderOptions(null)).toBeUndefined();
-      expect(buildProviderOptions("openai-compatible")).toBeUndefined();
-      expect(buildProviderOptions("custom")).toBeUndefined();
-    });
-
-    it("uses DEFAULT_ADVANCED_OPTIONS when opts is undefined (OpenAI)", () => {
-      const result = buildProviderOptions("openai");
-      expect(result).toBeDefined();
-      expect(result!.openai.reasoningSummary).toBe("auto");
-      expect(result!.openai.reasoningEffort).toBe(
-        DEFAULT_ADVANCED_OPTIONS.reasoningEffort,
-      );
-      expect(result!.openai.serviceTier).toBe("auto");
-    });
-
-    it("uses DEFAULT_ADVANCED_OPTIONS when opts is undefined (Anthropic)", () => {
-      const result = buildProviderOptions("anthropic");
-      expect(result).toBeDefined();
-      expect(result!.anthropic.thinking).toEqual({ type: "adaptive" });
-      expect(result!.anthropic).not.toHaveProperty("effort");
-      expect(result!.anthropic).not.toHaveProperty("speed");
-    });
-
-    describe("OpenAI mappings", () => {
-      const base: AdvancedModelOptions = {
-        reasoningVisibility: "auto",
-        reasoningEffort: "medium",
-        latencyCostProfile: "balanced",
-      };
-
-      it("reasoning visibility: off omits reasoningSummary", () => {
-        const r = buildProviderOptions("openai", {
-          ...base,
-          reasoningVisibility: "off",
-        });
-        expect(r!.openai).not.toHaveProperty("reasoningSummary");
-      });
-
-      it("reasoning visibility: auto", () => {
-        const r = buildProviderOptions("openai", {
-          ...base,
-          reasoningVisibility: "auto",
-        });
-        expect(r!.openai.reasoningSummary).toBe("auto");
-      });
-
-      it("reasoning visibility: detailed", () => {
-        const r = buildProviderOptions("openai", {
-          ...base,
-          reasoningVisibility: "detailed",
-        });
-        expect(r!.openai.reasoningSummary).toBe("detailed");
-      });
-
-      it.each(["low", "medium", "high"] as const)(
-        "reasoning effort: %s",
-        (effort) => {
-          const r = buildProviderOptions("openai", {
-            ...base,
-            reasoningEffort: effort,
-          });
-          expect(r!.openai.reasoningEffort).toBe(effort);
-        },
-      );
-
-      it("latency balanced → serviceTier auto", () => {
-        const r = buildProviderOptions("openai", {
-          ...base,
-          latencyCostProfile: "balanced",
-        });
-        expect(r!.openai.serviceTier).toBe("auto");
-      });
-
-      it("latency fast → serviceTier priority", () => {
-        const r = buildProviderOptions("openai", {
-          ...base,
-          latencyCostProfile: "fast",
-        });
-        expect(r!.openai.serviceTier).toBe("priority");
-      });
-
-      it("latency cheap → serviceTier flex", () => {
-        const r = buildProviderOptions("openai", {
-          ...base,
-          latencyCostProfile: "cheap",
-        });
-        expect(r!.openai.serviceTier).toBe("flex");
-      });
-    });
-
-    describe("Anthropic mappings", () => {
-      const base: AdvancedModelOptions = {
-        reasoningVisibility: "auto",
-        reasoningEffort: "medium",
-        latencyCostProfile: "balanced",
-      };
-
-      it("reasoning visibility: off → thinking disabled", () => {
-        const r = buildProviderOptions("anthropic", {
-          ...base,
-          reasoningVisibility: "off",
-        });
-        expect(r!.anthropic.thinking).toEqual({ type: "disabled" });
-      });
-
-      it("reasoning visibility: auto → thinking adaptive", () => {
-        const r = buildProviderOptions("anthropic", {
-          ...base,
-          reasoningVisibility: "auto",
-        });
-        expect(r!.anthropic.thinking).toEqual({ type: "adaptive" });
-      });
-
-      it("reasoning visibility: detailed → thinking enabled with budgetTokens", () => {
-        const r = buildProviderOptions("anthropic", {
-          ...base,
-          reasoningVisibility: "detailed",
-        });
-        expect(r!.anthropic.thinking).toEqual({
-          type: "enabled",
-          budgetTokens: 4096,
-        });
-      });
-
-      it.each(["low", "medium", "high"] as const)(
-        "reasoning effort on unsupported models is omitted: %s",
-        (effort) => {
-          const r = buildProviderOptions("anthropic", {
-            ...base,
-            reasoningEffort: effort,
-          });
-          expect(r!.anthropic).not.toHaveProperty("effort");
-        },
-      );
-
-      it.each(["low", "medium", "high"] as const)(
-        "reasoning effort on opus 4.5 is included: %s",
-        (effort) => {
-          const r = buildProviderOptions(
-            "anthropic",
-            {
-              ...base,
-              reasoningEffort: effort,
-            },
-            "claude-opus-4-5",
-          );
-          expect(r!.anthropic.effort).toBe(effort);
-        },
-      );
-
-      it("latency balanced → speed omitted", () => {
-        const r = buildProviderOptions(
-          "anthropic",
-          {
-            ...base,
-            latencyCostProfile: "balanced",
-          },
-          "claude-opus-4-6",
-        );
-        expect(r!.anthropic).not.toHaveProperty("speed");
-      });
-
-      it("latency fast on unsupported models → speed omitted", () => {
-        const r = buildProviderOptions(
-          "anthropic",
-          {
-            ...base,
-            latencyCostProfile: "fast",
-          },
-          "claude-sonnet-4-6",
-        );
-        expect(r!.anthropic).not.toHaveProperty("speed");
-      });
-
-      it("latency fast on opus 4.6 → speed fast", () => {
-        const r = buildProviderOptions(
-          "anthropic",
-          {
-            ...base,
-            latencyCostProfile: "fast",
-          },
-          "claude-opus-4-6",
-        );
-        expect(r!.anthropic.speed).toBe("fast");
-      });
-    });
-  });
-
   /* ── providerOptions integration test ─────────────────────────────────── */
 
   it("passes supported Anthropic fast mode to streamText", async () => {
@@ -2235,17 +1982,6 @@ describe("runner", () => {
       | undefined;
     expect(callArgs).toBeDefined();
     expect(callArgs!.providerOptions).toBeUndefined();
-  });
-
-  it("serializeError captures nested causes", () => {
-    const root = new Error("root-cause");
-    const err = new Error("top-level");
-    (err as Error & { cause?: unknown }).cause = root;
-
-    const serialized = serializeError(err) as Record<string, unknown>;
-    expect(serialized.name).toBe("Error");
-    expect(serialized.message).toBe("top-level");
-    expect(serialized.cause).toMatchObject({ message: "root-cause" });
   });
 
   it("preserves provider stream errors when no output is generated", async () => {

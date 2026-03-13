@@ -149,4 +149,6 @@ grep '"traceId":"trace:run_2026-03-12T00-00-00Z_0001:main"' ~/.rakh/logs/rakh.lo
 - frontend client: [`src/logging/client.ts`](../src/logging/client.ts)
 - shared TS types: [`src/logging/types.ts`](../src/logging/types.ts)
 - backend store and Tauri commands: [`src-tauri/src/logging.rs`](../src-tauri/src/logging.rs)
-- runner trace propagation: [`src/agent/runner.ts`](../src/agent/runner.ts)
+- runner trace propagation: [`src/agent/runner/logging.ts`](../src/agent/runner/logging.ts),
+  [`src/agent/runner/agentLoop.ts`](../src/agent/runner/agentLoop.ts), and
+  [`src/agent/runner/subagentLoop.ts`](../src/agent/runner/subagentLoop.ts)

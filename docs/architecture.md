@@ -21,7 +21,7 @@ approval-driven execution against the local workspace.
 graph TB
     User["User"] --> UI["React UI<br/>App.tsx + WorkspacePage.tsx"]
     UI --> Tabs["TabsContext + Jotai store"]
-    UI --> Runner["Agent runner<br/>src/agent/runner.ts"]
+    UI --> Runner["Agent runner facade + internals<br/>src/agent/runner.ts + src/agent/runner/*"]
     Runner --> Models["Model resolution<br/>useModels.ts + modelCatalog.ts"]
     Runner --> Tools["Tool definitions + dispatch"]
     Runner --> Approvals["Approval / user-input flow"]
@@ -112,7 +112,9 @@ provider options.
 
 ### Turn lifecycle
 
-[`src/agent/runner.ts`](../src/agent/runner.ts) owns the main loop.
+[`src/agent/runner.ts`](../src/agent/runner.ts) is the public facade. The
+main and subagent loops now live under
+[`src/agent/runner/`](../src/agent/runner/).
 
 High-level flow for a workspace turn:
 
@@ -181,7 +183,8 @@ Review data is captured in two places:
 
 Subagents are registered in
 [`src/agent/subagents/index.ts`](../src/agent/subagents/index.ts) and run in a
-private tool loop inside the main runner.
+private tool loop implemented by
+[`src/agent/runner/subagentLoop.ts`](../src/agent/runner/subagentLoop.ts).
 
 Artifacts are the durable output channel for plans, reviews, security reports,
 and other structured handoffs. The detailed contracts live in:
