@@ -45,7 +45,7 @@ export default function GroupedInlineToolCall({
         tc={latestToolCall}
         expanded={expanded}
         showExpandChevron
-        showOpenLogs={typeof onOpenLogs === "function"}
+        showOpenLogs={showDebug && typeof onOpenLogs === "function"}
         onActivate={() => setExpanded((current) => !current)}
         onOpenLogs={
           onOpenLogs && latestToolCall

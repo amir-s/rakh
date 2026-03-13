@@ -924,6 +924,7 @@ export default function CompactToolCall({
     tc.status !== "awaiting_branch_release" &&
     tc.status !== "awaiting_setup_action";
   const canOpenLogs =
+    showDebug &&
     tc.status !== "awaiting_approval" &&
     tc.status !== "awaiting_worktree" &&
     tc.status !== "awaiting_branch_release" &&

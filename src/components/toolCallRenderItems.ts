@@ -110,13 +110,17 @@ function hasVisibleContentBeforeToolCalls(message: ToolCallRenderMessage): boole
   );
 }
 
-function hasVisibleContentAfterToolCalls(message: ToolCallRenderMessage): boolean {
-  return Boolean(message.traceId);
+function hasVisibleContentAfterToolCalls(
+  message: ToolCallRenderMessage,
+  showDebug: boolean,
+): boolean {
+  return showDebug && Boolean(message.traceId);
 }
 
 export function buildToolCallRenderItemsByMessage(
   messages: ToolCallRenderMessage[],
   groupInlineToolCalls: boolean,
+  showDebug = true,
 ): Partial<Record<string, ToolCallRenderItem[]>> {
   const itemsByMessageId: Partial<Record<string, ToolCallRenderItem[]>> = {};
 
@@ -160,7 +164,7 @@ export function buildToolCallRenderItemsByMessage(
       pendingMessageIds.push(message.id);
     }
 
-    if (hasVisibleContentAfterToolCalls(message)) {
+    if (hasVisibleContentAfterToolCalls(message, showDebug)) {
       flushPending();
     }
   }
