@@ -24,6 +24,8 @@ export interface Tab {
   icon: string;
   status: TabStatus;
   hasChanges?: boolean;
+  /** Durable favorite state used when archiving/restoring recent tabs */
+  pinned?: boolean;
   /** Whether this tab is showing the new-session landing or the workspace */
   mode: "new" | "workspace" | "settings";
   settingsSection?: SettingsSectionId;
@@ -182,6 +184,7 @@ function buildInitialState(sessions: PersistedSession[]): State {
     label: s.label,
     icon: s.icon,
     status: "idle" as const,
+    pinned: s.pinned,
     mode: s.mode as Tab["mode"],
   }));
   return {

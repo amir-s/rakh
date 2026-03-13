@@ -113,6 +113,7 @@ function makeSession(id: string, label: string): PersistedSession {
     queuedMessages: "[]",
     queueState: "idle",
     archived: false,
+    pinned: false,
     createdAt: 0,
     updatedAt: 0,
     worktreePath: "",

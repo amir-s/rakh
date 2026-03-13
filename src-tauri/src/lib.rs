@@ -62,6 +62,7 @@ pub fn run() {
             db::db_load_sessions,
             db::db_upsert_session,
             db::db_archive_session,
+            db::db_set_session_pinned,
             db::db_load_archived_sessions,
             db::db_delete_session,
             db::db_artifact_create,

@@ -15,6 +15,7 @@ const tabsContextMock = vi.hoisted(() => ({
 const persistenceMock = vi.hoisted(() => ({
   deleteSession: vi.fn(),
   loadArchivedSessions: vi.fn(),
+  setSessionPinned: vi.fn(),
 }));
 
 const sessionRestoreMock = vi.hoisted(() => ({
@@ -40,6 +41,8 @@ vi.mock("@/agent/persistence", async () => {
     deleteSession: (...args: unknown[]) => persistenceMock.deleteSession(...args),
     loadArchivedSessions: (...args: unknown[]) =>
       persistenceMock.loadArchivedSessions(...args),
+    setSessionPinned: (...args: unknown[]) =>
+      persistenceMock.setSessionPinned(...args),
   };
 });
 
@@ -101,6 +104,7 @@ function makeSession(
     queuedMessages: "[]",
     queueState: "idle",
     archived: true,
+    pinned: false,
     createdAt: 1,
     updatedAt: 1,
     worktreePath: "",
@@ -125,9 +129,11 @@ describe("ArchivedTabsMenu", () => {
     localStorage.clear();
     persistenceMock.loadArchivedSessions.mockReset();
     persistenceMock.deleteSession.mockReset();
+    persistenceMock.setSessionPinned.mockReset();
     sessionRestoreMock.restoreArchivedTab.mockReset();
     tabsContextMock.value.addTabWithId.mockReset();
     persistenceMock.deleteSession.mockResolvedValue(undefined);
+    persistenceMock.setSessionPinned.mockResolvedValue(undefined);
     sessionRestoreMock.restoreArchivedTab.mockResolvedValue(undefined);
   });
 
@@ -135,13 +141,21 @@ describe("ArchivedTabsMenu", () => {
     cleanup();
   });
 
-  it("groups archived tabs by project, using cwd and unknown fallbacks, and keeps recency ordering", async () => {
+  it("shows pinned tabs directly in the parent list above grouped projects and excludes them from grouped rows", async () => {
     localStorage.setItem(
       PROJECTS_STORAGE_KEY,
       JSON.stringify([{ path: "/repo/platform", name: "Platform API" }]),
     );
 
     persistenceMock.loadArchivedSessions.mockResolvedValue([
+      makeSession("platform-pinned", {
+        label: "Pinned platform tab",
+        tabTitle: "Hold rollout notes",
+        projectPath: "/repo/platform",
+        cwd: "/repo/platform",
+        updatedAt: 350,
+        pinned: true,
+      }),
       makeSession("platform-old", {
         label: "Older platform tab",
         tabTitle: "Ship OAuth polish",
@@ -173,6 +187,23 @@ describe("ArchivedTabsMenu", () => {
     render(<ArchivedTabsMenu />);
     await openMenu();
 
+    const firstGroup = document.querySelector(".archived-group");
+    expect(firstGroup).not.toBeNull();
+    expect(screen.queryByText("Pinned")).toBeNull();
+    const pinnedItem = screen.getByText("Pinned platform tab").closest(".archived-item");
+    expect(pinnedItem).not.toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "Delete Pinned platform tab" }),
+    ).toBeNull();
+    if (!(pinnedItem instanceof HTMLElement) || !(firstGroup instanceof HTMLElement)) {
+      throw new Error("Expected pinned item and first group to render");
+    }
+    expect(
+      pinnedItem.compareDocumentPosition(firstGroup) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(pinnedItem.className).toContain("archived-item--pinned");
+
     const groupLabels = Array.from(
       document.querySelectorAll(".archived-group-label"),
     ).map((node) => node.textContent);
@@ -183,14 +214,52 @@ describe("ArchivedTabsMenu", () => {
         ".archived-item-label",
       ) ?? [],
     ).map((node) => node.textContent);
-    expect(firstGroupItems).toEqual([
-      "Latest platform tab",
-      "Older platform tab",
-    ]);
+    expect(firstGroupItems).toEqual(["Latest platform tab", "Older platform tab"]);
 
     expect(screen.getByText("/repo/platform")).not.toBeNull();
     expect(screen.getByText("/repo/docs")).not.toBeNull();
     expect(screen.getByText("Unknown Project")).not.toBeNull();
+  });
+
+  it("unpins pinned tabs back into grouped project lists", async () => {
+    localStorage.setItem(
+      PROJECTS_STORAGE_KEY,
+      JSON.stringify([{ path: "/repo/platform", name: "Platform API" }]),
+    );
+
+    persistenceMock.loadArchivedSessions.mockResolvedValue([
+      makeSession("platform-pinned", {
+        label: "Pinned platform tab",
+        projectPath: "/repo/platform",
+        cwd: "/repo/platform",
+        updatedAt: 300,
+        pinned: true,
+      }),
+      makeSession("platform-regular", {
+        label: "Regular platform tab",
+        projectPath: "/repo/platform",
+        cwd: "/repo/platform",
+        updatedAt: 200,
+      }),
+    ]);
+
+    render(<ArchivedTabsMenu />);
+    await openMenu();
+
+    fireEvent.click(screen.getByRole("button", { name: "Unpin Pinned platform tab" }));
+
+    await waitFor(() => {
+      expect(persistenceMock.setSessionPinned).toHaveBeenCalledWith(
+        "platform-pinned",
+        false,
+      );
+    });
+    expect(screen.queryByRole("button", { name: "Delete Pinned platform tab" })).not.toBeNull();
+
+    const groupedItems = Array.from(
+      document.querySelectorAll(".archived-group-list .archived-item-label"),
+    ).map((node) => node.textContent);
+    expect(groupedItems).toEqual(["Pinned platform tab", "Regular platform tab"]);
   });
 
   it("collapses and expands project groups", async () => {
@@ -236,7 +305,7 @@ describe("ArchivedTabsMenu", () => {
     expect(screen.getByText("Platform work")).not.toBeNull();
   });
 
-  it("searches across labels, titles, project names, and paths with flat ranked results", async () => {
+  it("searches across labels, titles, project names, and paths while hiding the pinned section", async () => {
     localStorage.setItem(
       PROJECTS_STORAGE_KEY,
       JSON.stringify([{ path: "/repo/platform", name: "Platform API" }]),
@@ -249,6 +318,7 @@ describe("ArchivedTabsMenu", () => {
         projectPath: "/repo/platform",
         cwd: "/repo/platform",
         updatedAt: 300,
+        pinned: true,
       }),
       makeSession("cleanup", {
         label: "Browser tab",
@@ -273,8 +343,9 @@ describe("ArchivedTabsMenu", () => {
       target: { value: "cleanup" },
     });
     expect(document.querySelectorAll(".archived-group")).toHaveLength(0);
+    expect(screen.queryByRole("button", { name: "Delete Auth tokens" })).toBeNull();
     expect(screen.getByText("Browser tab")).not.toBeNull();
-    expect(screen.getByText("docs · Memory cleanup")).not.toBeNull();
+    expect(screen.queryByText("docs · Memory cleanup")).toBeNull();
 
     fireEvent.change(screen.getByRole("textbox", { name: "Search archived tabs" }), {
       target: { value: "platform" },
@@ -282,7 +353,8 @@ describe("ArchivedTabsMenu", () => {
     await waitFor(() => {
       expect(screen.getByText("Auth tokens")).not.toBeNull();
     });
-    expect(screen.getByText("Platform API · Refresh rotation")).not.toBeNull();
+    expect(screen.queryByRole("button", { name: "Delete Auth tokens" })).not.toBeNull();
+    expect(screen.queryByText("Platform API · Refresh rotation")).toBeNull();
     expect(screen.queryByText("Browser tab")).toBeNull();
 
     fireEvent.change(screen.getByRole("textbox", { name: "Search archived tabs" }), {
@@ -291,17 +363,17 @@ describe("ArchivedTabsMenu", () => {
     await waitFor(() => {
       expect(screen.getByText("Background worker")).not.toBeNull();
     });
-    expect(screen.getByText("runtime")).not.toBeNull();
     expect(screen.queryByText("Auth tokens")).toBeNull();
   });
 
-  it("updates the visible list when deleting search results and restores grouped items", async () => {
+  it("blocks delete on pinned rows and still deletes/restores eligible rows", async () => {
     const platformSession = makeSession("platform", {
       label: "Platform work",
       tabTitle: "Ship auth fix",
       projectPath: "/repo/platform",
       cwd: "/repo/platform",
       updatedAt: 300,
+      pinned: true,
     });
     const docsSession = makeSession("docs", {
       label: "Docs notes",
@@ -309,6 +381,7 @@ describe("ArchivedTabsMenu", () => {
       projectPath: "",
       cwd: "/repo/docs",
       updatedAt: 200,
+      pinned: false,
     });
 
     persistenceMock.loadArchivedSessions.mockResolvedValue([
@@ -319,25 +392,18 @@ describe("ArchivedTabsMenu", () => {
     render(<ArchivedTabsMenu />);
     await openMenu();
 
-    fireEvent.change(screen.getByRole("textbox", { name: "Search archived tabs" }), {
-      target: { value: "cleanup" },
-    });
+    expect(
+      screen.queryByRole("button", { name: "Delete Platform work" }),
+    ).toBeNull();
+
     fireEvent.click(screen.getByRole("button", { name: "Delete Docs notes" }));
 
     await waitFor(() => {
       expect(persistenceMock.deleteSession).toHaveBeenCalledWith("docs");
     });
     expect(screen.queryByText("Docs notes")).toBeNull();
-    expect(screen.getByText("No archived tabs match")).not.toBeNull();
 
-    fireEvent.change(screen.getByRole("textbox", { name: "Search archived tabs" }), {
-      target: { value: "" },
-    });
-    await waitFor(() => {
-      expect(screen.getByTitle("Restore: Platform work")).not.toBeNull();
-    });
     fireEvent.click(screen.getByTitle("Restore: Platform work"));
-
     await waitFor(() => {
       expect(sessionRestoreMock.restoreArchivedTab).toHaveBeenCalledWith(
         platformSession,

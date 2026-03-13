@@ -52,6 +52,7 @@ function makeSession(
     ]),
     queueState: "draining",
     archived: true,
+    pinned: true,
     createdAt: 1,
     updatedAt: 2,
     worktreePath: "/repo/.worktree",
@@ -87,6 +88,7 @@ describe("sessionRestore", () => {
       id: session.id,
       label: session.label,
       icon: session.icon,
+      pinned: true,
       status: "idle",
       mode: "workspace",
     });

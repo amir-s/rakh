@@ -25,6 +25,11 @@ export interface ArchivedSearchResult extends ArchivedSessionItem {
   score: number;
 }
 
+export interface PartitionedArchivedSessionItems {
+  pinned: ArchivedSessionItem[];
+  unpinned: ArchivedSessionItem[];
+}
+
 function getProjectPath(session: PersistedSession): string {
   return session.projectPath.trim() || session.cwd.trim();
 }
@@ -71,6 +76,23 @@ export function buildArchivedSessionItems(
       };
     })
     .sort(sortItemsByRecency);
+}
+
+export function partitionArchivedSessionItems(
+  items: ArchivedSessionItem[],
+): PartitionedArchivedSessionItems {
+  const pinned: ArchivedSessionItem[] = [];
+  const unpinned: ArchivedSessionItem[] = [];
+
+  for (const item of items) {
+    if (item.session.pinned) {
+      pinned.push(item);
+      continue;
+    }
+    unpinned.push(item);
+  }
+
+  return { pinned, unpinned };
 }
 
 export function groupArchivedSessionItems(
