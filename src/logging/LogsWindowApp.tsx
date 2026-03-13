@@ -1,13 +1,17 @@
-import { startTransition, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  startTransition,
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { createPortal } from "react-dom";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { Button, Badge, SelectField, TextField } from "@/components/ui";
+import { Button, Badge, TextField } from "@/components/ui";
 import { cn } from "@/utils/cn";
-import {
-  exportLogs,
-  listenForLogEntries,
-  queryLogs,
-} from "./client";
+import { exportLogs, listenForLogEntries, queryLogs } from "./client";
 import type {
   LogTag,
   LogEntry,
@@ -27,13 +31,24 @@ import {
 const MAX_WINDOW_ENTRIES = 1000;
 const LIVE_FLUSH_MS = 75;
 const SCROLL_TAIL_THRESHOLD_PX = 28;
-const VERBOSITY_LEVELS: LogLevel[] = ["error", "warn", "info", "debug", "trace"];
-const SOURCES: Array<LogSource | ""> = ["", "frontend", "backend"];
+const VERBOSITY_LEVELS: LogLevel[] = [
+  "error",
+  "warn",
+  "info",
+  "debug",
+  "trace",
+];
+const SOURCE_OPTIONS: LogSource[] = ["backend", "frontend"];
 const LIMIT_OPTIONS = [100, 250, 500, 1000];
+const NOTICE_AUTO_CLOSE_MS = 3500;
 
 type ViewerNotice =
-  | { kind: "success"; message: string }
-  | { kind: "error"; message: string }
+  | {
+      id: number;
+      kind: "success" | "error";
+      message: string;
+      autoCloseMs: number | null;
+    }
   | null;
 
 interface ControlState {
@@ -48,6 +63,16 @@ interface ControlState {
 interface LogTreeNode {
   entry: LogEntry;
   children: LogTreeNode[];
+}
+
+interface InlineTokenFilterControlProps {
+  label: string;
+  value: string;
+  placeholder: string;
+  addLabel: string;
+  badgePrefix: string;
+  onChange: (next: string) => void;
+  className?: string;
 }
 
 function normalizeLimit(limit: number): number {
@@ -127,7 +152,8 @@ function levelsForVerbosity(verbosity: LogLevel): LogLevel[] {
 function verbosityFromLevels(levels: LogLevel[] | undefined): LogLevel {
   if (!levels || levels.length === 0) return "trace";
   const normalized = [...new Set(levels)].sort(
-    (left, right) => VERBOSITY_LEVELS.indexOf(left) - VERBOSITY_LEVELS.indexOf(right),
+    (left, right) =>
+      VERBOSITY_LEVELS.indexOf(left) - VERBOSITY_LEVELS.indexOf(right),
   );
   for (const candidate of VERBOSITY_LEVELS) {
     const candidateLevels = levelsForVerbosity(candidate);
@@ -176,7 +202,16 @@ function levelSymbol(level: LogLevel): string {
 
 function nextVerbosityLevel(current: LogLevel): LogLevel {
   const currentIndex = VERBOSITY_LEVELS.indexOf(current);
-  return VERBOSITY_LEVELS[(currentIndex + 1) % VERBOSITY_LEVELS.length] ?? "error";
+  return (
+    VERBOSITY_LEVELS[(currentIndex + 1) % VERBOSITY_LEVELS.length] ?? "error"
+  );
+}
+
+function nextSourceFilter(
+  current: LogSource | "",
+  source: LogSource,
+): LogSource | "" {
+  return current === source ? "" : source;
 }
 
 function controlsFromPayload(
@@ -233,8 +268,9 @@ function formatTimestamp(timestampMs: number): string {
 }
 
 function sortEntriesAscending(entries: LogEntry[]): LogEntry[] {
-  return [...entries].sort((left, right) =>
-    left.timestampMs - right.timestampMs || left.id.localeCompare(right.id),
+  return [...entries].sort(
+    (left, right) =>
+      left.timestampMs - right.timestampMs || left.id.localeCompare(right.id),
   );
 }
 
@@ -273,7 +309,9 @@ function matchesFilter(entry: LogEntry, filter: LogQueryFilter): boolean {
     : filter.tags.some((tag) => entry.tags.includes(tag));
 }
 
-function levelVariant(level: LogLevel): "muted" | "primary" | "info" | "warning" | "danger" {
+function levelVariant(
+  level: LogLevel,
+): "muted" | "primary" | "info" | "warning" | "danger" {
   switch (level) {
     case "trace":
       return "muted";
@@ -288,7 +326,9 @@ function levelVariant(level: LogLevel): "muted" | "primary" | "info" | "warning"
   }
 }
 
-function kindVariant(kind: LogEntry["kind"]): "muted" | "primary" | "success" | "danger" {
+function kindVariant(
+  kind: LogEntry["kind"],
+): "muted" | "primary" | "success" | "danger" {
   switch (kind) {
     case "start":
       return "primary";
@@ -307,8 +347,12 @@ function kindDisplayLabel(kind: LogEntry["kind"]): string {
       return "↗";
     case "end":
       return "↘";
+    case "event":
+      return "•";
+    case "error":
+      return "!";
     default:
-      return kind.toUpperCase();
+      return kind satisfies never;
   }
 }
 
@@ -380,28 +424,6 @@ function buildTree(entries: LogEntry[]): LogTreeNode[] {
   return roots;
 }
 
-function filterSummary(filter: LogQueryFilter): string {
-  const verbosity =
-    filter.levels && filter.levels.length > 0
-      ? verbositySummary(verbosityFromLevels(filter.levels))
-      : null;
-  const parts = [
-    filter.traceId ? `trace ${filter.traceId}` : null,
-    filter.correlationId ? `tool ${filter.correlationId}` : null,
-    filter.source ? `${filter.source} only` : null,
-    filter.tags?.length ? `tags ${filter.tags.join(", ")}` : null,
-    filter.excludeTags?.length
-      ? `excluding ${filter.excludeTags.join(", ")}`
-      : null,
-    verbosity,
-  ].filter(Boolean);
-
-  if (parts.length === 0) {
-    return `Global feed · latest ${filter.limit ?? DEFAULT_LOG_LIMIT} rows`;
-  }
-  return parts.join(" · ");
-}
-
 function activeFilterCount(filter: LogQueryFilter): number {
   return [
     filter.tags && filter.tags.length > 0 ? 1 : 0,
@@ -419,9 +441,79 @@ function visibleTagPills(filter: LogQueryFilter): LogTag[] {
     ...normalizeTags(filter.excludeTags),
   ]);
   const extras = Array.from(selected)
-    .filter((tag) => !KNOWN_LOG_TAGS.includes(tag as (typeof KNOWN_LOG_TAGS)[number]))
+    .filter(
+      (tag) => !KNOWN_LOG_TAGS.includes(tag as (typeof KNOWN_LOG_TAGS)[number]),
+    )
     .sort();
   return [...KNOWN_LOG_TAGS, ...extras];
+}
+
+function ViewModeIndicator({
+  isTreeView,
+  limit,
+}: {
+  isTreeView: boolean;
+  limit: number;
+}) {
+  const title = isTreeView
+    ? "Grouped by trace lineage"
+    : `Showing up to ${limit} rows`;
+
+  return (
+    <Badge
+      variant="muted"
+      aria-label={isTreeView ? "Trace tree view" : `Live feed up to ${limit} rows`}
+      title={title}
+      className="min-w-[28px] justify-center px-1.5"
+    >
+      <span
+        aria-hidden="true"
+        className="material-symbols-outlined text-[14px] leading-none"
+      >
+        {isTreeView ? "account_tree" : "view_list"}
+      </span>
+    </Badge>
+  );
+}
+
+function NoticeToast({
+  notice,
+  onDismiss,
+}: {
+  notice: Exclude<ViewerNotice, null>;
+  onDismiss: () => void;
+}) {
+  return (
+    <div className="pointer-events-none fixed inset-x-0 bottom-4 z-40 flex justify-center px-4">
+      <div
+        role={notice.kind === "error" ? "alert" : "status"}
+        className={cn(
+          "pointer-events-auto flex w-full max-w-[560px] items-start gap-3 rounded-2xl border px-4 py-3 shadow-[0_16px_40px_rgb(0_0_0_/_0.18)] backdrop-blur",
+          notice.kind === "error"
+            ? "border-[color-mix(in_srgb,var(--color-error)_30%,transparent)] bg-[color-mix(in_srgb,var(--color-error)_10%,var(--color-surface))] text-error"
+            : "border-[color-mix(in_srgb,var(--color-success)_30%,transparent)] bg-[color-mix(in_srgb,var(--color-success)_10%,var(--color-surface))] text-success",
+        )}
+      >
+        <span
+          aria-hidden="true"
+          className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-current/20 text-[12px] font-bold"
+        >
+          {notice.kind === "error" ? "!" : "i"}
+        </span>
+        <div className="min-w-0 flex-1 text-sm leading-5 text-text">
+          {notice.message}
+        </div>
+        <button
+          type="button"
+          aria-label="Dismiss notice"
+          className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-current/15 text-[11px] text-current transition-colors hover:bg-current/10"
+          onClick={onDismiss}
+        >
+          X
+        </button>
+      </div>
+    </div>
+  );
 }
 
 function tagPillVisual(state: "include" | "exclude" | "ignore"): {
@@ -482,7 +574,7 @@ function TagStatePill({
   );
 }
 
-function VerbosityControl({
+function VerbosityPillControl({
   value,
   onChange,
 }: {
@@ -490,41 +582,307 @@ function VerbosityControl({
   onChange: (next: LogLevel) => void;
 }) {
   const selectedIndex = VERBOSITY_LEVELS.indexOf(value);
-  const fillWidth = `${((selectedIndex + 1) / VERBOSITY_LEVELS.length) * 100}%`;
   const symbol = levelSymbol(value);
 
   return (
     <div className="flex items-center gap-2">
-      <div className="text-[11px] font-bold tracking-[0.08em] uppercase text-muted">
-        Verbosity
-      </div>
       <button
         type="button"
         aria-label={`Cycle verbosity, current ${value}`}
         title={`Verbosity ${selectedIndex + 1}/${VERBOSITY_LEVELS.length} · ${verbositySummary(value)}`}
-        className="w-[124px] min-w-0 shrink-0 rounded-xl border border-border-subtle bg-inset/50 px-2.5 py-1.5 text-left transition-colors hover:border-primary/35 hover:bg-inset/70"
+        className="inline-flex w-[96px] shrink-0 items-center gap-2 rounded-full border border-border-subtle bg-surface px-3 py-1.5 font-mono text-[11px] text-text transition-colors hover:border-primary/30 hover:bg-inset/50"
         onClick={() => onChange(nextVerbosityLevel(value))}
       >
-        <div className="flex items-center gap-2">
-          <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-surface px-1.5 text-[10px] font-bold text-text">
-            {selectedIndex + 1}
-          </span>
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-1.5 truncate text-[11px] font-mono text-text">
-              <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full border border-border-subtle bg-surface text-[9px] font-bold text-text">
-                {symbol}
-              </span>
-              <span className="lowercase">{value}</span>
-            </div>
-            <div className="mt-1 h-1 overflow-hidden rounded-full bg-border-subtle">
-              <div
-                className="h-full rounded-full bg-primary transition-[width] duration-150"
-                style={{ width: fillWidth }}
-              />
-            </div>
+        <span className="font-bold">{selectedIndex + 1}</span>
+        <span aria-hidden="true" className="text-muted">
+          /
+        </span>
+        <span className="font-bold">{symbol}</span>
+        <span className="min-w-0 truncate lowercase">{value}</span>
+      </button>
+    </div>
+  );
+}
+
+function SourceControl({
+  value,
+  onChange,
+}: {
+  value: LogSource | "";
+  onChange: (next: LogSource | "") => void;
+}) {
+  return (
+    <div className="flex items-center gap-2 whitespace-nowrap">
+      <div className="flex items-center gap-2">
+        {SOURCE_OPTIONS.map((source) => {
+          const selected = value === source;
+          return (
+            <button
+              key={source}
+              type="button"
+              aria-label={`Source filter ${source}`}
+              aria-pressed={selected}
+              title={
+                selected
+                  ? `Showing only ${source} logs. Click to include both sources.`
+                  : `Show only ${source} logs.`
+              }
+              className={cn(
+                "inline-flex items-center rounded-full border px-3 py-1.5 font-mono text-[11px] lowercase transition-colors",
+                selected
+                  ? "border-primary bg-primary-dim text-primary"
+                  : "border-border-subtle bg-surface text-muted hover:border-primary/30 hover:text-text",
+              )}
+              onClick={() => onChange(nextSourceFilter(value, source))}
+            >
+              {source}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function RowLimitControl({
+  value,
+  onChange,
+}: {
+  value: number;
+  onChange: (next: number) => void;
+}) {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+
+    const handlePointerDown = (event: MouseEvent) => {
+      if (!(event.target instanceof Node)) return;
+      if (containerRef.current?.contains(event.target)) return;
+      setOpen(false);
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      setOpen(false);
+    };
+
+    document.addEventListener("mousedown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [open]);
+
+  return (
+    <div ref={containerRef} className="relative shrink-0">
+      <button
+        type="button"
+        aria-label={`Row limit ${value}`}
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        title={`Row limit ${value}`}
+        className="inline-flex items-center gap-2 rounded-full border border-border-subtle bg-surface px-3 py-1.5 font-mono text-[11px] text-text transition-colors hover:border-primary/30 hover:bg-inset/50"
+        onClick={() => setOpen((current) => !current)}
+      >
+        <span
+          aria-hidden="true"
+          className="inline-flex h-4 w-4 items-center justify-center text-muted"
+        >
+          <svg
+            viewBox="0 0 16 16"
+            className="h-3.5 w-3.5"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+          >
+            <path d="M3 4h10" />
+            <path d="M3 8h10" />
+            <path d="M3 12h10" />
+          </svg>
+        </span>
+        <span>{value}</span>
+      </button>
+      {open ? (
+        <div
+          role="dialog"
+          aria-label="Row limit options"
+          className="absolute right-0 top-full z-20 mt-2 w-24 rounded-xl border border-border-subtle bg-surface p-2 shadow-[0_12px_30px_rgb(0_0_0_/_0.18)]"
+        >
+          <div className="flex flex-col gap-1">
+            {LIMIT_OPTIONS.map((option) => {
+              const selected = option === value;
+              return (
+                <button
+                  key={option}
+                  type="button"
+                  aria-label={`Set row limit ${option}`}
+                  className={cn(
+                    "rounded-lg px-2 py-1 text-left text-xs transition-colors",
+                    selected
+                      ? "bg-primary-dim text-primary"
+                      : "bg-inset text-text hover:bg-primary-dim hover:text-primary",
+                  )}
+                  onClick={() => {
+                    onChange(option);
+                    setOpen(false);
+                  }}
+                >
+                  {option}
+                </button>
+              );
+            })}
           </div>
         </div>
-      </button>
+      ) : null}
+    </div>
+  );
+}
+
+function InlineTokenFilterControl({
+  label,
+  value,
+  placeholder,
+  addLabel,
+  badgePrefix,
+  onChange,
+  className,
+}: InlineTokenFilterControlProps) {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  const [open, setOpen] = useState(false);
+  const [draft, setDraft] = useState("");
+
+  useEffect(() => {
+    if (!open) return;
+
+    const handlePointerDown = (event: MouseEvent) => {
+      if (!(event.target instanceof Node)) return;
+      if (containerRef.current?.contains(event.target)) return;
+      setOpen(false);
+      setDraft("");
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      setOpen(false);
+      setDraft("");
+    };
+
+    const frame = window.requestAnimationFrame(() => {
+      inputRef.current?.focus();
+      inputRef.current?.select();
+    });
+
+    document.addEventListener("mousedown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      window.cancelAnimationFrame(frame);
+      document.removeEventListener("mousedown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [open]);
+
+  const applyDraft = () => {
+    const next = draft.trim();
+    if (!next) return;
+    onChange(next);
+    setOpen(false);
+    setDraft("");
+  };
+
+  const clearValue = () => {
+    onChange("");
+    setOpen(false);
+    setDraft("");
+  };
+
+  return (
+    <div ref={containerRef} className={cn("relative min-w-0", className)}>
+      {value ? (
+        <span className="inline-flex max-w-full items-center gap-2 rounded-full border border-primary/30 bg-primary-dim px-2.5 py-1 font-mono text-[11px] text-primary">
+          <span className="min-w-0 truncate">
+            {badgePrefix}: {value}
+          </span>
+          <button
+            type="button"
+            aria-label={`Remove ${label.toLowerCase()} filter`}
+            title={`Remove ${label.toLowerCase()} filter`}
+            className="rounded-full border border-transparent px-1 text-[10px] leading-none text-primary transition-colors hover:border-primary/25 hover:bg-primary/10"
+            onClick={clearValue}
+          >
+            X
+          </button>
+        </span>
+      ) : (
+        <>
+          <button
+            type="button"
+            aria-label={`Add ${label.toLowerCase()} filter`}
+            aria-expanded={open}
+            className={cn(
+              "inline-flex max-w-full items-center overflow-hidden text-ellipsis whitespace-nowrap rounded-full border px-3 py-1.5 font-mono text-[11px] transition-colors",
+              open
+                ? "border-primary bg-primary-dim text-primary"
+                : "border-border-subtle bg-surface text-muted hover:border-primary/30 hover:text-text",
+            )}
+            onClick={() => {
+              setDraft("");
+              setOpen((current) => !current);
+            }}
+          >
+            {addLabel}
+          </button>
+          {open ? (
+            <div
+              role="dialog"
+              aria-label={`${label} filter input`}
+              className="absolute left-0 top-full z-20 mt-2 w-[280px] rounded-xl border border-border-subtle bg-surface p-2 shadow-[0_12px_30px_rgb(0_0_0_/_0.18)]"
+            >
+              <div className="flex flex-col gap-2">
+                <TextField
+                  ref={inputRef}
+                  aria-label={label}
+                  value={draft}
+                  onChange={(event) => setDraft(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                      applyDraft();
+                    }
+                  }}
+                  placeholder={placeholder}
+                />
+                <div className="flex items-center justify-end gap-2">
+                  <Button
+                    variant="ghost"
+                    size="xxs"
+                    onClick={() => {
+                      setOpen(false);
+                      setDraft("");
+                    }}
+                  >
+                    CANCEL
+                  </Button>
+                  <Button
+                    variant="primary"
+                    size="xxs"
+                    disabled={draft.trim().length === 0}
+                    onClick={applyDraft}
+                  >
+                    ADD
+                  </Button>
+                </div>
+              </div>
+            </div>
+          ) : null}
+        </>
+      )}
     </div>
   );
 }
@@ -691,6 +1049,8 @@ function LogEntryRow({
 }: LogEntryRowProps) {
   const hasDetails = entry.data !== undefined || entry.expandable;
   const leftOffset = Math.min(depth, 8) * 14;
+  const markerBadgeClass =
+    "h-7 w-7 justify-center px-0 text-center font-mono leading-none";
   const handleSummaryClick = () => {
     if (hasDetails) {
       onToggleExpanded();
@@ -709,10 +1069,16 @@ function LogEntryRow({
       <div
         role={hasDetails ? "button" : undefined}
         tabIndex={hasDetails ? 0 : undefined}
-        aria-label={hasDetails ? `${expanded ? "Collapse" : "Expand"} log row ${entry.id}` : undefined}
+        aria-label={
+          hasDetails
+            ? `${expanded ? "Collapse" : "Expand"} log row ${entry.id}`
+            : undefined
+        }
         className={cn(
           "flex items-start gap-2.5 px-2.5 py-2",
-          hasDetails ? "cursor-pointer focus:outline-none focus:ring-2 focus:ring-primary/35" : null,
+          hasDetails
+            ? "cursor-pointer focus:outline-none focus:ring-2 focus:ring-primary/35"
+            : null,
         )}
         onClick={handleSummaryClick}
         onKeyDown={(event) => {
@@ -725,20 +1091,20 @@ function LogEntryRow({
       >
         <div className="shrink-0 flex flex-col gap-1">
           <Badge
-            variant={kindVariant(entry.kind)}
-            aria-label={entry.kind}
-            title={entry.kind}
-            className="min-w-9 justify-center px-2 text-center"
-          >
-            {kindDisplayLabel(entry.kind)}
-          </Badge>
-          <Badge
             variant={levelVariant(entry.level)}
             aria-label={`Level ${entry.level}`}
             title={entry.level.toUpperCase()}
-            className="min-w-7 justify-center px-1.5 text-center font-mono"
+            className={markerBadgeClass}
           >
             {levelSymbol(entry.level)}
+          </Badge>
+          <Badge
+            variant={kindVariant(entry.kind)}
+            aria-label={entry.kind}
+            title={entry.kind}
+            className={markerBadgeClass}
+          >
+            {kindDisplayLabel(entry.kind)}
           </Badge>
         </div>
 
@@ -818,7 +1184,9 @@ function LogEntryRow({
                 {entry.parentId ? (
                   <div>
                     <span className="text-muted">parent</span>:{" "}
-                    <span className="font-mono break-all">{entry.parentId}</span>
+                    <span className="font-mono break-all">
+                      {entry.parentId}
+                    </span>
                   </div>
                 ) : null}
               </div>
@@ -900,14 +1268,13 @@ export default function LogsWindowApp({
   const [tailEnabled, setTailEnabled] = useState(
     initialPayload?.tailEnabled ?? true,
   );
-  const [filtersExpanded, setFiltersExpanded] = useState(false);
   const [entries, setEntries] = useState<LogEntry[]>([]);
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<ViewerNotice>(null);
+  const noticeIdRef = useRef(0);
   const scrollRef = useRef<HTMLDivElement | null>(null);
-  const filtersPanelRef = useRef<HTMLDivElement | null>(null);
   const liveBufferRef = useRef<Map<string, LogEntry>>(new Map());
   const liveOnlySinceMsRef = useRef<number | null>(null);
   const flushTimerRef = useRef<number | null>(null);
@@ -922,14 +1289,34 @@ export default function LogsWindowApp({
   }, [filter]);
 
   const updateControls = (
-    next:
-      | ControlState
-      | ((current: ControlState) => ControlState),
+    next: ControlState | ((current: ControlState) => ControlState),
   ) => {
     setLoading(true);
     setError(null);
     setControls(next);
   };
+
+  const showNotice = useCallback(
+    (
+      next: Pick<Exclude<ViewerNotice, null>, "kind" | "message"> & {
+        autoCloseMs?: number | null;
+      },
+    ) => {
+      noticeIdRef.current += 1;
+      setNotice({
+        id: noticeIdRef.current,
+        kind: next.kind,
+        message: next.message,
+        autoCloseMs:
+          next.autoCloseMs === undefined ? NOTICE_AUTO_CLOSE_MS : next.autoCloseMs,
+      });
+    },
+    [],
+  );
+
+  const dismissNotice = useCallback(() => {
+    setNotice(null);
+  }, []);
 
   useEffect(() => {
     const currentWindow = getCurrentWindow();
@@ -937,21 +1324,17 @@ export default function LogsWindowApp({
     let unlisten: (() => void) | undefined;
 
     void currentWindow
-      .listen<LogWindowNavigatePayload>(
-        LOG_WINDOW_NAVIGATE_EVENT,
-        (event) => {
-          const payload = normalizeLogNavigatePayload(event.payload);
-          if (stopped) return;
-          setLoading(true);
-          setError(null);
-          setControls(controlsFromPayload(payload));
-          setTailEnabled(payload.tailEnabled ?? true);
-          liveOnlySinceMsRef.current = null;
-          setFiltersExpanded(false);
-          setExpandedIds(new Set());
-          setNotice(null);
-        },
-      )
+      .listen<LogWindowNavigatePayload>(LOG_WINDOW_NAVIGATE_EVENT, (event) => {
+        const payload = normalizeLogNavigatePayload(event.payload);
+        if (stopped) return;
+        setLoading(true);
+        setError(null);
+        setControls(controlsFromPayload(payload));
+        setTailEnabled(payload.tailEnabled ?? true);
+        liveOnlySinceMsRef.current = null;
+        setExpandedIds(new Set());
+        setNotice(null);
+      })
       .then((dispose) => {
         if (stopped) {
           dispose();
@@ -1067,33 +1450,15 @@ export default function LogsWindowApp({
   }, [deferredEntries, tailEnabled, expandedIds]);
 
   useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) {
-        return;
-      }
-      if (event.key !== "`" && event.code !== "Backquote") return;
-      event.preventDefault();
-      setFiltersExpanded((current) => !current);
-    };
-
-    window.addEventListener("keydown", handleKeyDown);
+    if (!notice || notice.autoCloseMs == null) return;
+    const noticeId = notice.id;
+    const timerId = window.setTimeout(() => {
+      setNotice((current) => (current?.id === noticeId ? null : current));
+    }, notice.autoCloseMs);
     return () => {
-      window.removeEventListener("keydown", handleKeyDown);
+      window.clearTimeout(timerId);
     };
-  }, []);
-
-  useEffect(() => {
-    if (!filtersExpanded) return;
-    const frame = window.requestAnimationFrame(() => {
-      const input = filtersPanelRef.current?.querySelector("input");
-      if (input instanceof HTMLInputElement) {
-        input.focus();
-      }
-    });
-    return () => {
-      window.cancelAnimationFrame(frame);
-    };
-  }, [filtersExpanded]);
+  }, [notice]);
 
   const isTreeView = Boolean(filter.traceId || filter.correlationId);
   const appliedFilterCount = activeFilterCount(filter);
@@ -1143,7 +1508,6 @@ export default function LogsWindowApp({
     setError(null);
     setControls(controlsFromPayload(null));
     setTailEnabled(true);
-    setFiltersExpanded(false);
     setExpandedIds(new Set());
     setNotice(null);
   };
@@ -1152,20 +1516,26 @@ export default function LogsWindowApp({
     try {
       const result = await exportLogs(filter);
       if (!result) {
-        setNotice({ kind: "error", message: "Log export is only available in Tauri." });
+        showNotice({
+          kind: "error",
+          message: "Log export is only available in Tauri.",
+          autoCloseMs: null,
+        });
         return;
       }
-      setNotice({
+      showNotice({
         kind: "success",
         message: `Exported ${result.count} log entries to ${result.path}`,
+        autoCloseMs: null,
       });
     } catch (exportError) {
-      setNotice({
+      showNotice({
         kind: "error",
         message:
           exportError instanceof Error
             ? exportError.message
             : "Failed to export logs.",
+        autoCloseMs: null,
       });
     }
   };
@@ -1180,7 +1550,7 @@ export default function LogsWindowApp({
     setLoading(false);
     setExpandedIds(new Set());
     setTailEnabled(true);
-    setNotice({
+    showNotice({
       kind: "success",
       message: "Cleared current view. Only new logs will appear.",
     });
@@ -1206,7 +1576,8 @@ export default function LogsWindowApp({
 
   return (
     <div className="min-h-screen bg-app text-text">
-      <div className="mx-auto flex h-screen max-w-[1440px] flex-col px-5 py-5">
+      {notice ? <NoticeToast notice={notice} onDismiss={dismissNotice} /> : null}
+      <div className="flex h-screen w-full flex-col px-5 py-5">
         <div className="flex h-full flex-col rounded-2xl border border-border-subtle bg-surface shadow-[0_16px_40px_rgb(0_0_0_/_0.12)]">
           <div className="border-b border-border-subtle px-4 py-3">
             <div className="flex flex-wrap items-center justify-between gap-3">
@@ -1218,37 +1589,30 @@ export default function LogsWindowApp({
                   <Badge variant={isTreeView ? "primary" : "muted"}>
                     {isTreeView ? "TRACE VIEW" : "LIVE FEED"}
                   </Badge>
+                  <ViewModeIndicator
+                    isTreeView={isTreeView}
+                    limit={filter.limit ?? DEFAULT_LOG_LIMIT}
+                  />
                   {appliedFilterCount > 0 ? (
                     <Badge variant="muted">
-                      {appliedFilterCount} FILTER{appliedFilterCount === 1 ? "" : "S"}
+                      {appliedFilterCount} FILTER
+                      {appliedFilterCount === 1 ? "" : "S"}
                     </Badge>
                   ) : null}
-                </div>
-                <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xxs text-muted">
-                  <span>{filterSummary(filter)}</span>
-                  <span>·</span>
-                  <span>
-                    {isTreeView
-                      ? "Grouped by trace lineage"
-                      : `Showing up to ${filter.limit ?? DEFAULT_LOG_LIMIT} rows`}
-                  </span>
                 </div>
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 <Badge variant={tailEnabled ? "success" : "muted"}>
                   {tailEnabled ? "TAILING" : "PAUSED"}
                 </Badge>
-                <Button
-                  variant="ghost"
-                  size="xxs"
-                  onClick={() => setFiltersExpanded((current) => !current)}
-                >
-                  {filtersExpanded ? "HIDE FILTERS" : "SHOW FILTERS"}
-                </Button>
                 <Button variant="ghost" size="xxs" onClick={handleReset}>
                   RESET
                 </Button>
-                <Button variant="ghost" size="xxs" onClick={() => void handleExport()}>
+                <Button
+                  variant="ghost"
+                  size="xxs"
+                  onClick={() => void handleExport()}
+                >
                   EXPORT
                 </Button>
                 <Button variant="danger" size="xxs" onClick={handleClear}>
@@ -1258,160 +1622,97 @@ export default function LogsWindowApp({
             </div>
           </div>
 
-          {notice ? (
-            <div
-              className={cn(
-                "border-b border-border-subtle px-5 py-3 text-xs",
-                notice.kind === "error" ? "text-error" : "text-success",
-              )}
-            >
-              {notice.message}
-            </div>
-          ) : null}
-
-          <div className="relative flex min-h-0 flex-1 flex-col">
-            {filtersExpanded ? (
-              <div className="absolute inset-0 z-20 p-4 pointer-events-none">
-                <button
-                  type="button"
-                  aria-label="Close filters backdrop"
-                  className="absolute inset-0 bg-app/10 backdrop-blur-[1px] pointer-events-auto"
-                  onClick={() => setFiltersExpanded(false)}
-                />
-                <div
-                  ref={filtersPanelRef}
-                  role="dialog"
-                  aria-label="Log filters"
-                  className="relative mx-auto w-full max-w-[1120px] rounded-2xl border border-border-subtle bg-surface/98 shadow-[0_20px_50px_rgb(0_0_0_/_0.18)] pointer-events-auto"
-                  onClick={(event) => event.stopPropagation()}
-                >
-                  <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border-subtle px-4 py-3">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <div className="text-xxs font-bold tracking-[0.08em] uppercase text-primary">
-                        Filters
-                      </div>
-                      <Badge variant="muted">` TOGGLE</Badge>
-                      <span className="text-[11px] text-muted">
-                        Click tag pills to cycle include, exclude, ignore
-                      </span>
-                    </div>
-                    <Button
-                      variant="ghost"
-                      size="xxs"
-                      onClick={() => setFiltersExpanded(false)}
-                    >
-                      CLOSE
-                    </Button>
-                  </div>
-
-                  <div className="px-4 py-3">
-                    <div>
-                      <div className="mb-2 text-[11px] font-bold tracking-[0.08em] uppercase text-muted">
-                        Tags
-                      </div>
-                      <div className="flex flex-wrap gap-2">
-                        {filterTags.map((tag) => (
-                          <TagStatePill
-                            key={tag}
-                            tag={tag}
-                            state={
-                              includedTags.has(tag)
-                                ? "include"
-                                : excludedTags.has(tag)
-                                  ? "exclude"
-                                  : "ignore"
-                            }
-                            onCycle={handleCycleTagState}
-                          />
-                        ))}
-                      </div>
-                    </div>
-
-                    <div className="mt-4 border-t border-border-subtle pt-3">
-                      <VerbosityControl
-                        value={controls.verbosity}
-                        onChange={(next) =>
-                          updateControls((current) => ({
-                            ...current,
-                            verbosity: next,
-                          }))
+          <div className="border-b border-border-subtle px-4 py-3">
+            <div className="flex flex-col gap-3">
+              <div className="flex flex-wrap items-center gap-3">
+                <div className="min-w-0 flex-1">
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {filterTags.map((tag) => (
+                      <TagStatePill
+                        key={tag}
+                        tag={tag}
+                        state={
+                          includedTags.has(tag)
+                            ? "include"
+                            : excludedTags.has(tag)
+                              ? "exclude"
+                              : "ignore"
                         }
+                        onCycle={handleCycleTagState}
                       />
-                    </div>
-
-                    <div className="mt-2 grid gap-2">
-                      <div className="grid gap-2 lg:grid-cols-2">
-                        <TextField
-                          value={controls.traceId}
-                          onChange={(event) =>
-                            updateControls((current) => ({
-                              ...current,
-                              traceId: event.target.value,
-                            }))
-                          }
-                          placeholder="trace id"
-                        />
-                        <TextField
-                          value={controls.correlationId}
-                          onChange={(event) =>
-                            updateControls((current) => ({
-                              ...current,
-                              correlationId: event.target.value,
-                            }))
-                          }
-                          placeholder="tool correlation id"
-                        />
-                      </div>
-                    </div>
-
-                    <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="text-xxs uppercase tracking-[0.06em] text-muted">
-                          Source
-                        </span>
-                        <SelectField
-                          value={controls.source}
-                          onChange={(event) =>
-                            updateControls((current) => ({
-                              ...current,
-                              source: event.target.value as LogSource | "",
-                            }))
-                          }
-                        >
-                          {SOURCES.map((source) => (
-                            <option key={source || "all"} value={source}>
-                              {source ? `Source: ${source}` : "All sources"}
-                            </option>
-                          ))}
-                        </SelectField>
-                      </div>
-
-                      <div className="flex items-center gap-2">
-                        <span className="text-xxs uppercase tracking-[0.06em] text-muted">
-                          Row limit
-                        </span>
-                        <SelectField
-                          value={String(controls.limit)}
-                          onChange={(event) =>
-                            updateControls((current) => ({
-                              ...current,
-                              limit: normalizeLimit(Number(event.target.value)),
-                            }))
-                          }
-                        >
-                          {LIMIT_OPTIONS.map((option) => (
-                            <option key={option} value={option}>
-                              {option}
-                            </option>
-                          ))}
-                        </SelectField>
-                      </div>
-                    </div>
+                    ))}
                   </div>
                 </div>
-              </div>
-            ) : null}
 
+                <div className="ml-auto flex flex-nowrap items-center gap-3">
+                  <VerbosityPillControl
+                    value={controls.verbosity}
+                    onChange={(next) =>
+                      updateControls((current) => ({
+                        ...current,
+                        verbosity: next,
+                      }))
+                    }
+                  />
+                  <SourceControl
+                    value={controls.source}
+                    onChange={(next) =>
+                      updateControls((current) => ({
+                        ...current,
+                        source: next,
+                      }))
+                    }
+                  />
+                </div>
+              </div>
+
+              <div className="flex min-w-0 flex-nowrap items-center gap-3">
+                <div className="flex min-w-0 flex-nowrap items-center gap-3">
+                  <InlineTokenFilterControl
+                    label="Trace ID"
+                    value={controls.traceId}
+                    placeholder="trace id"
+                    addLabel="+ TRACE ID"
+                    badgePrefix="trace"
+                    className="min-w-0 w-[220px] max-w-[220px]"
+                    onChange={(next) =>
+                      updateControls((current) => ({
+                        ...current,
+                        traceId: next,
+                      }))
+                    }
+                  />
+                  <InlineTokenFilterControl
+                    label="Tool Correlation ID"
+                    value={controls.correlationId}
+                    placeholder="tool correlation id"
+                    addLabel="+ TOOL CORREL ID"
+                    badgePrefix="tool"
+                    className="min-w-0 w-[220px] max-w-[220px]"
+                    onChange={(next) =>
+                      updateControls((current) => ({
+                        ...current,
+                        correlationId: next,
+                      }))
+                    }
+                  />
+                </div>
+                <div className="ml-auto shrink-0">
+                  <RowLimitControl
+                    value={controls.limit}
+                    onChange={(next) =>
+                      updateControls((current) => ({
+                        ...current,
+                        limit: next,
+                      }))
+                    }
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="relative flex min-h-0 flex-1 flex-col">
             {!tailEnabled ? (
               <div className="absolute right-4 top-4 z-10">
                 <Button variant="primary" size="xs" onClick={handleJumpToLive}>
@@ -1430,7 +1731,9 @@ export default function LogsWindowApp({
                   Loading logs…
                 </div>
               ) : error ? (
-                <div className="py-12 text-center text-sm text-error">{error}</div>
+                <div className="py-12 text-center text-sm text-error">
+                  {error}
+                </div>
               ) : deferredEntries.length === 0 ? (
                 <div className="py-12 text-center text-sm text-muted">
                   No log entries match the current filter.

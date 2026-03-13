@@ -157,7 +157,7 @@ export async function agentLoop(
         },
         context: runLogContext,
       });
-      logStreamDebug(tabId, debugEnabled, "turn:start", turnContext, {
+      logStreamDebug(debugEnabled, "turn:start", turnContext, {
         iteration,
         apiMessageCount: currentApiMessages.length,
         modelId,
