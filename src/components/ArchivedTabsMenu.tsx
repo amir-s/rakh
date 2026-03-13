@@ -11,6 +11,8 @@ import { restoreArchivedTab } from "@/agent/sessionRestore";
 import {
   loadArchivedSessions,
   deleteSession,
+  listenForSessionChanges,
+  sessionChangeAffectsArchivedSessions,
   setSessionPinned,
   type PersistedSession,
 } from "@/agent/persistence";
@@ -187,6 +189,34 @@ export default function ArchivedTabsMenu() {
     window.addEventListener("pointerdown", handlePointerDown);
     return () => window.removeEventListener("pointerdown", handlePointerDown);
   }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+
+    let cancelled = false;
+    let unlisten: (() => void) | null = null;
+    const refreshArchivedSessions = async () => {
+      const nextSessions = await loadArchivedSessions();
+      if (cancelled) return;
+      setSessions(nextSessions);
+    };
+
+    void listenForSessionChanges((event) => {
+      if (!sessionChangeAffectsArchivedSessions(event)) return;
+      void refreshArchivedSessions();
+    }).then((nextUnlisten) => {
+      if (cancelled) {
+        nextUnlisten?.();
+        return;
+      }
+      unlisten = nextUnlisten;
+    });
+
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, [loadArchived, open]);
 
   const handleRestore = useCallback(
     async (session: PersistedSession) => {

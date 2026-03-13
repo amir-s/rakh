@@ -38,7 +38,9 @@ import {
 import { writeProjectScriptsConfig } from "@/projectScripts";
 import { logFrontendSoon } from "@/logging/client";
 import {
+  listenForSessionChanges,
   loadArchivedSessions,
+  sessionChangeAffectsArchivedSessions,
   setSessionPinned,
   type PersistedSession,
 } from "@/agent/persistence";
@@ -225,14 +227,29 @@ export default function NewSession({ onSubmit }: NewSessionProps) {
 
   useEffect(() => {
     let cancelled = false;
+    let unlisten: (() => void) | null = null;
 
-    void loadArchivedSessions().then((sessions) => {
+    const refreshRecentSessions = async () => {
+      const sessions = await loadArchivedSessions();
       if (cancelled) return;
       setRecentSessions(sessions);
+    };
+
+    void refreshRecentSessions();
+    void listenForSessionChanges((event) => {
+      if (!sessionChangeAffectsArchivedSessions(event)) return;
+      void refreshRecentSessions();
+    }).then((nextUnlisten) => {
+      if (cancelled) {
+        nextUnlisten?.();
+        return;
+      }
+      unlisten = nextUnlisten;
     });
 
     return () => {
       cancelled = true;
+      unlisten?.();
     };
   }, []);
 

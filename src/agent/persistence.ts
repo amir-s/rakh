@@ -75,6 +75,19 @@ export interface PersistedSession {
   communicationProfile: string;
 }
 
+export type SessionChangeKind = "upserted" | "archived" | "pinned" | "deleted";
+
+export interface SessionChangeEvent {
+  sessionId: string;
+  change: SessionChangeKind;
+  archived: boolean | null;
+  previousArchived: boolean | null;
+  pinned: boolean | null;
+  changedAt: number;
+}
+
+export type UnlistenFn = () => void;
+
 /* ─────────────────────────────────────────────────────────────────────────────
    Tauri invoke helper (safe outside Tauri)
 ───────────────────────────────────────────────────────────────────────────── */
@@ -89,6 +102,38 @@ async function invoke<T>(
 ): Promise<T> {
   const { invoke: tauriInvoke } = await import("@tauri-apps/api/core");
   return tauriInvoke<T>(cmd, args);
+}
+
+export function sessionChangeAffectsArchivedSessions(
+  event: SessionChangeEvent,
+): boolean {
+  switch (event.change) {
+    case "archived":
+      return event.archived === true;
+    case "pinned":
+      return event.archived === true;
+    case "deleted":
+      return event.previousArchived === true;
+    case "upserted":
+      return event.archived === true || event.previousArchived === true;
+    default:
+      return false;
+  }
+}
+
+export async function listenForSessionChanges(
+  onChange: (event: SessionChangeEvent) => void,
+): Promise<UnlistenFn | null> {
+  if (!isTauri()) return null;
+
+  try {
+    const { listen } = await import("@tauri-apps/api/event");
+    return await listen<SessionChangeEvent>("session_changed", (event) => {
+      onChange(event.payload);
+    });
+  } catch {
+    return null;
+  }
 }
 
 function getPersistedSessionComparableValue(session: PersistedSession) {
