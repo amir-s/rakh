@@ -220,7 +220,13 @@ describe("LogsWindowApp", () => {
   });
 
   it("adds and removes a tool correlation id filter inline", async () => {
-    logsMocks.queryLogsMock.mockResolvedValue([]);
+    logsMocks.queryLogsMock.mockResolvedValue([
+      makeEntry({
+        id: "tool-filter-entry",
+        correlationId: "tool-1",
+        message: "Tool filtered row",
+      }),
+    ]);
 
     render(
       <LogsWindowApp
@@ -248,6 +254,13 @@ describe("LogsWindowApp", () => {
     });
 
     expect(screen.getByText("tool: tool-1")).not.toBeNull();
+    await waitFor(() => {
+      expect(
+        screen
+          .getAllByText("tool: tool-1")
+          .some((element) => element.className.includes("border-dashed")),
+      ).toBe(true);
+    });
 
     fireEvent.click(
       screen.getByRole("button", { name: "Remove tool correlation id filter" }),
@@ -719,6 +732,11 @@ describe("LogsWindowApp", () => {
     await screen.findByText("Root operation");
     expect(screen.getByLabelText("Trace tree view")).not.toBeNull();
     expect(screen.getByText("Child operation")).not.toBeNull();
+    expect(
+      screen
+        .getAllByText("trace: trace-1")
+        .some((element) => element.className.includes("border-dashed")),
+    ).toBe(true);
 
     fireEvent.click(screen.getByRole("button", { name: "EXPORT" }));
     await screen.findByText("Exported 2 log entries to /tmp/rakh-logs.json");
