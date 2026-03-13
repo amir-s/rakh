@@ -511,7 +511,9 @@ describe("ArchivedTabsMenu", () => {
     await waitFor(() => {
       expect(persistenceMock.deleteSession).toHaveBeenCalledWith("docs");
     });
-    expect(screen.queryByText("Docs notes")).toBeNull();
+    await waitFor(() => {
+      expect(screen.queryByText("Docs notes")).toBeNull();
+    });
 
     fireEvent.click(screen.getByTitle("Open: Platform work"));
     await waitFor(() => {
