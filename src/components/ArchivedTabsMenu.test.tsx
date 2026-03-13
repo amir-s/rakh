@@ -254,12 +254,19 @@ describe("ArchivedTabsMenu", () => {
         false,
       );
     });
-    expect(screen.queryByRole("button", { name: "Delete Pinned platform tab" })).not.toBeNull();
+    await waitFor(() => {
+      expect(
+        screen.queryByRole("button", { name: "Delete Pinned platform tab" }),
+      ).not.toBeNull();
 
-    const groupedItems = Array.from(
-      document.querySelectorAll(".archived-group-list .archived-item-label"),
-    ).map((node) => node.textContent);
-    expect(groupedItems).toEqual(["Pinned platform tab", "Regular platform tab"]);
+      const groupedItems = Array.from(
+        document.querySelectorAll(".archived-group-list .archived-item-label"),
+      ).map((node) => node.textContent);
+      expect(groupedItems).toEqual([
+        "Pinned platform tab",
+        "Regular platform tab",
+      ]);
+    });
   });
 
   it("collapses and expands project groups", async () => {
