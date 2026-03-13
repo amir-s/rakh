@@ -2,7 +2,13 @@ import { cn } from "@/utils/cn";
 
 export type ButtonVariant = "primary" | "secondary" | "ghost" | "danger";
 export type ButtonSize = "xxs" | "xs" | "sm" | "md";
-export type BadgeVariant = "primary" | "success" | "danger" | "muted";
+export type BadgeVariant =
+  | "primary"
+  | "success"
+  | "warning"
+  | "info"
+  | "danger"
+  | "muted";
 export type StatusDotVariant =
   | "idle"
   | "thinking"

@@ -222,6 +222,8 @@ export interface ChatMessage {
   role: "user" | "assistant";
   content: string;
   attachments?: AttachedImage[];
+  /** Structured log trace for this assistant message, when it belongs to a run. */
+  traceId?: string;
   /**
    * Display name of the agent that produced this message.
    * Undefined / omitted means the main Rakh agent.
@@ -354,4 +356,6 @@ export interface AgentState {
   queueState: AgentQueueState;
   /** Controls debug-only UI surfaces for this tab */
   showDebug?: boolean;
+  /** Latest known run trace for this tab. Not persisted across restarts. */
+  lastRunTraceId?: string;
 }

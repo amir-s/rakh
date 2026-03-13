@@ -29,8 +29,22 @@ type MockChatMessage = {
   role?: string;
   content?: string;
   timestamp?: number;
+  traceId?: string;
   toolCalls?: MockToolCall[];
 };
+
+type MockChatBubbleGroup =
+  | {
+      kind: "assistant";
+      key: string;
+      messages: MockChatMessage[];
+      agentName?: string;
+    }
+  | {
+      kind: "user";
+      key: string;
+      message: MockChatMessage;
+    };
 
 const workspaceMocks = vi.hoisted(() => ({
   sendMessageMock: vi.fn<(message: string) => void>(),
@@ -85,6 +99,7 @@ const workspaceMocks = vi.hoisted(() => ({
     setAutoApproveEdits: null as null | ((value: boolean) => void),
     setConfig: null as null | ((config: unknown) => void),
     showDebug: false,
+    lastRunTraceId: undefined as string | undefined,
     steerMessage: null as null | ((message: string, queuedMessageId?: string) => void),
     status: "idle" as "idle" | "thinking" | "working" | "done" | "error",
     stop: null as null | (() => void),
@@ -99,7 +114,9 @@ const workspaceMocks = vi.hoisted(() => ({
   switchToGitBranchMock: vi.fn(),
   detachGitHeadMock: vi.fn(),
   upsertSessionMock: vi.fn(),
+  openLogViewerWindowMock: vi.fn(),
   eventHandlers: new Map<string, (event: { payload: unknown }) => void>(),
+  chatBubbleGroups: [] as MockChatBubbleGroup[],
   terminalProps: null as null | {
     isOpen: boolean;
     cwd?: string;
@@ -212,7 +229,7 @@ vi.mock("@/agent/subagents", () => ({
 }));
 
 vi.mock("@/agent/chatBubbleGroups", () => ({
-  groupChatMessagesForBubbles: () => [],
+  groupChatMessagesForBubbles: () => workspaceMocks.chatBubbleGroups,
 }));
 
 vi.mock("@/components/artifact-pane/useSessionArtifacts", () => ({
@@ -224,8 +241,17 @@ vi.mock("@/components/artifact-pane/useSessionArtifacts", () => ({
 
 vi.mock("@/components/ArtifactPane", () => ({
   __esModule: true,
-  default: ({ onRefineEdit }: { onRefineEdit: (filePath: string) => void }) => (
-    <button onClick={() => onRefineEdit("src/test.ts")}>Refine edit</button>
+  default: ({
+    onRefineEdit,
+    onOpenLogs,
+  }: {
+    onRefineEdit: (filePath: string) => void;
+    onOpenLogs: () => void;
+  }) => (
+    <>
+      <button onClick={() => onRefineEdit("src/test.ts")}>Refine edit</button>
+      <button onClick={onOpenLogs}>Open artifact logs</button>
+    </>
   ),
   useArtifactUpdates: () => ({
     activeTab: "plan",
@@ -320,6 +346,11 @@ vi.mock("@/components/CompactToolCall", () => ({
   default: () => null,
 }));
 
+vi.mock("@/logging/window", () => ({
+  openLogViewerWindow: (...args: unknown[]) =>
+    workspaceMocks.openLogViewerWindowMock(...args),
+}));
+
 vi.mock("@/components/ReasoningThought", () => ({
   default: () => null,
 }));
@@ -355,6 +386,9 @@ vi.mock("@/components/ui", () => ({
     <div className={className} onClick={onClick}>
       {children}
     </div>
+  ),
+  StatusDot: ({ status }: { status: string }) => (
+    <span data-testid={`status-dot-${status}`}>{status}</span>
   ),
   TextField: ({
     value,
@@ -594,6 +628,7 @@ describe("WorkspacePage chat input", () => {
     workspaceMocks.switchToGitBranchMock.mockReset();
     workspaceMocks.detachGitHeadMock.mockReset();
     workspaceMocks.upsertSessionMock.mockReset();
+    workspaceMocks.openLogViewerWindowMock.mockReset();
     workspaceMocks.invokeMock.mockResolvedValue({
       matches: [
         "src/components/MentionTextarea.tsx",
@@ -634,6 +669,8 @@ describe("WorkspacePage chat input", () => {
       data: { detached: true },
     });
     workspaceMocks.upsertSessionMock.mockResolvedValue(undefined);
+    workspaceMocks.openLogViewerWindowMock.mockResolvedValue(true);
+    workspaceMocks.chatBubbleGroups = [];
     workspaceMocks.agentState = {
       autoApproveCommands: "no",
       autoApproveEdits: false,
@@ -662,6 +699,7 @@ describe("WorkspacePage chat input", () => {
       setAutoApproveEdits: workspaceMocks.setAutoApproveEditsMock,
       setConfig: workspaceMocks.setConfigMock,
       showDebug: false,
+      lastRunTraceId: undefined,
       steerMessage: workspaceMocks.steerMessageMock,
       status: "idle",
       stop: workspaceMocks.stopMock,
@@ -744,6 +782,97 @@ describe("WorkspacePage chat input", () => {
     });
 
     expect(workspaceMocks.stopAgentMock).toHaveBeenCalledWith("tab-1");
+  });
+
+  it("opens the detached viewer from the debug pane on the latest run trace", () => {
+    workspaceMocks.agentState = {
+      ...workspaceMocks.agentState,
+      lastRunTraceId: "trace-run-42",
+    };
+
+    render(<WorkspacePage />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Open artifact logs" }));
+
+    expect(workspaceMocks.openLogViewerWindowMock).toHaveBeenCalledWith({
+      origin: "debug-pane",
+      filter: { traceId: "trace-run-42" },
+    });
+  });
+
+  it("opens assistant trace logs from the chat bubble action", async () => {
+    workspaceMocks.chatBubbleGroups = [
+      {
+        kind: "assistant",
+        key: "assistant:msg-1",
+        messages: [
+          {
+            id: "msg-1",
+            role: "assistant",
+            content: "Finished the run.",
+            timestamp: 1,
+            traceId: "trace-assistant-1",
+          },
+        ],
+      },
+    ];
+
+    render(<WorkspacePage />);
+
+    fireEvent.click(screen.getByRole("button", { name: "VIEW TRACE LOGS" }));
+
+    await waitFor(() => {
+      expect(workspaceMocks.openLogViewerWindowMock).toHaveBeenCalledWith({
+        origin: "assistant-message",
+        filter: { traceId: "trace-assistant-1" },
+      });
+    });
+  });
+
+  it("opens tool correlation logs from grouped tool call rows without debug mode", async () => {
+    workspaceMocks.agentState = {
+      ...workspaceMocks.agentState,
+      showDebug: false,
+    };
+    workspaceMocks.chatBubbleGroups = [
+      {
+        kind: "assistant",
+        key: "assistant:msg-2",
+        messages: [
+          {
+            id: "msg-2",
+            role: "assistant",
+            content: "Checked the workspace.",
+            timestamp: 2,
+            toolCalls: [
+              {
+                id: "tc-1",
+                tool: "workspace_listDir",
+                args: { path: "src" },
+                status: "done",
+              },
+              {
+                id: "tc-2",
+                tool: "workspace_readFile",
+                args: { path: "README.md" },
+                status: "done",
+              },
+            ],
+          },
+        ],
+      },
+    ];
+
+    render(<WorkspacePage />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Open logs" }));
+
+    await waitFor(() => {
+      expect(workspaceMocks.openLogViewerWindowMock).toHaveBeenCalledWith({
+        origin: "tool-call",
+        filter: { correlationId: "tc-2" },
+      });
+    });
   });
 
   it("keeps the send button available while busy when text is queued", async () => {

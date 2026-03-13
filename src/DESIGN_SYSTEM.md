@@ -18,7 +18,7 @@
 - `IconButton`
 - Compact icon-only action button
 - `Badge`
-- Props: `variant` (`primary|success|danger|muted`)
+- Props: `variant` (`primary|success|warning|info|danger|muted`)
 - `StatusDot`
 - Props: `status` (`idle|thinking|working|done|error`)
 - `Panel`

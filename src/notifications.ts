@@ -16,8 +16,14 @@ function isTauri(): boolean {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 }
 
+function isDetachedLogsWindow(): boolean {
+  if (typeof window === "undefined") return false;
+  return new URLSearchParams(window.location.search).get("window") === "logs";
+}
+
 export async function ensureNotificationPermission(): Promise<boolean> {
   if (typeof window === "undefined") return false;
+  if (isDetachedLogsWindow()) return false;
 
   // In Tauri, use the plugin's permission system
   if (isTauri()) {

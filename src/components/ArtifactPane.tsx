@@ -21,6 +21,7 @@ export { useArtifactUpdates } from "./artifact-pane/useArtifactUpdates";
 
 interface ArtifactPaneProps {
   onRefineEdit: (filePath: string) => void;
+  onOpenLogs: () => void;
   onCollapse?: () => void;
   activeTab: ArtifactTab;
   unseenTabs: Set<ArtifactTab>;
@@ -37,6 +38,7 @@ interface ArtifactPaneProps {
 
 export default function ArtifactPane({
   onRefineEdit,
+  onOpenLogs,
   onCollapse,
   activeTab,
   unseenTabs,
@@ -166,7 +168,7 @@ export default function ArtifactPane({
         ) : null}
 
         {showDebug && effectiveActiveTab === "DEBUG" ? (
-          <DebugPane tabId={activeTabId} />
+          <DebugPane tabId={activeTabId} onOpenLogs={onOpenLogs} />
         ) : null}
       </div>
     </section>

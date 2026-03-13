@@ -71,4 +71,26 @@ describe("GroupedInlineToolCall", () => {
     ).not.toBeNull();
     expect(screen.getAllByTestId("grouped-tool-child")).toHaveLength(2);
   });
+
+  it("shows a log viewer action even when debug mode is off", () => {
+    const onOpenLogs = vi.fn();
+
+    render(
+      <GroupedInlineToolCall
+        toolCalls={[
+          makeToolCall("tc-1", "workspace_listDir", { path: "src" }),
+          makeToolCall("tc-2", "workspace_readFile", { path: "README.md" }),
+        ]}
+        onInspect={vi.fn()}
+        onOpenLogs={onOpenLogs}
+        showDebug={false}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Open logs" }));
+
+    expect(onOpenLogs).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "tc-2" }),
+    );
+  });
 });

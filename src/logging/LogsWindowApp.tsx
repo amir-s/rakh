@@ -1,0 +1,1468 @@
+import { startTransition, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import { Button, Badge, SelectField, TextField } from "@/components/ui";
+import { cn } from "@/utils/cn";
+import {
+  exportLogs,
+  listenForLogEntries,
+  queryLogs,
+} from "./client";
+import type {
+  LogTag,
+  LogEntry,
+  LogLevel,
+  LogQueryFilter,
+  LogSource,
+} from "./types";
+import { KNOWN_LOG_TAGS } from "./types";
+import LogJsonTree from "./LogJsonTree";
+import {
+  DEFAULT_LOG_LIMIT,
+  LOG_WINDOW_NAVIGATE_EVENT,
+  type LogWindowNavigatePayload,
+  normalizeLogNavigatePayload,
+} from "./window";
+
+const MAX_WINDOW_ENTRIES = 1000;
+const LIVE_FLUSH_MS = 75;
+const SCROLL_TAIL_THRESHOLD_PX = 28;
+const VERBOSITY_LEVELS: LogLevel[] = ["error", "warn", "info", "debug", "trace"];
+const SOURCES: Array<LogSource | ""> = ["", "frontend", "backend"];
+const LIMIT_OPTIONS = [100, 250, 500, 1000];
+
+type ViewerNotice =
+  | { kind: "success"; message: string }
+  | { kind: "error"; message: string }
+  | null;
+
+interface ControlState {
+  tagStates: Partial<Record<string, "include" | "exclude">>;
+  verbosity: LogLevel;
+  source: LogSource | "";
+  traceId: string;
+  correlationId: string;
+  limit: number;
+}
+
+interface LogTreeNode {
+  entry: LogEntry;
+  children: LogTreeNode[];
+}
+
+function normalizeLimit(limit: number): number {
+  if (!Number.isFinite(limit)) return DEFAULT_LOG_LIMIT;
+  return Math.max(1, Math.min(MAX_WINDOW_ENTRIES, Math.floor(limit)));
+}
+
+function normalizeTags(tags: readonly LogTag[] | undefined): LogTag[] {
+  return Array.from(
+    new Set(
+      (tags ?? [])
+        .map((tag) => tag.trim().toLowerCase())
+        .filter((tag) => tag.length > 0),
+    ),
+  ).sort();
+}
+
+function tagStateMap(filter: LogQueryFilter): ControlState["tagStates"] {
+  const states: ControlState["tagStates"] = {};
+  for (const tag of normalizeTags(filter.tags)) {
+    states[tag] = "include";
+  }
+  for (const tag of normalizeTags(filter.excludeTags)) {
+    states[tag] = "exclude";
+  }
+  return states;
+}
+
+function nextTagState(
+  current: ControlState["tagStates"],
+  tag: LogTag,
+): "include" | "exclude" | "ignore" {
+  switch (current[tag]) {
+    case "include":
+      return "exclude";
+    case "exclude":
+      return "ignore";
+    default:
+      return "include";
+  }
+}
+
+function applyTagState(
+  current: ControlState["tagStates"],
+  tag: LogTag,
+  next: "include" | "exclude" | "ignore",
+): ControlState["tagStates"] {
+  const normalizedTag = tag.trim().toLowerCase();
+  const updated = { ...current };
+  if (next === "ignore") {
+    delete updated[normalizedTag];
+    return updated;
+  }
+  updated[normalizedTag] = next;
+  return updated;
+}
+
+function tagListsFromStates(states: ControlState["tagStates"]): {
+  included: LogTag[];
+  excluded: LogTag[];
+} {
+  const included: LogTag[] = [];
+  const excluded: LogTag[] = [];
+  for (const [tag, state] of Object.entries(states)) {
+    if (state === "include") included.push(tag);
+    if (state === "exclude") excluded.push(tag);
+  }
+  included.sort();
+  excluded.sort();
+  return { included, excluded };
+}
+
+function levelsForVerbosity(verbosity: LogLevel): LogLevel[] {
+  return VERBOSITY_LEVELS.slice(0, VERBOSITY_LEVELS.indexOf(verbosity) + 1);
+}
+
+function verbosityFromLevels(levels: LogLevel[] | undefined): LogLevel {
+  if (!levels || levels.length === 0) return "trace";
+  const normalized = [...new Set(levels)].sort(
+    (left, right) => VERBOSITY_LEVELS.indexOf(left) - VERBOSITY_LEVELS.indexOf(right),
+  );
+  for (const candidate of VERBOSITY_LEVELS) {
+    const candidateLevels = levelsForVerbosity(candidate);
+    if (
+      candidateLevels.length === normalized.length &&
+      candidateLevels.every((level, index) => normalized[index] === level)
+    ) {
+      return candidate;
+    }
+  }
+  const maxIndex = normalized.reduce((highest, level) => {
+    return Math.max(highest, VERBOSITY_LEVELS.indexOf(level));
+  }, 0);
+  return VERBOSITY_LEVELS[Math.max(0, maxIndex)] ?? "trace";
+}
+
+function verbositySummary(verbosity: LogLevel): string {
+  switch (verbosity) {
+    case "error":
+      return "Errors only";
+    case "warn":
+      return "Warn+";
+    case "info":
+      return "Info+";
+    case "debug":
+      return "Debug+";
+    case "trace":
+      return "Trace";
+  }
+}
+
+function levelSymbol(level: LogLevel): string {
+  switch (level) {
+    case "trace":
+      return "T";
+    case "debug":
+      return "D";
+    case "info":
+      return "I";
+    case "warn":
+      return "W";
+    case "error":
+      return "E";
+  }
+}
+
+function nextVerbosityLevel(current: LogLevel): LogLevel {
+  const currentIndex = VERBOSITY_LEVELS.indexOf(current);
+  return VERBOSITY_LEVELS[(currentIndex + 1) % VERBOSITY_LEVELS.length] ?? "error";
+}
+
+function controlsFromPayload(
+  payload: LogWindowNavigatePayload | null,
+): ControlState {
+  const normalized = payload
+    ? normalizeLogNavigatePayload(payload)
+    : {
+        filter: { limit: DEFAULT_LOG_LIMIT },
+        origin: "manual" as const,
+        tailEnabled: true,
+      };
+  const filter = normalized.filter;
+  return {
+    tagStates: tagStateMap(filter),
+    verbosity: verbosityFromLevels(filter.levels),
+    source: filter.source ?? "",
+    traceId: filter.traceId ?? "",
+    correlationId: filter.correlationId ?? "",
+    limit: normalizeLimit(filter.limit ?? DEFAULT_LOG_LIMIT),
+  };
+}
+
+function buildQueryFilter(controls: ControlState): LogQueryFilter {
+  const { included, excluded } = tagListsFromStates(controls.tagStates);
+  return {
+    ...(included.length > 0 ? { tags: included } : {}),
+    ...(excluded.length > 0 ? { excludeTags: excluded } : {}),
+    ...(controls.verbosity !== "trace"
+      ? { levels: levelsForVerbosity(controls.verbosity) }
+      : {}),
+    ...(controls.source ? { source: controls.source } : {}),
+    ...(controls.traceId.trim() ? { traceId: controls.traceId.trim() } : {}),
+    ...(controls.correlationId.trim()
+      ? { correlationId: controls.correlationId.trim() }
+      : {}),
+    limit: normalizeLimit(controls.limit),
+  };
+}
+
+function formatTimestamp(timestampMs: number): string {
+  try {
+    return new Date(timestampMs).toLocaleString([], {
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+    });
+  } catch {
+    return String(timestampMs);
+  }
+}
+
+function sortEntriesAscending(entries: LogEntry[]): LogEntry[] {
+  return [...entries].sort((left, right) =>
+    left.timestampMs - right.timestampMs || left.id.localeCompare(right.id),
+  );
+}
+
+function mergeEntries(
+  baseEntries: LogEntry[],
+  liveEntries: LogEntry[],
+  limit: number,
+): LogEntry[] {
+  const byId = new Map<string, LogEntry>();
+  for (const entry of baseEntries) byId.set(entry.id, entry);
+  for (const entry of liveEntries) byId.set(entry.id, entry);
+
+  return sortEntriesAscending(Array.from(byId.values())).slice(
+    -Math.min(MAX_WINDOW_ENTRIES, normalizeLimit(limit)),
+  );
+}
+
+function matchesFilter(entry: LogEntry, filter: LogQueryFilter): boolean {
+  if (filter.source && entry.source !== filter.source) return false;
+  if (filter.levels && filter.levels.length > 0) {
+    if (!filter.levels.includes(entry.level)) return false;
+  }
+  if (filter.traceId && entry.traceId !== filter.traceId) return false;
+  if (filter.correlationId && entry.correlationId !== filter.correlationId) {
+    return false;
+  }
+  if (filter.excludeTags && filter.excludeTags.length > 0) {
+    if (filter.excludeTags.some((tag) => entry.tags.includes(tag))) {
+      return false;
+    }
+  }
+  if (!filter.tags || filter.tags.length === 0) return true;
+  const mode = filter.tagMode ?? "or";
+  return mode === "and"
+    ? filter.tags.every((tag) => entry.tags.includes(tag))
+    : filter.tags.some((tag) => entry.tags.includes(tag));
+}
+
+function levelVariant(level: LogLevel): "muted" | "primary" | "info" | "warning" | "danger" {
+  switch (level) {
+    case "trace":
+      return "muted";
+    case "debug":
+      return "primary";
+    case "info":
+      return "info";
+    case "warn":
+      return "warning";
+    case "error":
+      return "danger";
+  }
+}
+
+function kindVariant(kind: LogEntry["kind"]): "muted" | "primary" | "success" | "danger" {
+  switch (kind) {
+    case "start":
+      return "primary";
+    case "end":
+      return "success";
+    case "error":
+      return "danger";
+    default:
+      return "muted";
+  }
+}
+
+function kindDisplayLabel(kind: LogEntry["kind"]): string {
+  switch (kind) {
+    case "start":
+      return "↗";
+    case "end":
+      return "↘";
+    default:
+      return kind.toUpperCase();
+  }
+}
+
+function safePrettyJson(value: unknown): string {
+  try {
+    return JSON.stringify(value, null, 2) ?? String(value);
+  } catch {
+    return String(value);
+  }
+}
+
+async function copyToClipboard(text: string): Promise<boolean> {
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch {
+    // Fall through.
+  }
+
+  try {
+    const element = document.createElement("textarea");
+    element.value = text;
+    element.style.position = "fixed";
+    element.style.left = "-9999px";
+    document.body.appendChild(element);
+    element.focus();
+    element.select();
+    const copied = document.execCommand("copy");
+    document.body.removeChild(element);
+    return copied;
+  } catch {
+    return false;
+  }
+}
+
+function buildTree(entries: LogEntry[]): LogTreeNode[] {
+  const nodes = new Map<string, LogTreeNode>();
+  const roots: LogTreeNode[] = [];
+
+  for (const entry of entries) {
+    nodes.set(entry.id, { entry, children: [] });
+  }
+
+  for (const entry of entries) {
+    const node = nodes.get(entry.id);
+    if (!node) continue;
+    if (entry.parentId && nodes.has(entry.parentId)) {
+      nodes.get(entry.parentId)?.children.push(node);
+    } else {
+      roots.push(node);
+    }
+  }
+
+  const sortNodes = (items: LogTreeNode[]) => {
+    items.sort(
+      (left, right) =>
+        left.entry.timestampMs - right.entry.timestampMs ||
+        left.entry.id.localeCompare(right.entry.id),
+    );
+    for (const item of items) {
+      if (item.children.length > 0) {
+        sortNodes(item.children);
+      }
+    }
+  };
+  sortNodes(roots);
+  return roots;
+}
+
+function filterSummary(filter: LogQueryFilter): string {
+  const verbosity =
+    filter.levels && filter.levels.length > 0
+      ? verbositySummary(verbosityFromLevels(filter.levels))
+      : null;
+  const parts = [
+    filter.traceId ? `trace ${filter.traceId}` : null,
+    filter.correlationId ? `tool ${filter.correlationId}` : null,
+    filter.source ? `${filter.source} only` : null,
+    filter.tags?.length ? `tags ${filter.tags.join(", ")}` : null,
+    filter.excludeTags?.length
+      ? `excluding ${filter.excludeTags.join(", ")}`
+      : null,
+    verbosity,
+  ].filter(Boolean);
+
+  if (parts.length === 0) {
+    return `Global feed · latest ${filter.limit ?? DEFAULT_LOG_LIMIT} rows`;
+  }
+  return parts.join(" · ");
+}
+
+function activeFilterCount(filter: LogQueryFilter): number {
+  return [
+    filter.tags && filter.tags.length > 0 ? 1 : 0,
+    filter.excludeTags && filter.excludeTags.length > 0 ? 1 : 0,
+    filter.levels && filter.levels.length > 0 ? 1 : 0,
+    filter.source ? 1 : 0,
+    filter.traceId ? 1 : 0,
+    filter.correlationId ? 1 : 0,
+  ].reduce((sum, count) => sum + count, 0);
+}
+
+function visibleTagPills(filter: LogQueryFilter): LogTag[] {
+  const selected = new Set([
+    ...normalizeTags(filter.tags),
+    ...normalizeTags(filter.excludeTags),
+  ]);
+  const extras = Array.from(selected)
+    .filter((tag) => !KNOWN_LOG_TAGS.includes(tag as (typeof KNOWN_LOG_TAGS)[number]))
+    .sort();
+  return [...KNOWN_LOG_TAGS, ...extras];
+}
+
+function tagPillVisual(state: "include" | "exclude" | "ignore"): {
+  icon: string;
+  className: string;
+  description: string;
+} {
+  switch (state) {
+    case "include":
+      return {
+        icon: "+",
+        className:
+          "border-[color-mix(in_srgb,var(--color-success)_32%,transparent)] bg-[color-mix(in_srgb,var(--color-success)_16%,transparent)] text-success",
+        description: "included",
+      };
+    case "exclude":
+      return {
+        icon: "−",
+        className:
+          "border-[color-mix(in_srgb,var(--color-error)_34%,transparent)] bg-[color-mix(in_srgb,var(--color-error)_16%,transparent)] text-error",
+        description: "excluded",
+      };
+    default:
+      return {
+        icon: "•",
+        className: "border-border-subtle bg-surface text-muted hover:text-text",
+        description: "ignored",
+      };
+  }
+}
+
+function TagStatePill({
+  tag,
+  state,
+  onCycle,
+}: {
+  tag: LogTag;
+  state: "include" | "exclude" | "ignore";
+  onCycle: (tag: LogTag) => void;
+}) {
+  const visual = tagPillVisual(state);
+  return (
+    <button
+      type="button"
+      aria-label={`Tag filter ${tag}: ${visual.description}`}
+      title={`${tag} (${visual.description})`}
+      className={cn(
+        "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 font-mono text-[11px] transition-colors",
+        visual.className,
+      )}
+      onClick={() => onCycle(tag)}
+    >
+      <span aria-hidden="true" className="text-[12px] leading-none">
+        {visual.icon}
+      </span>
+      <span>{tag}</span>
+    </button>
+  );
+}
+
+function VerbosityControl({
+  value,
+  onChange,
+}: {
+  value: LogLevel;
+  onChange: (next: LogLevel) => void;
+}) {
+  const selectedIndex = VERBOSITY_LEVELS.indexOf(value);
+  const fillWidth = `${((selectedIndex + 1) / VERBOSITY_LEVELS.length) * 100}%`;
+  const symbol = levelSymbol(value);
+
+  return (
+    <div className="flex items-center gap-2">
+      <div className="text-[11px] font-bold tracking-[0.08em] uppercase text-muted">
+        Verbosity
+      </div>
+      <button
+        type="button"
+        aria-label={`Cycle verbosity, current ${value}`}
+        title={`Verbosity ${selectedIndex + 1}/${VERBOSITY_LEVELS.length} · ${verbositySummary(value)}`}
+        className="w-[124px] min-w-0 shrink-0 rounded-xl border border-border-subtle bg-inset/50 px-2.5 py-1.5 text-left transition-colors hover:border-primary/35 hover:bg-inset/70"
+        onClick={() => onChange(nextVerbosityLevel(value))}
+      >
+        <div className="flex items-center gap-2">
+          <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-surface px-1.5 text-[10px] font-bold text-text">
+            {selectedIndex + 1}
+          </span>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-1.5 truncate text-[11px] font-mono text-text">
+              <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full border border-border-subtle bg-surface text-[9px] font-bold text-text">
+                {symbol}
+              </span>
+              <span className="lowercase">{value}</span>
+            </div>
+            <div className="mt-1 h-1 overflow-hidden rounded-full bg-border-subtle">
+              <div
+                className="h-full rounded-full bg-primary transition-[width] duration-150"
+                style={{ width: fillWidth }}
+              />
+            </div>
+          </div>
+        </div>
+      </button>
+    </div>
+  );
+}
+
+interface LogEntryRowProps {
+  entry: LogEntry;
+  expanded: boolean;
+  onToggleExpanded: () => void;
+  includedTags: Set<string>;
+  excludedTags: Set<string>;
+  onTagAction: (tag: string, mode: "include" | "exclude") => void;
+  depth?: number;
+}
+
+function LogTagChip({
+  tag,
+  included,
+  excluded,
+  onAction,
+}: {
+  tag: string;
+  included: boolean;
+  excluded: boolean;
+  onAction: (tag: string, mode: "include" | "exclude") => void;
+}) {
+  const buttonRef = useRef<HTMLButtonElement | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [menuPosition, setMenuPosition] = useState<{
+    top: number;
+    left: number;
+  } | null>(null);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+
+    const updatePosition = () => {
+      const rect = buttonRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      setMenuPosition({
+        top: Math.min(window.innerHeight - 88, rect.bottom + 6),
+        left: Math.min(window.innerWidth - 156, Math.max(8, rect.left)),
+      });
+    };
+
+    const handlePointerDown = (event: MouseEvent) => {
+      if (!(event.target instanceof Node)) return;
+      if (buttonRef.current?.contains(event.target)) return;
+      if (menuRef.current?.contains(event.target)) return;
+      setMenuOpen(false);
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setMenuOpen(false);
+      }
+    };
+
+    updatePosition();
+    window.addEventListener("resize", updatePosition);
+    window.addEventListener("scroll", updatePosition, true);
+    document.addEventListener("mousedown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      window.removeEventListener("resize", updatePosition);
+      window.removeEventListener("scroll", updatePosition, true);
+      document.removeEventListener("mousedown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [menuOpen]);
+
+  const menu =
+    menuOpen && menuPosition
+      ? createPortal(
+          <div
+            ref={menuRef}
+            role="dialog"
+            aria-label={`Tag filter actions for ${tag}`}
+            className="fixed z-50 w-36 rounded-xl border border-border-subtle bg-surface p-2 shadow-[0_12px_30px_rgb(0_0_0_/_0.18)]"
+            style={{
+              top: `${menuPosition.top}px`,
+              left: `${menuPosition.left}px`,
+            }}
+          >
+            <div className="mb-2 text-[10px] uppercase tracking-[0.06em] text-muted">
+              {included ? "Included" : excluded ? "Excluded" : "Filter tag"}
+            </div>
+            <div className="flex flex-col gap-1">
+              <button
+                type="button"
+                className={cn(
+                  "rounded-lg px-2 py-1 text-left text-xs transition-colors",
+                  included
+                    ? "bg-primary-dim text-primary"
+                    : "bg-inset text-text hover:bg-primary-dim hover:text-primary",
+                )}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onAction(tag, "include");
+                  setMenuOpen(false);
+                }}
+              >
+                INCLUDE
+              </button>
+              <button
+                type="button"
+                className={cn(
+                  "rounded-lg px-2 py-1 text-left text-xs transition-colors",
+                  excluded
+                    ? "bg-[color-mix(in_srgb,var(--color-error)_10%,transparent)] text-error"
+                    : "bg-inset text-text hover:bg-[color-mix(in_srgb,var(--color-error)_10%,transparent)] hover:text-error",
+                )}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onAction(tag, "exclude");
+                  setMenuOpen(false);
+                }}
+              >
+                EXCLUDE
+              </button>
+            </div>
+          </div>,
+          document.body,
+        )
+      : null;
+
+  return (
+    <>
+      <button
+        ref={buttonRef}
+        type="button"
+        aria-haspopup="dialog"
+        aria-expanded={menuOpen}
+        aria-label={`Filter options for tag ${tag}`}
+        className={cn(
+          "rounded-full border px-2 py-0.5 font-mono transition-colors",
+          included
+            ? "border-primary bg-primary-dim text-primary"
+            : excluded
+              ? "border-[color-mix(in_srgb,var(--color-error)_30%,transparent)] bg-[color-mix(in_srgb,var(--color-error)_10%,transparent)] text-error"
+              : "border-transparent bg-inset text-text hover:border-border-subtle",
+        )}
+        onClick={(event) => {
+          event.stopPropagation();
+          setMenuOpen((current) => !current);
+        }}
+      >
+        {tag}
+      </button>
+      {menu}
+    </>
+  );
+}
+
+function LogEntryRow({
+  entry,
+  expanded,
+  onToggleExpanded,
+  includedTags,
+  excludedTags,
+  onTagAction,
+  depth = 0,
+}: LogEntryRowProps) {
+  const hasDetails = entry.data !== undefined || entry.expandable;
+  const leftOffset = Math.min(depth, 8) * 14;
+  const handleSummaryClick = () => {
+    if (hasDetails) {
+      onToggleExpanded();
+    }
+  };
+
+  return (
+    <div
+      className={cn(
+        "rounded-xl border border-border-subtle bg-surface transition-[border-color,background-color,box-shadow] duration-150",
+        "hover:border-primary/30 hover:bg-inset/25 hover:shadow-[0_8px_20px_rgb(0_0_0_/_0.08)]",
+        expanded ? "border-primary/35 bg-inset/20" : null,
+      )}
+      style={{ marginLeft: leftOffset }}
+    >
+      <div
+        role={hasDetails ? "button" : undefined}
+        tabIndex={hasDetails ? 0 : undefined}
+        aria-label={hasDetails ? `${expanded ? "Collapse" : "Expand"} log row ${entry.id}` : undefined}
+        className={cn(
+          "flex items-start gap-2.5 px-2.5 py-2",
+          hasDetails ? "cursor-pointer focus:outline-none focus:ring-2 focus:ring-primary/35" : null,
+        )}
+        onClick={handleSummaryClick}
+        onKeyDown={(event) => {
+          if (!hasDetails) return;
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            onToggleExpanded();
+          }
+        }}
+      >
+        <div className="shrink-0 flex flex-col gap-1">
+          <Badge
+            variant={kindVariant(entry.kind)}
+            aria-label={entry.kind}
+            title={entry.kind}
+            className="min-w-9 justify-center px-2 text-center"
+          >
+            {kindDisplayLabel(entry.kind)}
+          </Badge>
+          <Badge
+            variant={levelVariant(entry.level)}
+            aria-label={`Level ${entry.level}`}
+            title={entry.level.toUpperCase()}
+            className="min-w-7 justify-center px-1.5 text-center font-mono"
+          >
+            {levelSymbol(entry.level)}
+          </Badge>
+        </div>
+
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-muted">
+            <span>{formatTimestamp(entry.timestampMs)}</span>
+            <span>{entry.source}</span>
+            <span className="rounded-md bg-inset px-1.5 py-0.5 font-mono break-all text-[10px]">
+              {entry.event}
+            </span>
+            {entry.tags.map((tag) => (
+              <LogTagChip
+                key={`${entry.id}:${tag}`}
+                tag={tag}
+                included={includedTags.has(tag)}
+                excluded={excludedTags.has(tag)}
+                onAction={onTagAction}
+              />
+            ))}
+          </div>
+          <div className="mt-0.5 text-[13px] leading-5 text-text break-words">
+            {entry.message}
+          </div>
+          <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
+            {entry.traceId ? (
+              <span className="font-mono text-[11px] text-muted break-all">
+                trace: {entry.traceId}
+              </span>
+            ) : null}
+            {entry.correlationId ? (
+              <span className="font-mono text-[11px] text-muted break-all">
+                tool: {entry.correlationId}
+              </span>
+            ) : null}
+            {typeof entry.durationMs === "number" ? (
+              <span className="font-mono text-[11px] text-muted">
+                {entry.durationMs}ms
+              </span>
+            ) : null}
+          </div>
+        </div>
+
+        <div className="shrink-0 flex items-center gap-2 self-center">
+          {hasDetails ? (
+            <span className="font-mono text-[11px] text-muted">
+              {expanded ? "▾" : "▸"}
+            </span>
+          ) : null}
+          <Button
+            variant="ghost"
+            size="xxs"
+            onClick={(event) => {
+              event.stopPropagation();
+              void copyToClipboard(safePrettyJson(entry));
+            }}
+          >
+            COPY JSON
+          </Button>
+        </div>
+      </div>
+
+      {expanded ? (
+        <div className="border-t border-border-subtle bg-inset/60 px-2.5 py-2.5">
+          <div className="grid gap-2.5 md:grid-cols-2">
+            <div className="rounded-lg border border-border-subtle bg-surface p-2.5">
+              <div className="text-xxs font-bold tracking-[0.06em] uppercase text-muted">
+                Metadata
+              </div>
+              <div className="mt-2 space-y-1 text-xs leading-5 text-text">
+                <div>
+                  <span className="text-muted">id</span>:{" "}
+                  <span className="font-mono break-all">{entry.id}</span>
+                </div>
+                <div>
+                  <span className="text-muted">depth</span>: {entry.depth}
+                </div>
+                {entry.parentId ? (
+                  <div>
+                    <span className="text-muted">parent</span>:{" "}
+                    <span className="font-mono break-all">{entry.parentId}</span>
+                  </div>
+                ) : null}
+              </div>
+            </div>
+
+            {entry.data !== undefined ? (
+              <div className="rounded-lg border border-border-subtle bg-surface p-2.5">
+                <div className="text-xxs font-bold tracking-[0.06em] uppercase text-muted">
+                  Data
+                </div>
+                <div className="mt-2 overflow-x-auto">
+                  <LogJsonTree value={entry.data} />
+                </div>
+              </div>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function LogTree({
+  nodes,
+  expandedIds,
+  onToggleExpanded,
+  includedTags,
+  excludedTags,
+  onTagAction,
+}: {
+  nodes: LogTreeNode[];
+  expandedIds: Set<string>;
+  onToggleExpanded: (entryId: string) => void;
+  includedTags: Set<string>;
+  excludedTags: Set<string>;
+  onTagAction: (tag: string, mode: "include" | "exclude") => void;
+}) {
+  return (
+    <div className="flex flex-col gap-3">
+      {nodes.map((node) => (
+        <div key={node.entry.id} className="flex flex-col gap-3">
+          <LogEntryRow
+            entry={node.entry}
+            depth={node.entry.depth}
+            expanded={expandedIds.has(node.entry.id)}
+            onToggleExpanded={() => onToggleExpanded(node.entry.id)}
+            includedTags={includedTags}
+            excludedTags={excludedTags}
+            onTagAction={onTagAction}
+          />
+          {node.children.length > 0 ? (
+            <div className="flex flex-col gap-3">
+              <LogTree
+                nodes={node.children}
+                expandedIds={expandedIds}
+                onToggleExpanded={onToggleExpanded}
+                includedTags={includedTags}
+                excludedTags={excludedTags}
+                onTagAction={onTagAction}
+              />
+            </div>
+          ) : null}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+export default function LogsWindowApp({
+  initialPayload,
+}: {
+  initialPayload: LogWindowNavigatePayload | null;
+}) {
+  const initialControls = useMemo(
+    () => controlsFromPayload(initialPayload),
+    [initialPayload],
+  );
+  const [controls, setControls] = useState<ControlState>(initialControls);
+  const [tailEnabled, setTailEnabled] = useState(
+    initialPayload?.tailEnabled ?? true,
+  );
+  const [filtersExpanded, setFiltersExpanded] = useState(false);
+  const [entries, setEntries] = useState<LogEntry[]>([]);
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<ViewerNotice>(null);
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const filtersPanelRef = useRef<HTMLDivElement | null>(null);
+  const liveBufferRef = useRef<Map<string, LogEntry>>(new Map());
+  const liveOnlySinceMsRef = useRef<number | null>(null);
+  const flushTimerRef = useRef<number | null>(null);
+  const queryingRef = useRef(false);
+  const requestIdRef = useRef(0);
+  const deferredEntries = useDeferredValue(entries);
+
+  const filter = useMemo(() => buildQueryFilter(controls), [controls]);
+  const filterRef = useRef(filter);
+  useEffect(() => {
+    filterRef.current = filter;
+  }, [filter]);
+
+  const updateControls = (
+    next:
+      | ControlState
+      | ((current: ControlState) => ControlState),
+  ) => {
+    setLoading(true);
+    setError(null);
+    setControls(next);
+  };
+
+  useEffect(() => {
+    const currentWindow = getCurrentWindow();
+    let stopped = false;
+    let unlisten: (() => void) | undefined;
+
+    void currentWindow
+      .listen<LogWindowNavigatePayload>(
+        LOG_WINDOW_NAVIGATE_EVENT,
+        (event) => {
+          const payload = normalizeLogNavigatePayload(event.payload);
+          if (stopped) return;
+          setLoading(true);
+          setError(null);
+          setControls(controlsFromPayload(payload));
+          setTailEnabled(payload.tailEnabled ?? true);
+          liveOnlySinceMsRef.current = null;
+          setFiltersExpanded(false);
+          setExpandedIds(new Set());
+          setNotice(null);
+        },
+      )
+      .then((dispose) => {
+        if (stopped) {
+          dispose();
+          return;
+        }
+        unlisten = dispose;
+      });
+
+    return () => {
+      stopped = true;
+      if (unlisten) {
+        unlisten();
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    queryingRef.current = true;
+    liveBufferRef.current.clear();
+    const requestId = requestIdRef.current + 1;
+    requestIdRef.current = requestId;
+
+    void queryLogs(filter)
+      .then((result) => {
+        if (requestIdRef.current !== requestId) return;
+        queryingRef.current = false;
+        startTransition(() => {
+          setEntries(
+            mergeEntries(
+              sortEntriesAscending(result),
+              Array.from(liveBufferRef.current.values()),
+              filter.limit ?? DEFAULT_LOG_LIMIT,
+            ),
+          );
+        });
+        setLoading(false);
+      })
+      .catch((queryError) => {
+        if (requestIdRef.current !== requestId) return;
+        queryingRef.current = false;
+        setEntries([]);
+        setError(
+          queryError instanceof Error
+            ? queryError.message
+            : "Failed to load logs.",
+        );
+        setLoading(false);
+      });
+  }, [filter]);
+
+  useEffect(() => {
+    let unlisten: (() => void) | null = null;
+    let cancelled = false;
+
+    const flush = () => {
+      flushTimerRef.current = null;
+      if (cancelled || queryingRef.current) return;
+      const pending = Array.from(liveBufferRef.current.values());
+      if (pending.length === 0) return;
+      liveBufferRef.current.clear();
+      startTransition(() => {
+        setEntries((current) =>
+          mergeEntries(
+            current,
+            pending,
+            filterRef.current.limit ?? DEFAULT_LOG_LIMIT,
+          ),
+        );
+      });
+    };
+
+    const scheduleFlush = () => {
+      if (flushTimerRef.current != null) return;
+      flushTimerRef.current = window.setTimeout(flush, LIVE_FLUSH_MS);
+    };
+
+    void listenForLogEntries((entry) => {
+      if (cancelled) return;
+      if (
+        liveOnlySinceMsRef.current !== null &&
+        entry.timestampMs < liveOnlySinceMsRef.current
+      ) {
+        return;
+      }
+      if (!matchesFilter(entry, filterRef.current)) return;
+      liveBufferRef.current.set(entry.id, entry);
+      scheduleFlush();
+    }).then((dispose) => {
+      if (cancelled) {
+        dispose?.();
+        return;
+      }
+      unlisten = dispose;
+    });
+
+    return () => {
+      cancelled = true;
+      if (flushTimerRef.current != null) {
+        window.clearTimeout(flushTimerRef.current);
+        flushTimerRef.current = null;
+      }
+      if (unlisten) {
+        unlisten();
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!tailEnabled) return;
+    const container = scrollRef.current;
+    if (!container) return;
+    container.scrollTop = container.scrollHeight;
+  }, [deferredEntries, tailEnabled, expandedIds]);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) {
+        return;
+      }
+      if (event.key !== "`" && event.code !== "Backquote") return;
+      event.preventDefault();
+      setFiltersExpanded((current) => !current);
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!filtersExpanded) return;
+    const frame = window.requestAnimationFrame(() => {
+      const input = filtersPanelRef.current?.querySelector("input");
+      if (input instanceof HTMLInputElement) {
+        input.focus();
+      }
+    });
+    return () => {
+      window.cancelAnimationFrame(frame);
+    };
+  }, [filtersExpanded]);
+
+  const isTreeView = Boolean(filter.traceId || filter.correlationId);
+  const appliedFilterCount = activeFilterCount(filter);
+  const includedTags = useMemo(() => new Set(filter.tags ?? []), [filter.tags]);
+  const excludedTags = useMemo(
+    () => new Set(filter.excludeTags ?? []),
+    [filter.excludeTags],
+  );
+  const filterTags = visibleTagPills(filter);
+  const tree = useMemo(
+    () => (isTreeView ? buildTree(deferredEntries) : []),
+    [deferredEntries, isTreeView],
+  );
+
+  const handleScroll = () => {
+    const container = scrollRef.current;
+    if (!container) return;
+    const nearBottom =
+      container.scrollHeight - container.scrollTop - container.clientHeight <=
+      SCROLL_TAIL_THRESHOLD_PX;
+    setTailEnabled(nearBottom);
+  };
+
+  const handleToggleExpanded = (entryId: string) => {
+    setExpandedIds((current) => {
+      const next = new Set(current);
+      if (next.has(entryId)) {
+        next.delete(entryId);
+      } else {
+        next.add(entryId);
+      }
+      return next;
+    });
+  };
+
+  const handleJumpToLive = () => {
+    setTailEnabled(true);
+    const container = scrollRef.current;
+    if (container) {
+      container.scrollTop = container.scrollHeight;
+    }
+  };
+
+  const handleReset = () => {
+    liveOnlySinceMsRef.current = null;
+    setLoading(true);
+    setError(null);
+    setControls(controlsFromPayload(null));
+    setTailEnabled(true);
+    setFiltersExpanded(false);
+    setExpandedIds(new Set());
+    setNotice(null);
+  };
+
+  const handleExport = async () => {
+    try {
+      const result = await exportLogs(filter);
+      if (!result) {
+        setNotice({ kind: "error", message: "Log export is only available in Tauri." });
+        return;
+      }
+      setNotice({
+        kind: "success",
+        message: `Exported ${result.count} log entries to ${result.path}`,
+      });
+    } catch (exportError) {
+      setNotice({
+        kind: "error",
+        message:
+          exportError instanceof Error
+            ? exportError.message
+            : "Failed to export logs.",
+      });
+    }
+  };
+
+  const handleClear = () => {
+    liveOnlySinceMsRef.current = Date.now();
+    requestIdRef.current += 1;
+    queryingRef.current = false;
+    liveBufferRef.current.clear();
+    setEntries([]);
+    setError(null);
+    setLoading(false);
+    setExpandedIds(new Set());
+    setTailEnabled(true);
+    setNotice({
+      kind: "success",
+      message: "Cleared current view. Only new logs will appear.",
+    });
+  };
+
+  const handleTagAction = (tag: string, mode: "include" | "exclude") => {
+    updateControls((current) => ({
+      ...current,
+      tagStates: applyTagState(current.tagStates, tag, mode),
+    }));
+  };
+
+  const handleCycleTagState = (tag: LogTag) => {
+    updateControls((current) => ({
+      ...current,
+      tagStates: applyTagState(
+        current.tagStates,
+        tag,
+        nextTagState(current.tagStates, tag),
+      ),
+    }));
+  };
+
+  return (
+    <div className="min-h-screen bg-app text-text">
+      <div className="mx-auto flex h-screen max-w-[1440px] flex-col px-5 py-5">
+        <div className="flex h-full flex-col rounded-2xl border border-border-subtle bg-surface shadow-[0_16px_40px_rgb(0_0_0_/_0.12)]">
+          <div className="border-b border-border-subtle px-4 py-3">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="text-xxs font-bold tracking-[0.08em] uppercase text-primary">
+                    Structured Logs
+                  </div>
+                  <Badge variant={isTreeView ? "primary" : "muted"}>
+                    {isTreeView ? "TRACE VIEW" : "LIVE FEED"}
+                  </Badge>
+                  {appliedFilterCount > 0 ? (
+                    <Badge variant="muted">
+                      {appliedFilterCount} FILTER{appliedFilterCount === 1 ? "" : "S"}
+                    </Badge>
+                  ) : null}
+                </div>
+                <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xxs text-muted">
+                  <span>{filterSummary(filter)}</span>
+                  <span>·</span>
+                  <span>
+                    {isTreeView
+                      ? "Grouped by trace lineage"
+                      : `Showing up to ${filter.limit ?? DEFAULT_LOG_LIMIT} rows`}
+                  </span>
+                </div>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge variant={tailEnabled ? "success" : "muted"}>
+                  {tailEnabled ? "TAILING" : "PAUSED"}
+                </Badge>
+                <Button
+                  variant="ghost"
+                  size="xxs"
+                  onClick={() => setFiltersExpanded((current) => !current)}
+                >
+                  {filtersExpanded ? "HIDE FILTERS" : "SHOW FILTERS"}
+                </Button>
+                <Button variant="ghost" size="xxs" onClick={handleReset}>
+                  RESET
+                </Button>
+                <Button variant="ghost" size="xxs" onClick={() => void handleExport()}>
+                  EXPORT
+                </Button>
+                <Button variant="danger" size="xxs" onClick={handleClear}>
+                  CLEAR
+                </Button>
+              </div>
+            </div>
+          </div>
+
+          {notice ? (
+            <div
+              className={cn(
+                "border-b border-border-subtle px-5 py-3 text-xs",
+                notice.kind === "error" ? "text-error" : "text-success",
+              )}
+            >
+              {notice.message}
+            </div>
+          ) : null}
+
+          <div className="relative flex min-h-0 flex-1 flex-col">
+            {filtersExpanded ? (
+              <div className="absolute inset-0 z-20 p-4 pointer-events-none">
+                <button
+                  type="button"
+                  aria-label="Close filters backdrop"
+                  className="absolute inset-0 bg-app/10 backdrop-blur-[1px] pointer-events-auto"
+                  onClick={() => setFiltersExpanded(false)}
+                />
+                <div
+                  ref={filtersPanelRef}
+                  role="dialog"
+                  aria-label="Log filters"
+                  className="relative mx-auto w-full max-w-[1120px] rounded-2xl border border-border-subtle bg-surface/98 shadow-[0_20px_50px_rgb(0_0_0_/_0.18)] pointer-events-auto"
+                  onClick={(event) => event.stopPropagation()}
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border-subtle px-4 py-3">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <div className="text-xxs font-bold tracking-[0.08em] uppercase text-primary">
+                        Filters
+                      </div>
+                      <Badge variant="muted">` TOGGLE</Badge>
+                      <span className="text-[11px] text-muted">
+                        Click tag pills to cycle include, exclude, ignore
+                      </span>
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="xxs"
+                      onClick={() => setFiltersExpanded(false)}
+                    >
+                      CLOSE
+                    </Button>
+                  </div>
+
+                  <div className="px-4 py-3">
+                    <div>
+                      <div className="mb-2 text-[11px] font-bold tracking-[0.08em] uppercase text-muted">
+                        Tags
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        {filterTags.map((tag) => (
+                          <TagStatePill
+                            key={tag}
+                            tag={tag}
+                            state={
+                              includedTags.has(tag)
+                                ? "include"
+                                : excludedTags.has(tag)
+                                  ? "exclude"
+                                  : "ignore"
+                            }
+                            onCycle={handleCycleTagState}
+                          />
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="mt-4 border-t border-border-subtle pt-3">
+                      <VerbosityControl
+                        value={controls.verbosity}
+                        onChange={(next) =>
+                          updateControls((current) => ({
+                            ...current,
+                            verbosity: next,
+                          }))
+                        }
+                      />
+                    </div>
+
+                    <div className="mt-2 grid gap-2">
+                      <div className="grid gap-2 lg:grid-cols-2">
+                        <TextField
+                          value={controls.traceId}
+                          onChange={(event) =>
+                            updateControls((current) => ({
+                              ...current,
+                              traceId: event.target.value,
+                            }))
+                          }
+                          placeholder="trace id"
+                        />
+                        <TextField
+                          value={controls.correlationId}
+                          onChange={(event) =>
+                            updateControls((current) => ({
+                              ...current,
+                              correlationId: event.target.value,
+                            }))
+                          }
+                          placeholder="tool correlation id"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-xxs uppercase tracking-[0.06em] text-muted">
+                          Source
+                        </span>
+                        <SelectField
+                          value={controls.source}
+                          onChange={(event) =>
+                            updateControls((current) => ({
+                              ...current,
+                              source: event.target.value as LogSource | "",
+                            }))
+                          }
+                        >
+                          {SOURCES.map((source) => (
+                            <option key={source || "all"} value={source}>
+                              {source ? `Source: ${source}` : "All sources"}
+                            </option>
+                          ))}
+                        </SelectField>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <span className="text-xxs uppercase tracking-[0.06em] text-muted">
+                          Row limit
+                        </span>
+                        <SelectField
+                          value={String(controls.limit)}
+                          onChange={(event) =>
+                            updateControls((current) => ({
+                              ...current,
+                              limit: normalizeLimit(Number(event.target.value)),
+                            }))
+                          }
+                        >
+                          {LIMIT_OPTIONS.map((option) => (
+                            <option key={option} value={option}>
+                              {option}
+                            </option>
+                          ))}
+                        </SelectField>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ) : null}
+
+            {!tailEnabled ? (
+              <div className="absolute right-4 top-4 z-10">
+                <Button variant="primary" size="xs" onClick={handleJumpToLive}>
+                  JUMP TO LIVE
+                </Button>
+              </div>
+            ) : null}
+
+            <div
+              ref={scrollRef}
+              className="min-h-0 flex-1 overflow-y-auto px-5 py-4"
+              onScroll={handleScroll}
+            >
+              {loading ? (
+                <div className="py-12 text-center text-sm text-muted">
+                  Loading logs…
+                </div>
+              ) : error ? (
+                <div className="py-12 text-center text-sm text-error">{error}</div>
+              ) : deferredEntries.length === 0 ? (
+                <div className="py-12 text-center text-sm text-muted">
+                  No log entries match the current filter.
+                </div>
+              ) : isTreeView ? (
+                <LogTree
+                  nodes={tree}
+                  expandedIds={expandedIds}
+                  onToggleExpanded={handleToggleExpanded}
+                  includedTags={includedTags}
+                  excludedTags={excludedTags}
+                  onTagAction={handleTagAction}
+                />
+              ) : (
+                <div className="flex flex-col gap-3">
+                  {deferredEntries.map((entry) => (
+                    <LogEntryRow
+                      key={entry.id}
+                      entry={entry}
+                      expanded={expandedIds.has(entry.id)}
+                      onToggleExpanded={() => handleToggleExpanded(entry.id)}
+                      includedTags={includedTags}
+                      excludedTags={excludedTags}
+                      onTagAction={handleTagAction}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}

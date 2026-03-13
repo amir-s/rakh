@@ -42,6 +42,7 @@
   /* ── Semantic status / feedback ─────────────────────────────────────── */
   --color-accent: #d4b483;
   --color-success: #6ca87c;
+  --color-info: #74aee6;
   --color-error: #cf6b6b;
   --color-warning: #d4b483;
 
@@ -123,6 +124,7 @@
 
   /* Status / feedback — slightly richer for light bg */
   --color-success: #1e7e34;
+  --color-info: #2f78b7;
   --color-error: #c0392b;
   --color-warning: #b8860b;
   --color-accent: #7a5c1e;

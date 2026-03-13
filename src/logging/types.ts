@@ -2,6 +2,17 @@ export type LogLevel = "trace" | "debug" | "info" | "warn" | "error";
 export type LogSource = "backend" | "frontend";
 export type LogKind = "start" | "end" | "event" | "error";
 export type TagMode = "and" | "or";
+export const KNOWN_LOG_TAGS = [
+  "agent-loop",
+  "backend",
+  "db",
+  "frontend",
+  "messages",
+  "system",
+  "tool-calls",
+] as const;
+export type KnownLogTag = (typeof KNOWN_LOG_TAGS)[number];
+export type LogTag = KnownLogTag | (string & {});
 
 export interface LogContext {
   sessionId?: string;
@@ -20,7 +31,7 @@ export interface LogEntry {
   timestampMs: number;
   level: LogLevel;
   source: LogSource;
-  tags: string[];
+  tags: LogTag[];
   event: string;
   message: string;
   traceId?: string;
@@ -34,7 +45,8 @@ export interface LogEntry {
 }
 
 export interface LogQueryFilter {
-  tags?: string[];
+  tags?: LogTag[];
+  excludeTags?: LogTag[];
   tagMode?: TagMode;
   levels?: LogLevel[];
   traceId?: string;
@@ -57,7 +69,7 @@ export interface LogClearResult {
 export interface FrontendLogInput {
   id?: string;
   level?: LogLevel;
-  tags: string[];
+  tags: LogTag[];
   event: string;
   message: string;
   kind?: LogKind;

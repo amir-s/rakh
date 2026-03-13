@@ -26,6 +26,7 @@
 
   /* ── Semantic ───────────────────────────────────────────────────────── */
   --color-success: #00f5a0;
+  --color-info: #38bdf8;
   --color-error: #ff3d71;
   --color-warning: #ffd000;
 
@@ -80,6 +81,7 @@
   --color-faint: rgba(0, 0, 0, 0.24);
 
   --color-success: #0aa96f;
+  --color-info: #0284c7;
   --color-error: #d81b60;
   --color-warning: #b88600;
 

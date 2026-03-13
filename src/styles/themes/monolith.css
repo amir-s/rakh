@@ -24,6 +24,7 @@
 
   /* ── Semantic (minimal saturation) ────────────────────────── */
   --color-success: #3d8b6d;
+  --color-info: #7aaed6;
   --color-error: #c33;
   --color-warning: #b8860b;
 
@@ -67,6 +68,7 @@
   --color-accent: #5c5c66;
 
   --color-success: #2e7d5b;
+  --color-info: #2f78a7;
   --color-error: #b00020;
   --color-warning: #a67c00;
 

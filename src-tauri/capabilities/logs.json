@@ -1,0 +1,13 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "logs-window",
+  "description": "Capability for the detached logs window",
+  "windows": [
+    "logs"
+  ],
+  "permissions": [
+    "core:event:default",
+    "core:event:allow-listen",
+    "dialog:default"
+  ]
+}

@@ -46,6 +46,7 @@ describe("notifications", () => {
       configurable: true,
       value: {},
     });
+    window.history.replaceState({}, "", "/");
 
     class MockNotification {
       static permission: NotificationPermission = "granted";
@@ -89,6 +90,17 @@ describe("notifications", () => {
 
     expect(onClick).toHaveBeenCalledTimes(1);
     expect(notificationMocks.instances[0]?.close).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not query notification permissions in the detached logs window", async () => {
+    window.history.replaceState({}, "", "/?window=logs");
+    const { ensureNotificationPermission } = await import("./notifications");
+
+    const granted = await ensureNotificationPermission();
+
+    expect(granted).toBe(false);
+    expect(notificationMocks.isPermissionGrantedMock).not.toHaveBeenCalled();
+    expect(notificationMocks.requestPermissionMock).not.toHaveBeenCalled();
   });
 
   it("can activate a tab without redundantly refocusing the window", async () => {

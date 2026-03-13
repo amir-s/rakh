@@ -87,6 +87,7 @@ import {
 } from "@/agent/tools/git";
 import { upsertSession } from "@/agent/persistence";
 import { cn } from "@/utils/cn";
+import { openLogViewerWindow } from "@/logging/window";
 
 const OPEN_IN_EDITOR_COMMAND_ID = "__open-in-editor__";
 const OPEN_SHELL_COMMAND_ID = "__open-shell__";
@@ -265,6 +266,7 @@ function renderCompactToolCall(
   cwd: string | undefined,
   showDebug: boolean,
   setToolDetailsModal: (toolCall: ToolCallDisplay) => void,
+  onOpenLogs: (toolCall: ToolCallDisplay) => void,
 ) {
   const toolCall = item.toolCall;
   return (
@@ -272,6 +274,7 @@ function renderCompactToolCall(
       key={toolCall.id}
       tc={toolCall}
       onInspect={() => setToolDetailsModal(toolCall)}
+      onOpenLogs={() => onOpenLogs(toolCall)}
       cwd={cwd}
       showDebug={showDebug}
     />
@@ -557,6 +560,26 @@ export default function WorkspacePage() {
   const toggleCommandBar = useCallback(() => setCommandBarOpen((v) => !v), []);
   const openTerminal = useCallback(() => setTerminalOpen(true), []);
   const toggleArtifacts = useCallback(() => setArtifactOpen((v) => !v), []);
+  const handleOpenLatestLogs = useCallback(() => {
+    void openLogViewerWindow({
+      origin: "debug-pane",
+      filter: agent.lastRunTraceId
+        ? { traceId: agent.lastRunTraceId }
+        : {},
+    });
+  }, [agent.lastRunTraceId]);
+  const handleOpenAssistantLogs = useCallback((traceId: string) => {
+    void openLogViewerWindow({
+      origin: "assistant-message",
+      filter: { traceId },
+    });
+  }, []);
+  const handleOpenToolLogs = useCallback((toolCall: ToolCallDisplay) => {
+    void openLogViewerWindow({
+      origin: "tool-call",
+      filter: { correlationId: toolCall.id },
+    });
+  }, []);
   const toggleReasoning = useCallback((messageId: string) => {
     setReasoningExpandedById((prev) => ({
       ...prev,
@@ -1338,6 +1361,7 @@ export default function WorkspacePage() {
                                     onInspect={(toolCall) =>
                                       setToolDetailsModal(toolCall)
                                     }
+                                    onOpenLogs={handleOpenToolLogs}
                                     cwd={agent.config.cwd}
                                     showDebug={agent.showDebug ?? false}
                                   />
@@ -1361,11 +1385,26 @@ export default function WorkspacePage() {
                                     agent.config.cwd,
                                     agent.showDebug ?? false,
                                     setToolDetailsModal,
+                                    handleOpenToolLogs,
                                   )
                                 ),
                               )}
                             </div>
                           )}
+
+                          {msg.traceId ? (
+                            <div className="mt-2 flex justify-end">
+                              <Button
+                                variant="ghost"
+                                size="xxs"
+                                onClick={() =>
+                                  handleOpenAssistantLogs(msg.traceId as string)
+                                }
+                              >
+                                VIEW TRACE LOGS
+                              </Button>
+                            </div>
+                          ) : null}
                         </div>
                       );
                     })}
@@ -1587,6 +1626,7 @@ export default function WorkspacePage() {
                 onMouseDown={handleDividerMouseDown}
               />
               <ArtifactPane
+                onOpenLogs={handleOpenLatestLogs}
                 onCollapse={toggleArtifacts}
                 activeTab={activeArtifactTab}
                 unseenTabs={unseenTabs}

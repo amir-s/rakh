@@ -231,8 +231,10 @@ export interface CompactToolCallSummaryRowProps {
   expanded?: boolean;
   showExpandChevron?: boolean;
   showInspect?: boolean;
+  showOpenLogs?: boolean;
   onActivate?: () => void;
   onInspect?: () => void;
+  onOpenLogs?: () => void;
   trailingContent?: ReactNode;
   className?: string;
 }
@@ -242,8 +244,10 @@ export function CompactToolCallSummaryRow({
   expanded = false,
   showExpandChevron = false,
   showInspect = false,
+  showOpenLogs = false,
   onActivate,
   onInspect,
+  onOpenLogs,
   trailingContent,
   className,
 }: CompactToolCallSummaryRowProps) {
@@ -313,15 +317,33 @@ export function CompactToolCallSummaryRow({
       {trailingContent}
 
       {showInspect && onInspect && (
-        <span
-          className="material-symbols-outlined text-muted opacity-45 shrink-0 text-sm"
+        <button
+          type="button"
+          className="material-symbols-outlined text-muted opacity-45 shrink-0 text-sm cursor-pointer border-0 bg-transparent p-0"
+          aria-label="Inspect tool call"
+          title="Inspect tool call"
           onClick={(event) => {
             event.stopPropagation();
             onInspect();
           }}
         >
           frame_bug
-        </span>
+        </button>
+      )}
+
+      {showOpenLogs && onOpenLogs && (
+        <button
+          type="button"
+          className="material-symbols-outlined text-muted opacity-45 shrink-0 text-sm cursor-pointer border-0 bg-transparent p-0"
+          aria-label="Open logs"
+          title="Open logs"
+          onClick={(event) => {
+            event.stopPropagation();
+            onOpenLogs();
+          }}
+        >
+          timeline
+        </button>
       )}
 
       {showExpandChevron && (

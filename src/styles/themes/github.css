@@ -22,6 +22,7 @@
   /* Semantic / feedback */
   --color-accent: #58a6ff;   /* secondary blue */
   --color-success: #3fb950;
+  --color-info: #79c0ff;
   --color-error: #f85149;
   --color-warning: #d29922;
 
@@ -69,6 +70,7 @@
   /* Semantic */
   --color-accent: #0969da;
   --color-success: #1a7f37;
+  --color-info: #218bff;
   --color-error: #cf222e;
   --color-warning: #9a6700;
 

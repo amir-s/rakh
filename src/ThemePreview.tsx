@@ -21,6 +21,7 @@ import {
   TextField,
   TextareaField,
   ToggleSwitch,
+  type BadgeVariant,
 } from "@/components/ui";
 import {
   THEME_NAMES,
@@ -190,6 +191,18 @@ const STATUS_VARIANTS: Array<{
   { status: "error", badgeVariant: "danger" },
 ];
 
+const BADGE_VARIANTS: Array<{
+  label: string;
+  variant: BadgeVariant;
+}> = [
+  { label: "primary", variant: "primary" },
+  { label: "success", variant: "success" },
+  { label: "warning", variant: "warning" },
+  { label: "info", variant: "info" },
+  { label: "danger", variant: "danger" },
+  { label: "muted", variant: "muted" },
+];
+
 const PREVIEW_QUEUE_ITEMS = [
   {
     id: "preview-queue-1",
@@ -319,6 +332,16 @@ export default function ThemePreview() {
                 <div key={entry.status} className="ds-status-item">
                   <StatusDot status={entry.status} />
                   <Badge variant={entry.badgeVariant}>{entry.status}</Badge>
+                </div>
+              ))}
+            </div>
+            <div className="mt-3 text-xs uppercase tracking-[0.08em] text-muted">
+              Badge variants
+            </div>
+            <div className="ds-status-grid mt-2">
+              {BADGE_VARIANTS.map((entry) => (
+                <div key={entry.variant} className="ds-status-item">
+                  <Badge variant={entry.variant}>{entry.label}</Badge>
                 </div>
               ))}
             </div>

@@ -104,6 +104,8 @@ pub struct LogQueryFilter {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tags: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub exclude_tags: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub tag_mode: Option<TagMode>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub levels: Option<Vec<LogLevel>>,
@@ -330,6 +332,7 @@ impl LogStore {
         let limit = filter.limit.unwrap_or(DEFAULT_QUERY_LIMIT);
         let tag_mode = filter.tag_mode.unwrap_or(TagMode::Or);
         let filter_tags = normalize_tags(filter.tags.unwrap_or_default());
+        let exclude_tags = normalize_tags(filter.exclude_tags.unwrap_or_default());
         let entries = self
             .load_entries()?
             .into_iter()
@@ -353,6 +356,11 @@ impl LogStore {
                     if entry.correlation_id.as_deref() != Some(correlation_id.as_str()) {
                         return false;
                     }
+                }
+                if !exclude_tags.is_empty()
+                    && exclude_tags.iter().any(|tag| entry.tags.contains(tag))
+                {
+                    return false;
                 }
                 if let Some(since_ms) = filter.since_ms {
                     if entry.timestamp_ms < since_ms {
@@ -829,6 +837,41 @@ mod tests {
             .expect("and query");
         assert_eq!(and_filtered.len(), 1);
         assert_eq!(and_filtered[0].id, "entry-1");
+    }
+
+    #[test]
+    fn query_supports_excluded_tags() {
+        let temp = tempdir().expect("tempdir");
+        let store = LogStore::new(temp.path().join("logs")).expect("store");
+        store
+            .append_entry(sample_entry(
+                "entry-1",
+                &["backend", "db"],
+                10,
+                LogLevel::Info,
+                LogSource::Backend,
+            ))
+            .expect("append 1");
+        store
+            .append_entry(sample_entry(
+                "entry-2",
+                &["backend", "system"],
+                20,
+                LogLevel::Info,
+                LogSource::Backend,
+            ))
+            .expect("append 2");
+
+        let filtered = store
+            .query(LogQueryFilter {
+                tags: Some(vec!["backend".to_string()]),
+                exclude_tags: Some(vec!["system".to_string()]),
+                ..LogQueryFilter::default()
+            })
+            .expect("exclude query");
+
+        assert_eq!(filtered.len(), 1);
+        assert_eq!(filtered[0].id, "entry-1");
     }
 
     #[test]
