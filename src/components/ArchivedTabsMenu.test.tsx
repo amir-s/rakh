@@ -253,7 +253,7 @@ describe("ArchivedTabsMenu", () => {
     const groupLabels = Array.from(
       document.querySelectorAll(".archived-group-label"),
     ).map((node) => node.textContent);
-    expect(groupLabels).toEqual(["platform", "docs", "Unknown Project"]);
+    expect(groupLabels).toEqual(["Platform API", "docs", "Unknown Project"]);
 
     const firstGroupItems = Array.from(
       document.querySelectorAll(".archived-group-list")[0]?.querySelectorAll(
