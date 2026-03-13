@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.11.0](https://github.com/amir-s/rakh/compare/rakh-v0.10.0...rakh-v0.11.0) (2026-03-13)
+
+
+### Features
+
+* add detached log viewer window ([770b5dd](https://github.com/amir-s/rakh/commit/770b5dd12d8f4a04db32b2785255a53644b8b395)), closes [#135](https://github.com/amir-s/rakh/issues/135)
+* **chrome:** pin tabs from the top bar ([ac5bcb3](https://github.com/amir-s/rakh/commit/ac5bcb3f90baac3fe14b08d2bbb8d66db04ad44e))
+* **logging:** add infrastructure-first structured logging ([5290f7a](https://github.com/amir-s/rakh/commit/5290f7af05448186f9d65799dbccbb033ad0119a))
+* **sessions:** add pinned recent tabs ([b502721](https://github.com/amir-s/rakh/commit/b50272143a14fb1f4a0c85a389a2ee503f858ba5)), closes [#143](https://github.com/amir-s/rakh/issues/143)
+
+
+### Bug Fixes
+
+* **agent:** align static catalog with models.dev ([b73e0ff](https://github.com/amir-s/rakh/commit/b73e0ff497e2840640fdbbb69b627236cb3aabba))
+* group inline tool calls across assistant messages ([d0aad0a](https://github.com/amir-s/rakh/commit/d0aad0a313b18ecf427b2888b1f5f56dbf7405a4))
+
 ## [0.10.0](https://github.com/amir-s/rakh/compare/rakh-v0.9.0...rakh-v0.10.0) (2026-03-11)
 
 
