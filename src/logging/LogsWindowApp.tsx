@@ -57,6 +57,7 @@ interface ControlState {
   source: LogSource | "";
   traceId: string;
   correlationId: string;
+  sinceMs: number | null;
   limit: number;
 }
 
@@ -231,6 +232,7 @@ function controlsFromPayload(
     source: filter.source ?? "",
     traceId: filter.traceId ?? "",
     correlationId: filter.correlationId ?? "",
+    sinceMs: null,
     limit: normalizeLimit(filter.limit ?? DEFAULT_LOG_LIMIT),
   };
 }
@@ -248,6 +250,9 @@ function buildQueryFilter(controls: ControlState): LogQueryFilter {
     ...(controls.correlationId.trim()
       ? { correlationId: controls.correlationId.trim() }
       : {}),
+    ...(typeof controls.sinceMs === "number"
+      ? { sinceMs: controls.sinceMs }
+      : {}),
     limit: normalizeLimit(controls.limit),
   };
 }
@@ -258,6 +263,18 @@ function formatTimestamp(timestampMs: number): string {
       year: "numeric",
       month: "2-digit",
       day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+    });
+  } catch {
+    return String(timestampMs);
+  }
+}
+
+function formatCompactTimestamp(timestampMs: number): string {
+  try {
+    return new Date(timestampMs).toLocaleTimeString([], {
       hour: "2-digit",
       minute: "2-digit",
       second: "2-digit",
@@ -295,6 +312,18 @@ function matchesFilter(entry: LogEntry, filter: LogQueryFilter): boolean {
   }
   if (filter.traceId && entry.traceId !== filter.traceId) return false;
   if (filter.correlationId && entry.correlationId !== filter.correlationId) {
+    return false;
+  }
+  if (
+    typeof filter.sinceMs === "number" &&
+    entry.timestampMs < filter.sinceMs
+  ) {
+    return false;
+  }
+  if (
+    typeof filter.untilMs === "number" &&
+    entry.timestampMs > filter.untilMs
+  ) {
     return false;
   }
   if (filter.excludeTags && filter.excludeTags.length > 0) {
@@ -432,6 +461,8 @@ function activeFilterCount(filter: LogQueryFilter): number {
     filter.source ? 1 : 0,
     filter.traceId ? 1 : 0,
     filter.correlationId ? 1 : 0,
+    typeof filter.sinceMs === "number" ? 1 : 0,
+    typeof filter.untilMs === "number" ? 1 : 0,
   ].reduce((sum, count) => sum + count, 0);
 }
 
@@ -740,6 +771,35 @@ function RowLimitControl({
         </div>
       ) : null}
     </div>
+  );
+}
+
+function SinceFilterPill({
+  sinceMs,
+  onClear,
+}: {
+  sinceMs: number;
+  onClear: () => void;
+}) {
+  const compactTimestamp = formatCompactTimestamp(sinceMs);
+  const fullTimestamp = formatTimestamp(sinceMs);
+
+  return (
+    <span
+      className="inline-flex max-w-full items-center gap-2 rounded-full border border-primary/30 bg-primary-dim px-2.5 py-1 font-mono text-[11px] text-primary"
+      title={`Showing only logs after ${fullTimestamp}`}
+    >
+      <span className="min-w-0 truncate">since {compactTimestamp}</span>
+      <button
+        type="button"
+        aria-label="Remove clear timestamp filter"
+        title="Remove clear timestamp filter"
+        className="rounded-full border border-transparent px-1 text-[10px] leading-none text-primary transition-colors hover:border-primary/25 hover:bg-primary/10"
+        onClick={onClear}
+      >
+        X
+      </button>
+    </span>
   );
 }
 
@@ -1276,7 +1336,6 @@ export default function LogsWindowApp({
   const noticeIdRef = useRef(0);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const liveBufferRef = useRef<Map<string, LogEntry>>(new Map());
-  const liveOnlySinceMsRef = useRef<number | null>(null);
   const flushTimerRef = useRef<number | null>(null);
   const queryingRef = useRef(false);
   const requestIdRef = useRef(0);
@@ -1331,7 +1390,6 @@ export default function LogsWindowApp({
         setError(null);
         setControls(controlsFromPayload(payload));
         setTailEnabled(payload.tailEnabled ?? true);
-        liveOnlySinceMsRef.current = null;
         setExpandedIds(new Set());
         setNotice(null);
       })
@@ -1413,12 +1471,6 @@ export default function LogsWindowApp({
 
     void listenForLogEntries((entry) => {
       if (cancelled) return;
-      if (
-        liveOnlySinceMsRef.current !== null &&
-        entry.timestampMs < liveOnlySinceMsRef.current
-      ) {
-        return;
-      }
       if (!matchesFilter(entry, filterRef.current)) return;
       liveBufferRef.current.set(entry.id, entry);
       scheduleFlush();
@@ -1503,7 +1555,6 @@ export default function LogsWindowApp({
   };
 
   const handleReset = () => {
-    liveOnlySinceMsRef.current = null;
     setLoading(true);
     setError(null);
     setControls(controlsFromPayload(null));
@@ -1541,10 +1592,16 @@ export default function LogsWindowApp({
   };
 
   const handleClear = () => {
-    liveOnlySinceMsRef.current = Date.now();
+    const sinceMs = Date.now();
+    const nextControls = {
+      ...controls,
+      sinceMs,
+    };
     requestIdRef.current += 1;
     queryingRef.current = false;
     liveBufferRef.current.clear();
+    filterRef.current = buildQueryFilter(nextControls);
+    setControls(nextControls);
     setEntries([]);
     setError(null);
     setLoading(false);
@@ -1554,6 +1611,13 @@ export default function LogsWindowApp({
       kind: "success",
       message: "Cleared current view. Only new logs will appear.",
     });
+  };
+
+  const handleRemoveSinceFilter = () => {
+    updateControls((current) => ({
+      ...current,
+      sinceMs: null,
+    }));
   };
 
   const handleTagAction = (tag: string, mode: "include" | "exclude") => {
@@ -1698,15 +1762,23 @@ export default function LogsWindowApp({
                   />
                 </div>
                 <div className="ml-auto shrink-0">
-                  <RowLimitControl
-                    value={controls.limit}
-                    onChange={(next) =>
-                      updateControls((current) => ({
-                        ...current,
-                        limit: next,
-                      }))
-                    }
-                  />
+                  <div className="flex items-center gap-2">
+                    {typeof controls.sinceMs === "number" ? (
+                      <SinceFilterPill
+                        sinceMs={controls.sinceMs}
+                        onClear={handleRemoveSinceFilter}
+                      />
+                    ) : null}
+                    <RowLimitControl
+                      value={controls.limit}
+                      onChange={(next) =>
+                        updateControls((current) => ({
+                          ...current,
+                          limit: next,
+                        }))
+                      }
+                    />
+                  </div>
                 </div>
               </div>
             </div>
