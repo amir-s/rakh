@@ -42,14 +42,12 @@ const SOURCE_OPTIONS: LogSource[] = ["backend", "frontend"];
 const LIMIT_OPTIONS = [100, 250, 500, 1000];
 const NOTICE_AUTO_CLOSE_MS = 3500;
 
-type ViewerNotice =
-  | {
-      id: number;
-      kind: "success" | "error";
-      message: string;
-      autoCloseMs: number | null;
-    }
-  | null;
+type ViewerNotice = {
+  id: number;
+  kind: "success" | "error";
+  message: string;
+  autoCloseMs: number | null;
+} | null;
 
 interface ControlState {
   tagStates: Partial<Record<string, "include" | "exclude">>;
@@ -479,7 +477,7 @@ function visibleTagPills(filter: LogQueryFilter): LogTag[] {
   return [...KNOWN_LOG_TAGS, ...extras];
 }
 
-function ViewModeIndicator({
+function ViewModeBadge({
   isTreeView,
   limit,
 }: {
@@ -489,20 +487,31 @@ function ViewModeIndicator({
   const title = isTreeView
     ? "Grouped by trace lineage"
     : `Showing up to ${limit} rows`;
-
+  const label = isTreeView ? "TRACE" : "LIVE";
+  const isLive = !isTreeView;
   return (
     <Badge
       variant="muted"
-      aria-label={isTreeView ? "Trace tree view" : `Live feed up to ${limit} rows`}
+      aria-label={
+        isTreeView ? "Trace tree view" : `Live feed up to ${limit} rows`
+      }
       title={title}
-      className="min-w-[28px] justify-center px-1.5"
     >
       <span
         aria-hidden="true"
-        className="material-symbols-outlined text-[14px] leading-none"
+        className="material-symbols-outlined text-md leading-none"
       >
         {isTreeView ? "account_tree" : "view_list"}
       </span>
+      <span>{label}</span>
+      {isLive ? (
+        <span
+          aria-hidden="true"
+          className="material-symbols-outlined text-md leading-none text-red-500 animate-pulse"
+        >
+          screen_record
+        </span>
+      ) : null}
     </Badge>
   );
 }
@@ -786,7 +795,7 @@ function SinceFilterPill({
 
   return (
     <span
-      className="inline-flex max-w-full items-center gap-2 rounded-full border border-primary/30 bg-primary-dim px-2.5 py-1 font-mono text-[11px] text-primary"
+      className="inline-flex max-w-full gap-2 rounded-full border border-primary/30 bg-primary-dim px-2.5 py-1 font-mono text-[11px] text-primary"
       title={`Showing only logs after ${fullTimestamp}`}
     >
       <span className="min-w-0 truncate">since {compactTimestamp}</span>
@@ -794,10 +803,12 @@ function SinceFilterPill({
         type="button"
         aria-label="Remove clear timestamp filter"
         title="Remove clear timestamp filter"
-        className="rounded-full border border-transparent px-1 text-[10px] leading-none text-primary transition-colors hover:border-primary/25 hover:bg-primary/10"
+        className="cursor-pointer hover:text-error"
         onClick={onClear}
       >
-        X
+        <span aria-hidden="true" className="material-symbols-outlined">
+          close
+        </span>
       </button>
     </span>
   );
@@ -873,10 +884,12 @@ function InlineTokenFilterControl({
             type="button"
             aria-label={`Remove ${label.toLowerCase()} filter`}
             title={`Remove ${label.toLowerCase()} filter`}
-            className="rounded-full border border-transparent px-1 text-[10px] leading-none text-primary transition-colors hover:border-primary/25 hover:bg-primary/10"
+            className="cursor-pointer hover:text-error"
             onClick={clearValue}
           >
-            X
+            <span aria-hidden="true" className="material-symbols-outlined">
+              close
+            </span>
           </button>
         </span>
       ) : (
@@ -1367,7 +1380,9 @@ export default function LogsWindowApp({
         kind: next.kind,
         message: next.message,
         autoCloseMs:
-          next.autoCloseMs === undefined ? NOTICE_AUTO_CLOSE_MS : next.autoCloseMs,
+          next.autoCloseMs === undefined
+            ? NOTICE_AUTO_CLOSE_MS
+            : next.autoCloseMs,
       });
     },
     [],
@@ -1640,7 +1655,9 @@ export default function LogsWindowApp({
 
   return (
     <div className="min-h-screen bg-app text-text">
-      {notice ? <NoticeToast notice={notice} onDismiss={dismissNotice} /> : null}
+      {notice ? (
+        <NoticeToast notice={notice} onDismiss={dismissNotice} />
+      ) : null}
       <div className="flex h-screen w-full flex-col px-5 py-5">
         <div className="flex h-full flex-col rounded-2xl border border-border-subtle bg-surface shadow-[0_16px_40px_rgb(0_0_0_/_0.12)]">
           <div className="border-b border-border-subtle px-4 py-3">
@@ -1650,25 +1667,40 @@ export default function LogsWindowApp({
                   <div className="text-xxs font-bold tracking-[0.08em] uppercase text-primary">
                     Structured Logs
                   </div>
-                  <Badge variant={isTreeView ? "primary" : "muted"}>
-                    {isTreeView ? "TRACE VIEW" : "LIVE FEED"}
-                  </Badge>
-                  <ViewModeIndicator
+                  <ViewModeBadge
                     isTreeView={isTreeView}
                     limit={filter.limit ?? DEFAULT_LOG_LIMIT}
                   />
                   {appliedFilterCount > 0 ? (
                     <Badge variant="muted">
-                      {appliedFilterCount} FILTER
-                      {appliedFilterCount === 1 ? "" : "S"}
+                      <span
+                        aria-hidden="true"
+                        className="material-symbols-outlined text-md leading-none"
+                      >
+                        filter_alt
+                      </span>
+                      {appliedFilterCount}
                     </Badge>
                   ) : null}
                 </div>
               </div>
               <div className="flex flex-wrap items-center gap-2">
-                <Badge variant={tailEnabled ? "success" : "muted"}>
-                  {tailEnabled ? "TAILING" : "PAUSED"}
-                </Badge>
+                {tailEnabled ? (
+                  <Badge variant="success">TAILING</Badge>
+                ) : (
+                  <Button
+                    variant="primary"
+                    size="xxs"
+                    onClick={handleJumpToLive}
+                    leftIcon={
+                      <span className="material-symbols-outlined text-md leading-none">
+                        text_select_jump_to_end
+                      </span>
+                    }
+                  >
+                    TO LIVE
+                  </Button>
+                )}
                 <Button variant="ghost" size="xxs" onClick={handleReset}>
                   RESET
                 </Button>
@@ -1738,7 +1770,7 @@ export default function LogsWindowApp({
                     placeholder="trace id"
                     addLabel="+ TRACE ID"
                     badgePrefix="trace"
-                    className="min-w-0 w-[220px] max-w-[220px]"
+                    className="min-w-0 w-65 max-w-65"
                     onChange={(next) =>
                       updateControls((current) => ({
                         ...current,
@@ -1752,7 +1784,7 @@ export default function LogsWindowApp({
                     placeholder="tool correlation id"
                     addLabel="+ TOOL CORREL ID"
                     badgePrefix="tool"
-                    className="min-w-0 w-[220px] max-w-[220px]"
+                    className="min-w-0 w-65 max-w-65"
                     onChange={(next) =>
                       updateControls((current) => ({
                         ...current,
@@ -1785,14 +1817,6 @@ export default function LogsWindowApp({
           </div>
 
           <div className="relative flex min-h-0 flex-1 flex-col">
-            {!tailEnabled ? (
-              <div className="absolute right-4 top-4 z-10">
-                <Button variant="primary" size="xs" onClick={handleJumpToLive}>
-                  JUMP TO LIVE
-                </Button>
-              </div>
-            ) : null}
-
             <div
               ref={scrollRef}
               className="min-h-0 flex-1 overflow-y-auto px-5 py-4"

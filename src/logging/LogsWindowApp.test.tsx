@@ -769,8 +769,8 @@ describe("LogsWindowApp", () => {
 
     fireEvent.scroll(scroller);
 
-    await screen.findByText("PAUSED");
-    fireEvent.click(screen.getByRole("button", { name: "JUMP TO LIVE" }));
+    await screen.findByRole("button", { name: /TO LIVE/ });
+    fireEvent.click(screen.getByRole("button", { name: /TO LIVE/ }));
     await screen.findByText("TAILING");
     expect(screen.queryByRole("button", { name: "JUMP TO LIVE" })).toBeNull();
     expect(scroller.scrollTop).toBe(1000);

@@ -1,4 +1,5 @@
 import { logFrontendSoon } from "@/logging/client";
+import { LOG_WINDOW_LABEL } from "@/logging/window";
 
 export interface NotificationPayload {
   title: string;
@@ -16,14 +17,24 @@ function isTauri(): boolean {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 }
 
-function isDetachedLogsWindow(): boolean {
+async function isDetachedLogsWindow(): Promise<boolean> {
   if (typeof window === "undefined") return false;
-  return new URLSearchParams(window.location.search).get("window") === "logs";
+  if (new URLSearchParams(window.location.search).get("window") === "logs") {
+    return true;
+  }
+  if (!isTauri()) return false;
+
+  try {
+    const { getCurrentWindow } = await import("@tauri-apps/api/window");
+    return getCurrentWindow().label === LOG_WINDOW_LABEL;
+  } catch {
+    return false;
+  }
 }
 
 export async function ensureNotificationPermission(): Promise<boolean> {
   if (typeof window === "undefined") return false;
-  if (isDetachedLogsWindow()) return false;
+  if (await isDetachedLogsWindow()) return false;
 
   // In Tauri, use the plugin's permission system
   if (isTauri()) {
