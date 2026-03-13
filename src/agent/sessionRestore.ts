@@ -17,6 +17,7 @@ interface HydratePersistedSessionOptions {
 }
 
 type AddTabWithId = (tab: Tab) => void;
+type SetActiveTab = (id: string) => void;
 
 function parseAdvancedOptions(
   advancedOptions: string,
@@ -49,6 +50,31 @@ function buildTabFromSession(session: PersistedSession): Tab {
     status: "idle",
     mode: session.mode as Tab["mode"],
   };
+}
+
+async function openPersistedSessionTab(
+  session: PersistedSession,
+  addTabWithId: AddTabWithId,
+  restoreArchived: boolean,
+): Promise<void> {
+  if (restoreArchived) {
+    await restoreSession(session);
+  }
+
+  try {
+    hydratePersistedSession(session);
+  } catch (error) {
+    logFrontendSoon({
+      level: "error",
+      tags: ["frontend", "db", "system"],
+      event: "sessionRestore.hydrate.error",
+      message: "Failed to hydrate restored session",
+      kind: "error",
+      data: { sessionId: session.id, error },
+    });
+  }
+
+  addTabWithId(buildTabFromSession(session));
 }
 
 function parseQueuedMessages(queuedMessages: string): QueuedUserMessage[] {
@@ -118,22 +144,28 @@ export async function restoreArchivedTab(
   session: PersistedSession,
   addTabWithId: AddTabWithId,
 ): Promise<void> {
-  await restoreSession(session);
+  await openPersistedSessionTab(session, addTabWithId, true);
+}
 
-  try {
-    hydratePersistedSession(session);
-  } catch (error) {
-    logFrontendSoon({
-      level: "error",
-      tags: ["frontend", "db", "system"],
-      event: "sessionRestore.hydrate.error",
-      message: "Failed to hydrate restored session",
-      kind: "error",
-      data: { sessionId: session.id, error },
-    });
+export async function focusOrOpenPersistedSession(
+  session: PersistedSession,
+  options: {
+    addTabWithId: AddTabWithId;
+    setActiveTab: SetActiveTab;
+    tabs: Tab[];
+  },
+): Promise<"focused" | "restored" | "opened"> {
+  if (options.tabs.some((tab) => tab.id === session.id)) {
+    options.setActiveTab(session.id);
+    return "focused";
   }
 
-  addTabWithId(buildTabFromSession(session));
+  await openPersistedSessionTab(
+    session,
+    options.addTabWithId,
+    session.archived,
+  );
+  return session.archived ? "restored" : "opened";
 }
 
 export async function restoreMostRecentArchivedTab(

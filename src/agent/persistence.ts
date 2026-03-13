@@ -104,21 +104,48 @@ async function invoke<T>(
   return tauriInvoke<T>(cmd, args);
 }
 
-export function sessionChangeAffectsArchivedSessions(
+export function sessionChangeAffectsRecentSessionSurfaces(
   event: SessionChangeEvent,
 ): boolean {
   switch (event.change) {
     case "archived":
       return event.archived === true;
     case "pinned":
-      return event.archived === true;
+      return true;
     case "deleted":
-      return event.previousArchived === true;
+      return event.previousArchived === true || event.pinned === true;
     case "upserted":
-      return event.archived === true || event.previousArchived === true;
+      return (
+        event.archived === true ||
+        event.previousArchived === true ||
+        event.pinned === true
+      );
     default:
       return false;
   }
+}
+
+/**
+ * Load the recent-session inventory used by the new-session landing and archived
+ * tabs UI. This includes all archived sessions plus any currently active pinned
+ * sessions, so pinned workspaces remain reachable after they are reopened.
+ */
+export async function loadRecentSessions(): Promise<PersistedSession[]> {
+  if (!isTauri()) return [];
+
+  const archivedSessions = await loadArchivedSessions();
+  const activeSessions = await loadSessions();
+
+  const byId = new Map<string, PersistedSession>();
+  for (const session of archivedSessions) {
+    byId.set(session.id, session);
+  }
+  for (const session of activeSessions) {
+    if (!session.pinned) continue;
+    byId.set(session.id, session);
+  }
+
+  return Array.from(byId.values());
 }
 
 export async function listenForSessionChanges(

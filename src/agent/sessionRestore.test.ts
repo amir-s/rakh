@@ -22,6 +22,7 @@ vi.mock("./persistence", async () => {
 import { agentAtomFamily, jotaiStore } from "./atoms";
 import type { PersistedSession } from "./persistence";
 import {
+  focusOrOpenPersistedSession,
   restoreArchivedTab,
   restoreMostRecentArchivedTab,
 } from "./sessionRestore";
@@ -151,5 +152,46 @@ describe("sessionRestore", () => {
     expect(restored).toBeNull();
     expect(persistenceMock.restoreSession).not.toHaveBeenCalled();
     expect(addTabWithId).not.toHaveBeenCalled();
+  });
+
+  it("focuses an already-open tab instead of restoring it again", async () => {
+    const session = makeSession("restore-session-4");
+    const addTabWithId = vi.fn();
+    const setActiveTab = vi.fn();
+
+    const result = await focusOrOpenPersistedSession(session, {
+      addTabWithId,
+      setActiveTab,
+      tabs: [{ id: session.id, label: "Workspace", icon: "folder", status: "idle", mode: "workspace" }],
+    });
+
+    expect(result).toBe("focused");
+    expect(setActiveTab).toHaveBeenCalledWith(session.id);
+    expect(persistenceMock.restoreSession).not.toHaveBeenCalled();
+    expect(addTabWithId).not.toHaveBeenCalled();
+  });
+
+  it("opens a non-archived persisted session without calling restoreSession", async () => {
+    const session = makeSession("restore-session-5", { archived: false });
+    const addTabWithId = vi.fn();
+    const setActiveTab = vi.fn();
+
+    const result = await focusOrOpenPersistedSession(session, {
+      addTabWithId,
+      setActiveTab,
+      tabs: [],
+    });
+
+    expect(result).toBe("opened");
+    expect(persistenceMock.restoreSession).not.toHaveBeenCalled();
+    expect(addTabWithId).toHaveBeenCalledWith({
+      id: session.id,
+      label: session.label,
+      icon: session.icon,
+      pinned: true,
+      status: "idle",
+      mode: "workspace",
+    });
+    expect(setActiveTab).not.toHaveBeenCalled();
   });
 });
