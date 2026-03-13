@@ -682,16 +682,8 @@ export default function NewSession({ onSubmit }: NewSessionProps) {
 
         {showRecentTabs ? (
           <section className="ns-recent-panel" aria-label="Recent tabs">
-            <div className="ns-recent-header">
-              <span className="material-symbols-outlined text-md" aria-hidden>
-                history
-              </span>
-              <span>Recent tabs</span>
-            </div>
-
             {pinnedRecentItems.length > 0 ? (
               <div className="ns-recent-section">
-                <div className="ns-recent-section-label">Pinned</div>
                 <div className="ns-recent-list">
                   {pinnedRecentItems.map((item) => (
                     <RecentTabRow
@@ -707,7 +699,17 @@ export default function NewSession({ onSubmit }: NewSessionProps) {
 
             {recentUnpinnedItems.length > 0 ? (
               <div className="ns-recent-section">
-                <div className="ns-recent-section-label">Recent</div>
+                {pinnedRecentItems.length > 0 || recentUnpinnedItems.length > 0 ? (
+                  <div className="ns-recent-section-label">
+                    <span
+                      className="material-symbols-outlined ns-recent-section-icon"
+                      aria-hidden
+                    >
+                      history
+                    </span>
+                    <span>Recent tabs</span>
+                  </div>
+                ) : null}
                 <div className="ns-recent-list">
                   {recentUnpinnedItems.map((item) => (
                     <RecentTabRow
