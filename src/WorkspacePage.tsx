@@ -61,7 +61,7 @@ import { getAllSubagents, getSubagentThemeColorToken } from "@/agent/subagents";
 import { groupChatMessagesForBubbles } from "@/agent/chatBubbleGroups";
 import { useArtifactContentCache } from "@/components/artifact-pane/useSessionArtifacts";
 import {
-  buildToolCallRenderItems,
+  buildToolCallRenderItemsByMessage,
   type ToolCallRenderKind,
   type ToolCallRenderItem,
 } from "@/components/toolCallRenderItems";
@@ -1294,6 +1294,11 @@ export default function WorkspacePage() {
               const subagentMeta = group.agentName
                 ? subagentMetaByName.get(group.agentName)
                 : undefined;
+              const toolCallRenderItemsByMessage =
+                buildToolCallRenderItemsByMessage(
+                  groupMessages,
+                  agent.groupInlineToolCalls,
+                );
 
               return (
                 <div key={group.key} className="conversation-group">
@@ -1309,14 +1314,30 @@ export default function WorkspacePage() {
                 >
                   {groupMessages.map((msg) => {
                       const visibleToolCalls = msg.toolCalls ?? [];
-                      const toolCallRenderItems = buildToolCallRenderItems(
-                        visibleToolCalls,
-                        agent.groupInlineToolCalls,
-                      );
+                      const toolCallRenderItems =
+                        toolCallRenderItemsByMessage[msg.id] ?? [];
                       const showReasoning =
                         !!msg.reasoning || !!msg.reasoningStreaming;
                       const reasoningExpanded =
                         reasoningExpandedById[msg.id] ?? false;
+                      const showThinkingDots =
+                        !!msg.streaming &&
+                        !msg.content &&
+                        !showReasoning &&
+                        visibleToolCalls.length === 0;
+                      const showStreamingCursor =
+                        !!msg.streaming && !showThinkingDots;
+                      const hasRenderableSegmentContent =
+                        showReasoning ||
+                        !!msg.content ||
+                        showThinkingDots ||
+                        showStreamingCursor ||
+                        toolCallRenderItems.length > 0 ||
+                        !!msg.traceId;
+
+                      if (!hasRenderableSegmentContent) {
+                        return null;
+                      }
 
                       return (
                         <div key={msg.id} className="agent-message-segment">
@@ -1337,21 +1358,18 @@ export default function WorkspacePage() {
                           {msg.content && <Markdown>{msg.content}</Markdown>}
 
                           {/* Streaming cursor or thinking animation */}
-                          {msg.streaming &&
-                            (!msg.content &&
-                            !showReasoning &&
-                            visibleToolCalls.length === 0 ? (
-                              <div className="thinking-dots mt-0.5 mb-0.5">
-                                <span />
-                                <span />
-                                <span />
-                              </div>
-                            ) : (
-                              <span className="animate-blink ml-0.5">◍</span>
-                            ))}
+                          {showThinkingDots ? (
+                            <div className="thinking-dots mt-0.5 mb-0.5">
+                              <span />
+                              <span />
+                              <span />
+                            </div>
+                          ) : showStreamingCursor ? (
+                            <span className="animate-blink ml-0.5">◍</span>
+                          ) : null}
 
                           {/* Tool calls */}
-                          {visibleToolCalls.length > 0 && (
+                          {toolCallRenderItems.length > 0 && (
                             <div className="mt-2 flex flex-col gap-1">
                               {toolCallRenderItems.map((item, index) =>
                                 item.kind === "group" ? (

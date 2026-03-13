@@ -875,6 +875,63 @@ describe("WorkspacePage chat input", () => {
     });
   });
 
+  it("groups inline tool calls across assistant messages in the same bubble when no visible block separates them", async () => {
+    workspaceMocks.agentState = {
+      ...workspaceMocks.agentState,
+      showDebug: false,
+    };
+    workspaceMocks.chatBubbleGroups = [
+      {
+        kind: "assistant",
+        key: "assistant:msg-grouped-inline",
+        messages: [
+          {
+            id: "msg-1",
+            role: "assistant",
+            content: "",
+            timestamp: 1,
+            toolCalls: [
+              {
+                id: "tc-1",
+                tool: "workspace_listDir",
+                args: { path: "src" },
+                status: "done",
+              },
+            ],
+          },
+          {
+            id: "msg-2",
+            role: "assistant",
+            content: "",
+            timestamp: 2,
+            toolCalls: [
+              {
+                id: "tc-2",
+                tool: "workspace_readFile",
+                args: { path: "README.md" },
+                status: "done",
+              },
+            ],
+          },
+        ],
+      },
+    ];
+
+    render(<WorkspacePage />);
+
+    const openLogsButtons = screen.getAllByRole("button", { name: "Open logs" });
+    expect(openLogsButtons).toHaveLength(1);
+
+    fireEvent.click(openLogsButtons[0]);
+
+    await waitFor(() => {
+      expect(workspaceMocks.openLogViewerWindowMock).toHaveBeenCalledWith({
+        origin: "tool-call",
+        filter: { correlationId: "tc-2" },
+      });
+    });
+  });
+
   it("keeps the send button available while busy when text is queued", async () => {
     workspaceMocks.agentState.status = "working";
 

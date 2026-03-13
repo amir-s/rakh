@@ -14,6 +14,16 @@ export type ToolCallRenderItem =
       toolCalls: ToolCallDisplay[];
     };
 
+export interface ToolCallRenderMessage {
+  id: string;
+  content?: string;
+  reasoning?: string;
+  reasoningStreaming?: boolean;
+  streaming?: boolean;
+  traceId?: string;
+  toolCalls?: ToolCallDisplay[];
+}
+
 export function getToolCallRenderKind(tc: ToolCallDisplay): ToolCallRenderKind {
   if (tc.tool === "user_input" && tc.status === "awaiting_approval") {
     return "user_input";
@@ -89,4 +99,72 @@ export function buildToolCallRenderItems(
 
   flushGroup(items, pendingGroup);
   return items;
+}
+
+function hasVisibleContentBeforeToolCalls(message: ToolCallRenderMessage): boolean {
+  return Boolean(
+    message.content ||
+      message.reasoning ||
+      message.reasoningStreaming ||
+      message.streaming,
+  );
+}
+
+function hasVisibleContentAfterToolCalls(message: ToolCallRenderMessage): boolean {
+  return Boolean(message.traceId);
+}
+
+export function buildToolCallRenderItemsByMessage(
+  messages: ToolCallRenderMessage[],
+  groupInlineToolCalls: boolean,
+): Partial<Record<string, ToolCallRenderItem[]>> {
+  const itemsByMessageId: Partial<Record<string, ToolCallRenderItem[]>> = {};
+
+  if (!groupInlineToolCalls) {
+    for (const message of messages) {
+      const toolCalls = message.toolCalls ?? [];
+      if (toolCalls.length === 0) continue;
+      itemsByMessageId[message.id] = buildToolCallRenderItems(
+        toolCalls,
+        false,
+      );
+    }
+    return itemsByMessageId;
+  }
+
+  let pendingToolCalls: ToolCallDisplay[] = [];
+  let pendingMessageIds: string[] = [];
+
+  const flushPending = () => {
+    if (pendingToolCalls.length === 0 || pendingMessageIds.length === 0) {
+      return;
+    }
+
+    const anchorMessageId = pendingMessageIds[pendingMessageIds.length - 1];
+    itemsByMessageId[anchorMessageId] = buildToolCallRenderItems(
+      pendingToolCalls,
+      true,
+    );
+    pendingToolCalls = [];
+    pendingMessageIds = [];
+  };
+
+  for (const message of messages) {
+    if (hasVisibleContentBeforeToolCalls(message)) {
+      flushPending();
+    }
+
+    const toolCalls = message.toolCalls ?? [];
+    if (toolCalls.length > 0) {
+      pendingToolCalls = [...pendingToolCalls, ...toolCalls];
+      pendingMessageIds.push(message.id);
+    }
+
+    if (hasVisibleContentAfterToolCalls(message)) {
+      flushPending();
+    }
+  }
+
+  flushPending();
+  return itemsByMessageId;
 }

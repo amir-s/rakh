@@ -139,7 +139,7 @@ function ExpandedListDir({ tc }: { tc: ToolCallDisplay }) {
   const symlinkCount = entries.filter((e) => e.kind === "symlink").length;
 
   return (
-    <div className="cmd-block mt-1 border border-border-subtle rounded-[6px] bg-inset">
+    <div className="cmd-block mt-1 bg-inset">
       <div className="text-xs text-text leading-[1.55]">
         Listing directory:{" "}
         <span className="font-mono text-[#6a9fb5]">&lt;{outputPath}&gt;</span>
@@ -219,7 +219,7 @@ function ExpandedStatFile({ tc }: { tc: ToolCallDisplay }) {
       : null;
 
   return (
-    <div className="cmd-block mt-1 border border-border-subtle rounded-[6px] bg-inset">
+    <div className="cmd-block mt-1 bg-inset">
       <div className="text-xs text-text leading-[1.55]">
         Stat for:{" "}
         <span className="font-mono text-[#6a9fb5]">&lt;{outputPath}&gt;</span>
@@ -294,7 +294,7 @@ function ExpandedReadFile({ tc }: { tc: ToolCallDisplay }) {
       : null;
 
   return (
-    <div className="cmd-block mt-1 border border-border-subtle rounded-[6px] bg-inset">
+    <div className="cmd-block mt-1 bg-inset">
       <div className="text-xs text-text leading-[1.55]">
         Reading file:{" "}
         <span className="font-mono text-[#6a9fb5]">&lt;{outputPath}&gt;</span>
@@ -376,7 +376,7 @@ function ExpandedGlob({ tc }: { tc: ToolCallDisplay }) {
       : null;
 
   return (
-    <div className="cmd-block mt-1 border border-border-subtle rounded-[6px] bg-inset">
+    <div className="cmd-block mt-1 bg-inset">
       <div className="text-xs text-text leading-[1.55]">
         Matching glob patterns in{" "}
         <span className="font-mono text-[#6a9fb5]">&lt;{rootDir}&gt;</span>
@@ -445,12 +445,14 @@ function ExpandedGitWorktree({ tc }: { tc: ToolCallDisplay }) {
       : resultRecord?.details &&
           typeof resultRecord.details === "object" &&
           (resultRecord.details as Record<string, unknown>).setup &&
-          typeof (resultRecord.details as Record<string, unknown>).setup === "object"
-        ? ((resultRecord.details as Record<string, unknown>)
-            .setup as Record<string, unknown>)
+          typeof (resultRecord.details as Record<string, unknown>).setup ===
+            "object"
+        ? ((resultRecord.details as Record<string, unknown>).setup as Record<
+            string,
+            unknown
+          >)
         : null;
-  const setupStatus =
-    typeof setup?.status === "string" ? setup.status : null;
+  const setupStatus = typeof setup?.status === "string" ? setup.status : null;
   const setupStdout =
     typeof setup?.stdout === "string" ? setup.stdout.trimEnd() : "";
   const setupStderr =
@@ -468,7 +470,7 @@ function ExpandedGitWorktree({ tc }: { tc: ToolCallDisplay }) {
       : null;
 
   return (
-    <div className="cmd-block mt-1 border border-border-subtle rounded-[6px] bg-inset">
+    <div className="cmd-block mt-1 bg-inset">
       <div className="text-xs text-text leading-[1.55]">
         Initializing git worktree
       </div>
@@ -510,16 +512,24 @@ function ExpandedGitWorktree({ tc }: { tc: ToolCallDisplay }) {
           {setupStatus === "failed_continued" && (
             <div>Setup: failed, continued anyway</div>
           )}
-          {setupAttemptCount ? <div>Setup attempts: {setupAttemptCount}</div> : null}
-          {setupExitCode !== null ? <div>Setup exit code: {setupExitCode}</div> : null}
-          {setupErrorMessage ? <div>Setup note: {setupErrorMessage}</div> : null}
+          {setupAttemptCount ? (
+            <div>Setup attempts: {setupAttemptCount}</div>
+          ) : null}
+          {setupExitCode !== null ? (
+            <div>Setup exit code: {setupExitCode}</div>
+          ) : null}
+          {setupErrorMessage ? (
+            <div>Setup note: {setupErrorMessage}</div>
+          ) : null}
           {!declined && !path && !branch && !alreadyExists && (
             <div>No worktree data returned.</div>
           )}
         </div>
       )}
 
-      {setupStdout ? <pre className="cmd-output mt-1">{setupStdout}</pre> : null}
+      {setupStdout ? (
+        <pre className="cmd-output mt-1">{setupStdout}</pre>
+      ) : null}
       {setupStderr ? (
         <pre className="cmd-output cmd-output--error mt-1">{setupStderr}</pre>
       ) : null}
@@ -645,7 +655,7 @@ function ExpandedSearch({ tc }: { tc: ToolCallDisplay }) {
       : null;
 
   return (
-    <div className="cmd-block mt-1 border border-border-subtle rounded-[6px] bg-inset">
+    <div className="cmd-block mt-1 bg-inset">
       <div className="text-xs text-text leading-[1.55]">
         Searching for pattern:{" "}
         <span className="font-mono bg-surface border border-border-subtle rounded px-1">
@@ -807,7 +817,7 @@ function ExpandedUserInput({ tc }: { tc: ToolCallDisplay }) {
   const isCustomAnswer = answer !== null && !isOptionAnswer;
 
   return (
-    <div className="cmd-block mt-1 border border-border-subtle rounded-[6px] bg-inset">
+    <div className="cmd-block mt-1 bg-inset">
       {/* Question */}
       <div className="text-xs text-text leading-[1.6] mb-2">{question}</div>
 

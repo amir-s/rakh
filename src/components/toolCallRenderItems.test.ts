@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { ToolCallDisplay } from "@/agent/types";
 import {
+  buildToolCallRenderItemsByMessage,
   buildToolCallRenderItems,
   getToolCallRenderKind,
 } from "./toolCallRenderItems";
@@ -15,6 +16,23 @@ function makeToolCall(
     tool,
     args: {},
     status,
+  };
+}
+
+function makeMessage(
+  id: string,
+  overrides: Partial<{
+    content: string;
+    reasoning: string;
+    reasoningStreaming: boolean;
+    streaming: boolean;
+    traceId: string;
+    toolCalls: ToolCallDisplay[];
+  }> = {},
+) {
+  return {
+    id,
+    ...overrides,
   };
 }
 
@@ -126,5 +144,87 @@ describe("toolCallRenderItems", () => {
     expect(getToolCallRenderKind(makeToolCall("tc-3", "workspace_listDir"))).toBe(
       "compact",
     );
+  });
+
+  it("groups inline compact tool calls across assistant messages when nothing visible separates them", () => {
+    const itemsByMessage = buildToolCallRenderItemsByMessage(
+      [
+        makeMessage("msg-1", {
+          toolCalls: [makeToolCall("tc-1", "workspace_listDir")],
+        }),
+        makeMessage("msg-2", {
+          toolCalls: [makeToolCall("tc-2", "workspace_readFile")],
+        }),
+      ],
+      true,
+    );
+
+    expect(itemsByMessage["msg-1"]).toBeUndefined();
+    expect(itemsByMessage["msg-2"]).toEqual([
+      {
+        kind: "group",
+        toolCalls: [
+          expect.objectContaining({ id: "tc-1" }),
+          expect.objectContaining({ id: "tc-2" }),
+        ],
+      },
+    ]);
+  });
+
+  it("treats reasoning blocks between assistant messages as hard boundaries", () => {
+    const itemsByMessage = buildToolCallRenderItemsByMessage(
+      [
+        makeMessage("msg-1", {
+          toolCalls: [makeToolCall("tc-1", "workspace_listDir")],
+        }),
+        makeMessage("msg-2", {
+          reasoning: "Checking constraints first.",
+        }),
+        makeMessage("msg-3", {
+          toolCalls: [makeToolCall("tc-2", "workspace_readFile")],
+        }),
+      ],
+      true,
+    );
+
+    expect(itemsByMessage["msg-1"]).toEqual([
+      expect.objectContaining({
+        kind: "tool",
+        toolCall: expect.objectContaining({ id: "tc-1" }),
+      }),
+    ]);
+    expect(itemsByMessage["msg-3"]).toEqual([
+      expect.objectContaining({
+        kind: "tool",
+        toolCall: expect.objectContaining({ id: "tc-2" }),
+      }),
+    ]);
+  });
+
+  it("keeps tool calls on their original messages when cross-message grouping is disabled", () => {
+    const itemsByMessage = buildToolCallRenderItemsByMessage(
+      [
+        makeMessage("msg-1", {
+          toolCalls: [makeToolCall("tc-1", "workspace_listDir")],
+        }),
+        makeMessage("msg-2", {
+          toolCalls: [makeToolCall("tc-2", "workspace_readFile")],
+        }),
+      ],
+      false,
+    );
+
+    expect(itemsByMessage["msg-1"]).toEqual([
+      expect.objectContaining({
+        kind: "tool",
+        toolCall: expect.objectContaining({ id: "tc-1" }),
+      }),
+    ]);
+    expect(itemsByMessage["msg-2"]).toEqual([
+      expect.objectContaining({
+        kind: "tool",
+        toolCall: expect.objectContaining({ id: "tc-2" }),
+      }),
+    ]);
   });
 });
