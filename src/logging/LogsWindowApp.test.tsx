@@ -82,6 +82,7 @@ describe("LogsWindowApp", () => {
 
   afterEach(() => {
     cleanup();
+    vi.useRealTimers();
     vi.restoreAllMocks();
   });
 
@@ -127,7 +128,7 @@ describe("LogsWindowApp", () => {
     expect(screen.queryByText("Initial query message")).toBeNull();
   });
 
-  it("starts compact, expands filters on demand, and ignores time filters", async () => {
+  it("renders inline filters and ignores time filters", async () => {
     logsMocks.queryLogsMock.mockResolvedValue([]);
 
     const { container } = render(
@@ -148,22 +149,29 @@ describe("LogsWindowApp", () => {
     });
 
     expect(screen.queryByPlaceholderText("trace id")).toBeNull();
-    expect(screen.queryByRole("dialog", { name: "Log filters" })).toBeNull();
-
-    fireEvent.click(screen.getByRole("button", { name: "SHOW FILTERS" }));
-
-    expect(screen.getByRole("dialog", { name: "Log filters" })).not.toBeNull();
-    expect(screen.getByPlaceholderText("trace id")).not.toBeNull();
     expect(
       screen.getByRole("button", { name: "Tag filter frontend: ignored" }),
     ).not.toBeNull();
-    expect(screen.getByText("Verbosity")).not.toBeNull();
+    expect(screen.getByRole("button", { name: /Cycle verbosity/ })).not.toBeNull();
+    expect(
+      screen.getByRole("button", { name: "Add trace id filter" }),
+    ).not.toBeNull();
+    expect(
+      screen.getByRole("button", { name: "Add tool correlation id filter" }),
+    ).not.toBeNull();
+    expect(screen.getByRole("button", { name: "Row limit 100" })).not.toBeNull();
+    expect(
+      screen.getByRole("button", { name: "Source filter backend" }).getAttribute("aria-pressed"),
+    ).toBe("false");
+    expect(
+      screen.getByRole("button", { name: "Source filter frontend" }).getAttribute("aria-pressed"),
+    ).toBe("false");
     expect(
       container.querySelector('input[type="datetime-local"]'),
     ).toBeNull();
   });
 
-  it("toggles the filter popover with backquote", async () => {
+  it("adds and removes a trace id filter inline", async () => {
     logsMocks.queryLogsMock.mockResolvedValue([]);
 
     render(
@@ -175,15 +183,155 @@ describe("LogsWindowApp", () => {
       />,
     );
 
-    expect(screen.queryByRole("dialog", { name: "Log filters" })).toBeNull();
-
-    fireEvent.keyDown(window, { key: "`", code: "Backquote" });
-    expect(screen.getByRole("dialog", { name: "Log filters" })).not.toBeNull();
-
-    fireEvent.keyDown(window, { key: "`", code: "Backquote" });
-    await waitFor(() => {
-      expect(screen.queryByRole("dialog", { name: "Log filters" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Add trace id filter" }));
+    expect(screen.getByRole("dialog", { name: "Trace ID filter input" })).not.toBeNull();
+    fireEvent.change(screen.getByRole("textbox", { name: "Trace ID" }), {
+      target: { value: "trace-1" },
     });
+    fireEvent.click(screen.getByRole("button", { name: "ADD" }));
+
+    await waitFor(() => {
+      expect(logsMocks.queryLogsMock).toHaveBeenLastCalledWith({
+        traceId: "trace-1",
+        limit: 100,
+      });
+    });
+
+    expect(screen.getByText("trace: trace-1")).not.toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Remove trace id filter" }));
+
+    await waitFor(() => {
+      expect(logsMocks.queryLogsMock).toHaveBeenLastCalledWith({
+        limit: 100,
+      });
+    });
+    expect(screen.getByRole("button", { name: "Add trace id filter" })).not.toBeNull();
+  });
+
+  it("adds and removes a tool correlation id filter inline", async () => {
+    logsMocks.queryLogsMock.mockResolvedValue([]);
+
+    render(
+      <LogsWindowApp
+        initialPayload={{
+          origin: "manual",
+          filter: { limit: 100 },
+        }}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Add tool correlation id filter" }));
+    expect(
+      screen.getByRole("dialog", { name: "Tool Correlation ID filter input" }),
+    ).not.toBeNull();
+    fireEvent.change(screen.getByRole("textbox", { name: "Tool Correlation ID" }), {
+      target: { value: "tool-1" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "ADD" }));
+
+    await waitFor(() => {
+      expect(logsMocks.queryLogsMock).toHaveBeenLastCalledWith({
+        correlationId: "tool-1",
+        limit: 100,
+      });
+    });
+
+    expect(screen.getByText("tool: tool-1")).not.toBeNull();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Remove tool correlation id filter" }),
+    );
+
+    await waitFor(() => {
+      expect(logsMocks.queryLogsMock).toHaveBeenLastCalledWith({
+        limit: 100,
+      });
+    });
+    expect(
+      screen.getByRole("button", { name: "Add tool correlation id filter" }),
+    ).not.toBeNull();
+  });
+
+  it("updates the row limit from the inline picker", async () => {
+    logsMocks.queryLogsMock.mockResolvedValue([]);
+
+    render(
+      <LogsWindowApp
+        initialPayload={{
+          origin: "manual",
+          filter: { limit: 100 },
+        }}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Row limit 100" }));
+    expect(screen.getByRole("dialog", { name: "Row limit options" })).not.toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Set row limit 500" }));
+
+    await waitFor(() => {
+      expect(logsMocks.queryLogsMock).toHaveBeenLastCalledWith({
+        limit: 500,
+      });
+    });
+    expect(screen.getByRole("button", { name: "Row limit 500" })).not.toBeNull();
+  });
+
+  it("auto closes regular toasts, keeps export toasts until dismissed, and replaces older notices", async () => {
+    vi.useFakeTimers();
+    try {
+      render(
+        <LogsWindowApp
+          initialPayload={{
+            origin: "manual",
+            filter: { limit: 100 },
+          }}
+        />,
+      );
+
+      fireEvent.click(screen.getByRole("button", { name: "CLEAR" }));
+      expect(
+        screen.getByText("Cleared current view. Only new logs will appear."),
+      ).not.toBeNull();
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(3600);
+      });
+      expect(
+        screen.queryByText("Cleared current view. Only new logs will appear."),
+      ).toBeNull();
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: "EXPORT" }));
+        await Promise.resolve();
+      });
+
+      expect(
+        screen.getByText("Exported 2 log entries to /tmp/rakh-logs.json"),
+      ).not.toBeNull();
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(5000);
+      });
+      expect(
+        screen.getByText("Exported 2 log entries to /tmp/rakh-logs.json"),
+      ).not.toBeNull();
+
+      fireEvent.click(screen.getByRole("button", { name: "CLEAR" }));
+      expect(
+        screen.queryByText("Exported 2 log entries to /tmp/rakh-logs.json"),
+      ).toBeNull();
+      expect(
+        screen.getByText("Cleared current view. Only new logs will appear."),
+      ).not.toBeNull();
+
+      fireEvent.click(screen.getByRole("button", { name: "Dismiss notice" }));
+      expect(
+        screen.queryByText("Cleared current view. Only new logs will appear."),
+      ).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("passes excluded tags through to history queries", async () => {
@@ -223,7 +371,6 @@ describe("LogsWindowApp", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "SHOW FILTERS" }));
     fireEvent.click(screen.getByRole("button", { name: "Tag filter agent-loop: ignored" }));
 
     await waitFor(() => {
@@ -263,7 +410,6 @@ describe("LogsWindowApp", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "SHOW FILTERS" }));
     fireEvent.click(screen.getByRole("button", { name: /Cycle verbosity/ }));
 
     await waitFor(() => {
@@ -300,6 +446,54 @@ describe("LogsWindowApp", () => {
         limit: 100,
       });
     });
+  });
+
+  it("toggles source pills between backend, frontend, and both", async () => {
+    logsMocks.queryLogsMock.mockResolvedValue([]);
+
+    render(
+      <LogsWindowApp
+        initialPayload={{
+          origin: "manual",
+          filter: { limit: 100 },
+        }}
+      />,
+    );
+
+    const backendButton = screen.getByRole("button", { name: "Source filter backend" });
+    const frontendButton = screen.getByRole("button", { name: "Source filter frontend" });
+
+    fireEvent.click(backendButton);
+
+    await waitFor(() => {
+      expect(logsMocks.queryLogsMock).toHaveBeenLastCalledWith({
+        source: "backend",
+        limit: 100,
+      });
+    });
+    expect(backendButton.getAttribute("aria-pressed")).toBe("true");
+    expect(frontendButton.getAttribute("aria-pressed")).toBe("false");
+
+    fireEvent.click(frontendButton);
+
+    await waitFor(() => {
+      expect(logsMocks.queryLogsMock).toHaveBeenLastCalledWith({
+        source: "frontend",
+        limit: 100,
+      });
+    });
+    expect(backendButton.getAttribute("aria-pressed")).toBe("false");
+    expect(frontendButton.getAttribute("aria-pressed")).toBe("true");
+
+    fireEvent.click(frontendButton);
+
+    await waitFor(() => {
+      expect(logsMocks.queryLogsMock).toHaveBeenLastCalledWith({
+        limit: 100,
+      });
+    });
+    expect(backendButton.getAttribute("aria-pressed")).toBe("false");
+    expect(frontendButton.getAttribute("aria-pressed")).toBe("false");
   });
 
   it("lets tag chips add include and exclude filters", async () => {
@@ -369,7 +563,12 @@ describe("LogsWindowApp", () => {
     );
 
     await screen.findByText("Expandable log row");
+    expect(screen.getByLabelText("event").textContent).toBe("•");
     expect(screen.getByLabelText("Level warn").textContent).toBe("W");
+    expect(screen.getByLabelText("event").className.includes("h-7")).toBe(true);
+    expect(screen.getByLabelText("event").className.includes("w-7")).toBe(true);
+    expect(screen.getByLabelText("Level warn").className.includes("h-7")).toBe(true);
+    expect(screen.getByLabelText("Level warn").className.includes("w-7")).toBe(true);
     expect(screen.queryByText("Metadata")).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: "Expand log row expandable-row" }));
@@ -381,6 +580,34 @@ describe("LogsWindowApp", () => {
     await waitFor(() => {
       expect(screen.queryByText("Metadata")).toBeNull();
     });
+  });
+
+  it("renders an icon for error kind entries", async () => {
+    logsMocks.queryLogsMock.mockResolvedValue([
+      makeEntry({
+        id: "error-row",
+        kind: "error",
+        level: "error",
+        message: "Error log row",
+      }),
+    ]);
+
+    render(
+      <LogsWindowApp
+        initialPayload={{
+          origin: "manual",
+          filter: { limit: 100 },
+        }}
+      />,
+    );
+
+    await screen.findByText("Error log row");
+    expect(screen.getByLabelText("error").textContent).toBe("!");
+    expect(screen.getByLabelText("Level error").textContent).toBe("E");
+    expect(screen.getByLabelText("error").className.includes("h-7")).toBe(true);
+    expect(screen.getByLabelText("error").className.includes("w-7")).toBe(true);
+    expect(screen.getByLabelText("Level error").className.includes("h-7")).toBe(true);
+    expect(screen.getByLabelText("Level error").className.includes("w-7")).toBe(true);
   });
 
   it("switches to tree mode for trace filters and clears only the current view", async () => {
@@ -413,7 +640,7 @@ describe("LogsWindowApp", () => {
     );
 
     await screen.findByText("Root operation");
-    expect(screen.getByText("Grouped by trace lineage")).not.toBeNull();
+    expect(screen.getByLabelText("Trace tree view")).not.toBeNull();
     expect(screen.getByText("Child operation")).not.toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: "EXPORT" }));

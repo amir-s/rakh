@@ -80,7 +80,6 @@ export function createToolLogContext(
 }
 
 export function logStreamDebug(
-  tabId: string,
   debugEnabled: boolean,
   event: string,
   logContext: LogContext,
@@ -94,7 +93,7 @@ export function logStreamDebug(
     level: "debug",
     tags,
     event: `runner.${event}`,
-    message: `[${tabId}] ${event}`,
+    message: event,
     data: payload === undefined ? undefined : toLoggable(payload),
     context: logContext,
   });
@@ -158,7 +157,6 @@ function summarizeStreamStepForDebug(
 }
 
 export async function logStreamFinishDebug(
-  tabId: string,
   debugEnabled: boolean,
   result: DebuggableStreamResult,
   logContext: LogContext,
@@ -173,7 +171,7 @@ export async function logStreamFinishDebug(
     ]);
     const steps = Array.isArray(stepsValue) ? stepsValue : [];
 
-    logStreamDebug(tabId, debugEnabled, "stream:finish", logContext, {
+    logStreamDebug(debugEnabled, "stream:finish", logContext, {
       ...(typeof finishReason === "string" ? { finishReason } : {}),
       ...(typeof rawFinishReason === "string" ? { rawFinishReason } : {}),
       stepCount: steps.length,
@@ -182,7 +180,7 @@ export async function logStreamFinishDebug(
       ),
     });
   } catch (error) {
-    logStreamDebug(tabId, debugEnabled, "stream:finish:error", logContext, error);
+    logStreamDebug(debugEnabled, "stream:finish:error", logContext, error);
   }
 }
 

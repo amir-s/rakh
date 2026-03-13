@@ -1091,32 +1091,32 @@ describe("runner", () => {
       expect.arrayContaining([
         expect.objectContaining({
           event: "runner.turn:start",
-          message: `[${tabId}] turn:start`,
+          message: "turn:start",
           context: expect.objectContaining({ tabId }),
         }),
         expect.objectContaining({
           event: "runner.stream:part",
-          message: `[${tabId}] stream:part`,
+          message: "stream:part",
         }),
         expect.objectContaining({
           event: "runner.stream:reasoning-start",
-          message: `[${tabId}] stream:reasoning-start`,
+          message: "stream:reasoning-start",
         }),
         expect.objectContaining({
           event: "runner.stream:reasoning-delta",
-          message: `[${tabId}] stream:reasoning-delta`,
+          message: "stream:reasoning-delta",
         }),
         expect.objectContaining({
           event: "runner.stream:text-delta",
-          message: `[${tabId}] stream:text-delta`,
+          message: "stream:text-delta",
         }),
         expect.objectContaining({
           event: "runner.stream:tool-calls:raw",
-          message: `[${tabId}] stream:tool-calls:raw`,
+          message: "stream:tool-calls:raw",
         }),
         expect.objectContaining({
           event: "runner.stream:finish",
-          message: `[${tabId}] stream:finish`,
+          message: "stream:finish",
           data: expect.objectContaining({
             finishReason: "stop",
             stepCount: 1,
@@ -1133,7 +1133,7 @@ describe("runner", () => {
         }),
         expect.objectContaining({
           event: "runner.stream:summary",
-          message: `[${tabId}] stream:summary`,
+          message: "stream:summary",
         }),
       ]),
     );

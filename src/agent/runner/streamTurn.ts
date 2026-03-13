@@ -150,18 +150,12 @@ export async function streamTurn(
           throw new DOMException("Aborted", "AbortError");
         }
         streamPartCount += 1;
-        logStreamDebug(tabId, debugEnabled, "stream:part", logContext, part);
+        logStreamDebug(debugEnabled, "stream:part", logContext, part);
 
         const streamError = streamPartError(part);
         if (streamError !== null) {
           streamErrorPartCount += 1;
-          logStreamDebug(
-            tabId,
-            debugEnabled,
-            "stream:error-part",
-            logContext,
-            streamError,
-          );
+          logStreamDebug(debugEnabled, "stream:error-part", logContext, streamError);
           streamErrors.push(streamError);
           continue;
         }
@@ -170,12 +164,7 @@ export async function streamTurn(
           reasoningStartCount += 1;
           ensureReasoningStart();
           reasoningActive = true;
-          logStreamDebug(
-            tabId,
-            debugEnabled,
-            "stream:reasoning-start",
-            logContext,
-          );
+          logStreamDebug(debugEnabled, "stream:reasoning-start", logContext);
           updateStreamingMessage();
           continue;
         }
@@ -184,7 +173,7 @@ export async function streamTurn(
           reasoningEndCount += 1;
           reasoningActive = false;
           finalizeReasoningDuration();
-          logStreamDebug(tabId, debugEnabled, "stream:reasoning-end", logContext, {
+          logStreamDebug(debugEnabled, "stream:reasoning-end", logContext, {
             reasoningDurationMs,
           });
           updateStreamingMessage();
@@ -196,7 +185,7 @@ export async function streamTurn(
           accText += textDelta;
           textDeltaCount += 1;
           textDeltaChars += textDelta.length;
-          logStreamDebug(tabId, debugEnabled, "stream:text-delta", logContext, {
+          logStreamDebug(debugEnabled, "stream:text-delta", logContext, {
             delta: textDelta,
             deltaLength: textDelta.length,
             accumulatedLength: accText.length,
@@ -213,7 +202,7 @@ export async function streamTurn(
           accReasoning += reasoningDelta;
           reasoningDeltaCount += 1;
           reasoningDeltaChars += reasoningDelta.length;
-          logStreamDebug(tabId, debugEnabled, "stream:reasoning-delta", logContext, {
+          logStreamDebug(debugEnabled, "stream:reasoning-delta", logContext, {
             delta: reasoningDelta,
             deltaLength: reasoningDelta.length,
             accumulatedLength: accReasoning.length,
@@ -229,7 +218,7 @@ export async function streamTurn(
         accText += delta;
         textDeltaCount += 1;
         textDeltaChars += delta.length;
-        logStreamDebug(tabId, debugEnabled, "stream:text-delta:textStream", logContext, {
+        logStreamDebug(debugEnabled, "stream:text-delta:textStream", logContext, {
           delta,
           deltaLength: delta.length,
           accumulatedLength: accText.length,
@@ -240,7 +229,7 @@ export async function streamTurn(
       }
     }
   } catch (err) {
-    logStreamDebug(tabId, debugEnabled, "stream:throw", logContext, err);
+    logStreamDebug(debugEnabled, "stream:throw", logContext, err);
     if (!signal.aborted && (err as Error).name !== "AbortError") {
       throw attachStreamErrors(err, streamErrors);
     }
@@ -250,18 +239,12 @@ export async function streamTurn(
   let sdkToolCalls: unknown;
   try {
     sdkToolCalls = await result.toolCalls;
-    logStreamDebug(
-      tabId,
-      debugEnabled,
-      "stream:tool-calls:raw",
-      logContext,
-      sdkToolCalls,
-    );
+    logStreamDebug(debugEnabled, "stream:tool-calls:raw", logContext, sdkToolCalls);
   } catch (err) {
-    logStreamDebug(tabId, debugEnabled, "stream:tool-calls:error", logContext, err);
+    logStreamDebug(debugEnabled, "stream:tool-calls:error", logContext, err);
     throw attachStreamErrors(err, streamErrors);
   }
-  await logStreamFinishDebug(tabId, debugEnabled, result, logContext);
+  await logStreamFinishDebug(debugEnabled, result, logContext);
 
   if (reasoningStartedAtMs !== null && reasoningDurationMs === null) {
     reasoningDurationMs = Math.max(0, Date.now() - reasoningStartedAtMs);
@@ -273,12 +256,12 @@ export async function streamTurn(
   )
     .map((tc) => toApiToolCall(tc))
     .filter((tc): tc is ApiToolCall => tc !== null);
-  logStreamDebug(tabId, debugEnabled, "stream:tool-calls:parsed", logContext, {
+  logStreamDebug(debugEnabled, "stream:tool-calls:parsed", logContext, {
     count: parsedToolCalls.length,
     toolCallIds: parsedToolCalls.map((tc) => tc.id),
     toolNames: parsedToolCalls.map((tc) => tc.function.name),
   });
-  logStreamDebug(tabId, debugEnabled, "stream:summary", logContext, {
+  logStreamDebug(debugEnabled, "stream:summary", logContext, {
     usedFullStream,
     streamPartCount,
     streamErrorPartCount,
