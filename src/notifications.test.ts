@@ -9,6 +9,7 @@ const notificationMocks = vi.hoisted(() => ({
   unminimizeMock: vi.fn(async () => undefined),
   showMock: vi.fn(async () => undefined),
   setFocusMock: vi.fn(async () => undefined),
+  currentWindowLabel: "main",
   instances: [] as Array<{
     title: string;
     options?: NotificationOptions;
@@ -24,6 +25,7 @@ vi.mock("@tauri-apps/plugin-notification", () => ({
 
 vi.mock("@tauri-apps/api/window", () => ({
   getCurrentWindow: () => ({
+    label: notificationMocks.currentWindowLabel,
     isMinimized: () => notificationMocks.isMinimizedMock(),
     unminimize: () => notificationMocks.unminimizeMock(),
     show: () => notificationMocks.showMock(),
@@ -40,6 +42,7 @@ describe("notifications", () => {
     notificationMocks.unminimizeMock.mockClear();
     notificationMocks.showMock.mockClear();
     notificationMocks.setFocusMock.mockClear();
+    notificationMocks.currentWindowLabel = "main";
     notificationMocks.instances = [];
 
     Object.defineProperty(window, "__TAURI_INTERNALS__", {
@@ -94,6 +97,18 @@ describe("notifications", () => {
 
   it("does not query notification permissions in the detached logs window", async () => {
     window.history.replaceState({}, "", "/?window=logs");
+    const { ensureNotificationPermission } = await import("./notifications");
+
+    const granted = await ensureNotificationPermission();
+
+    expect(granted).toBe(false);
+    expect(notificationMocks.isPermissionGrantedMock).not.toHaveBeenCalled();
+    expect(notificationMocks.requestPermissionMock).not.toHaveBeenCalled();
+  });
+
+  it("does not query notification permissions when the current Tauri window label is logs", async () => {
+    window.history.replaceState({}, "", "/");
+    notificationMocks.currentWindowLabel = "logs";
     const { ensureNotificationPermission } = await import("./notifications");
 
     const granted = await ensureNotificationPermission();
