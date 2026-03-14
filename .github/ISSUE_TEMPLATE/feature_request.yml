@@ -1,86 +1,96 @@
 name: Feature request
-description: Propose a product, UX, or developer-experience improvement for Rakh.
+description: Propose a feature with enough product and architectural context to scope it.
 title: "[Feature]: "
 body:
   - type: markdown
     attributes:
       value: |
-        Use this form for concrete improvements to the app, agent runtime, tooling, or docs.
-        Keep the request focused on a real workflow or limitation.
-
-  - type: checkboxes
-    id: checks
-    attributes:
-      label: Pre-flight checks
-      options:
-        - label: I searched existing issues and feature requests first.
-          required: true
+        Keep this focused on the workflow, outcome, and architectural shape of the change.
+        Prefer stable subsystem or contract descriptions over file references.
 
   - type: dropdown
     id: area
     attributes:
       label: Area
       options:
-        - App shell and tabs
-        - Agent runtime or subagents
-        - Tool approvals or tool execution
-        - Filesystem, git, or worktrees
-        - Artifacts, plans, or persistence
+        - UI and tabs
+        - Agent runtime
+        - Tools, approvals, or worktrees
+        - Persistence or artifacts
         - Terminal or PTY
-        - Logging or diagnostics
-        - Provider setup or model selection
-        - Tauri or Rust backend
-        - Build, packaging, or updater
+        - Backend or Tauri
+        - Provider or model integration
+        - Build, release, or updater
         - Documentation
         - Other
+    validations:
+      required: true
+
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Expected scope
+      options:
+        - Small or local
+        - Medium
+        - Large or cross-cutting
+        - Unknown
+    validations:
+      required: true
+
+  - type: dropdown
+    id: planning
+    attributes:
+      label: Planning needed
+      options:
+        - Minimal
+        - Light design
+        - Significant design or RFC
+        - Unknown
     validations:
       required: true
 
   - type: textarea
     id: problem
     attributes:
-      label: Problem to solve
-      description: What workflow, pain point, or gap is this request addressing?
-      placeholder: When an agent run fails mid-edit, it is hard to understand which tool call caused the failure without manually inspecting logs.
+      label: Problem or goal
+      placeholder: Failed runs are hard to understand without manually inspecting logs and internal debug state.
     validations:
       required: true
 
   - type: textarea
     id: proposal
     attributes:
-      label: Proposed solution
-      description: Describe the behavior, UI, or API you want.
-      placeholder: Add a per-run trace summary panel in the review/debug pane that groups tool calls and links directly into the log viewer.
+      label: Proposed change
+      placeholder: Add a trace summary surface that groups tool calls by run and links to deeper diagnostics.
     validations:
       required: true
 
   - type: textarea
-    id: value
+    id: architecture
     attributes:
-      label: Why this matters
-      description: Explain who benefits and what becomes easier, safer, or faster.
-      placeholder: This would make failed runs much easier to debug and reduce the need to grep JSONL logs manually.
-    validations:
-      required: true
-
-  - type: textarea
-    id: alternatives
-    attributes:
-      label: Alternatives considered
-      description: Workarounds, competing ideas, or reasons the current behavior is insufficient.
+      label: Architectural detail
+      description: Describe affected subsystems, data flow, contracts, state, or migration concerns. Avoid file lists unless necessary.
 
   - type: textarea
     id: acceptance
     attributes:
-      label: Acceptance criteria or examples
-      description: Mockups, sample commands, UX expectations, or concrete success criteria.
+      label: Acceptance criteria
       placeholder: |
-        - Failed runs show a trace summary in the debug pane
-        - Each tool call entry links to the matching logs view
-        - The feature works in both restored and live sessions
+        - The feature solves the stated workflow problem
+        - Success or failure is visible in the app
+        - Existing behavior remains intact unless explicitly changed
+    validations:
+      required: true
+
+  - type: textarea
+    id: constraints
+    attributes:
+      label: Constraints or non-goals
+      description: Include limits, tradeoffs, rollout constraints, or things this request should not attempt.
 
   - type: textarea
     id: context
     attributes:
-      label: Additional context
-      description: Include screenshots, prior art, related docs, or implementation notes.
+      label: Extra context
+      description: Examples, prior art, screenshots, or links.
