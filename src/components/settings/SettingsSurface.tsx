@@ -164,7 +164,10 @@ const mcpStreamableHttpServerDraftSchema = z.object({
   enabled: z.boolean().optional(),
   timeoutMs: z.number().int().positive().optional(),
   transport: z.literal("streamable-http"),
-  url: z.string().trim().min(1, '"url" is required for streamable-http servers.'),
+  url: z
+    .string()
+    .trim()
+    .min(1, '"url" is required for streamable-http servers.'),
   headers: mcpStringMapSchema.optional(),
 });
 
@@ -372,7 +375,10 @@ function parseMcpServerJson(
 
   const diagnostics = buildMcpServerDiagnostics(trimmed);
   if (diagnostics.length > 0) {
-    return { ok: false, error: diagnostics[0]?.message ?? "Server JSON is invalid." };
+    return {
+      ok: false,
+      error: diagnostics[0]?.message ?? "Server JSON is invalid.",
+    };
   }
 
   const parsed = mcpServerDraftSchema.parse(
@@ -456,7 +462,9 @@ function McpSchemaHelpModal({
             <div className="settings-schema-rules">
               <span className="settings-schema-rule">One JSON object</span>
               <span className="settings-schema-rule">Pick one transport</span>
-              <span className="settings-schema-rule">Remove comments before pasting</span>
+              <span className="settings-schema-rule">
+                Remove comments before pasting
+              </span>
             </div>
           </Panel>
 
@@ -562,7 +570,9 @@ async function fetchOpenAICompatibleModels(
 }
 
 function formatNumberInput(value?: number): string {
-  return typeof value === "number" && Number.isFinite(value) ? String(value) : "";
+  return typeof value === "number" && Number.isFinite(value)
+    ? String(value)
+    : "";
 }
 
 function parseOptionalNumberInput(
@@ -603,13 +613,11 @@ function toProviderModelRecord(
 
   const context = parseOptionalNumberInput(draft.context, { allowZero: false });
   const input = parseOptionalNumberInput(draft.inputCost, { allowZero: true });
-  const output = parseOptionalNumberInput(draft.outputCost, { allowZero: true });
+  const output = parseOptionalNumberInput(draft.outputCost, {
+    allowZero: true,
+  });
 
-  if (
-    Number.isNaN(context) ||
-    Number.isNaN(input) ||
-    Number.isNaN(output)
-  ) {
+  if (Number.isNaN(context) || Number.isNaN(input) || Number.isNaN(output)) {
     return null;
   }
 
@@ -638,7 +646,9 @@ function toProviderModelRecordLoose(
 
   const context = parseOptionalNumberInput(draft.context, { allowZero: false });
   const input = parseOptionalNumberInput(draft.inputCost, { allowZero: true });
-  const output = parseOptionalNumberInput(draft.outputCost, { allowZero: true });
+  const output = parseOptionalNumberInput(draft.outputCost, {
+    allowZero: true,
+  });
 
   return {
     id,
@@ -690,15 +700,6 @@ function ModelsDevPrefill({
     [offers, query],
   );
 
-  const triggerLabel =
-    modelsDevStatus === "loading"
-      ? "Loading models.dev…"
-      : modelsDevStatus === "error"
-        ? "models.dev unavailable"
-        : offers.length > 0
-          ? "Prefill from models.dev"
-          : "No models.dev matches";
-
   return (
     <div className="settings-provider-model-prefill">
       <div className="settings-provider-model-prefill__header">
@@ -713,13 +714,11 @@ function ModelsDevPrefill({
           aria-label={`Prefill ${modelId} metadata from models.dev`}
         >
           <span className="material-symbols-outlined text-sm">dataset</span>
-          <span>{triggerLabel}</span>
+          <span>Prefill</span>
+          {modelsDevStatus === "ready" && offers.length > 0 ? (
+            <>[{offers.length}]</>
+          ) : null}
         </Button>
-        {modelsDevStatus === "ready" && offers.length > 0 ? (
-          <span className="settings-provider-model-prefill__count">
-            {offers.length} provider{offers.length === 1 ? "" : "s"}
-          </span>
-        ) : null}
       </div>
 
       {open ? (
@@ -1061,8 +1060,9 @@ function ProviderConfigurator({
             <div>
               <p className="settings-provider-models__title">Loaded models</p>
               <p className="settings-provider-models__description">
-                Refresh from the provider, then add optional context and token
-                pricing metadata for runtime stats.
+                Context and token cost metadata for each model is optional.
+                <br />
+                Recommended for accurate cost estimation and context management.
               </p>
             </div>
             <Badge variant={hasCachedModels ? "success" : "muted"}>
@@ -1078,7 +1078,7 @@ function ProviderConfigurator({
                   variant="inset"
                   className="settings-provider-model"
                 >
-                  <div className="settings-provider-model__top">
+                  <div className="settings-provider-model__row">
                     <div className="settings-provider-model__copy">
                       <span className="settings-provider-model__name">
                         {model.name || model.id}
@@ -1094,17 +1094,16 @@ function ProviderConfigurator({
                       offers={modelsDevOffersByModelId[model.id] ?? []}
                       onApply={(offer) => applyModelsDevOffer(index, offer)}
                     />
-                  </div>
-                  <div className="settings-provider-model__grid">
-                    <div className="settings-field">
+                    <div className="settings-provider-model__meta-field settings-provider-model__meta-field--context">
                       <label
-                        className="settings-field-label"
+                        className="settings-provider-model__meta-label"
                         htmlFor={`provider-model-context-${index}`}
                       >
-                        Context limit
+                        Context
                       </label>
                       <TextField
                         id={`provider-model-context-${index}`}
+                        aria-label="Context limit"
                         type="number"
                         inputMode="numeric"
                         min="1"
@@ -1118,19 +1117,20 @@ function ProviderConfigurator({
                           )
                         }
                         placeholder="e.g. 128000"
-                        wrapClassName="settings-input-wrap"
+                        wrapClassName="settings-input-wrap settings-provider-model__meta-input-wrap"
                       />
                     </div>
 
-                    <div className="settings-field">
+                    <div className="settings-provider-model__meta-field">
                       <label
-                        className="settings-field-label"
+                        className="settings-provider-model__meta-label"
                         htmlFor={`provider-model-input-cost-${index}`}
                       >
-                        Input cost / 1M
+                        In / 1M
                       </label>
                       <TextField
                         id={`provider-model-input-cost-${index}`}
+                        aria-label="Input cost / 1M"
                         type="number"
                         inputMode="decimal"
                         min="0"
@@ -1144,19 +1144,20 @@ function ProviderConfigurator({
                           )
                         }
                         placeholder="e.g. 0.15"
-                        wrapClassName="settings-input-wrap"
+                        wrapClassName="settings-input-wrap settings-provider-model__meta-input-wrap"
                       />
                     </div>
 
-                    <div className="settings-field">
+                    <div className="settings-provider-model__meta-field">
                       <label
-                        className="settings-field-label"
+                        className="settings-provider-model__meta-label"
                         htmlFor={`provider-model-output-cost-${index}`}
                       >
-                        Output cost / 1M
+                        Out / 1M
                       </label>
                       <TextField
                         id={`provider-model-output-cost-${index}`}
+                        aria-label="Output cost / 1M"
                         type="number"
                         inputMode="decimal"
                         min="0"
@@ -1170,7 +1171,7 @@ function ProviderConfigurator({
                           )
                         }
                         placeholder="e.g. 0.60"
-                        wrapClassName="settings-input-wrap"
+                        wrapClassName="settings-input-wrap settings-provider-model__meta-input-wrap"
                       />
                     </div>
                   </div>
@@ -1406,9 +1407,9 @@ function McpServerConfigurator({
           ) : null}
         </div>
 
-      <div className="settings-provider-form__actions">
-        <Button type="button" variant="ghost" size="xs" onClick={onCancel}>
-          Cancel
+        <div className="settings-provider-form__actions">
+          <Button type="button" variant="ghost" size="xs" onClick={onCancel}>
+            Cancel
           </Button>
           <Button
             type="button"
@@ -1421,11 +1422,7 @@ function McpServerConfigurator({
           >
             Test
           </Button>
-          <Button
-            type="button"
-            size="xs"
-            onClick={handleSaveClick}
-          >
+          <Button type="button" size="xs" onClick={handleSaveClick}>
             Save Server
           </Button>
         </div>
@@ -1452,65 +1449,67 @@ function AppearanceSection({
         title="Theme & Mode"
         description="Choose the visual theme and whether the UI uses dark or light mode."
       >
-      <div className="settings-row">
-        <div className="settings-row-info">
-          <span className="settings-row-label">Theme</span>
-          <span className="settings-row-desc">
-            Theme palettes come from the design-token theme registry.
-          </span>
+        <div className="settings-row">
+          <div className="settings-row-info">
+            <span className="settings-row-label">Theme</span>
+            <span className="settings-row-desc">
+              Theme palettes come from the design-token theme registry.
+            </span>
+          </div>
+          <SelectField
+            className="settings-select settings-select--compact"
+            value={controller.themeName}
+            onChange={(e) =>
+              controller.setThemeName(e.target.value as ThemeName)
+            }
+          >
+            {THEME_NAMES.map((themeName) => (
+              <option key={themeName} value={themeName}>
+                {formatThemeName(themeName)}
+              </option>
+            ))}
+          </SelectField>
         </div>
-        <SelectField
-          className="settings-select settings-select--compact"
-          value={controller.themeName}
-          onChange={(e) => controller.setThemeName(e.target.value as ThemeName)}
-        >
-          {THEME_NAMES.map((themeName) => (
-            <option key={themeName} value={themeName}>
-              {formatThemeName(themeName)}
-            </option>
-          ))}
-        </SelectField>
-      </div>
 
-      <div className="settings-row">
-        <div className="settings-row-info">
-          <span className="settings-row-label">Mode</span>
-          <span className="settings-row-desc">
-            Toggle the active palette without changing the selected theme
-            family.
-          </span>
+        <div className="settings-row">
+          <div className="settings-row-info">
+            <span className="settings-row-label">Mode</span>
+            <span className="settings-row-desc">
+              Toggle the active palette without changing the selected theme
+              family.
+            </span>
+          </div>
+          <Button
+            className={cn(
+              "settings-toggle-btn",
+              controller.themeMode === "dark" && "settings-toggle-btn--active",
+            )}
+            onClick={controller.toggleThemeMode}
+            variant="secondary"
+            size="xs"
+          >
+            <span className="material-symbols-outlined text-md">
+              {controller.themeMode === "dark" ? "light_mode" : "dark_mode"}
+            </span>
+            <span>{controller.themeMode === "dark" ? "Light" : "Dark"}</span>
+          </Button>
         </div>
-        <Button
-          className={cn(
-            "settings-toggle-btn",
-            controller.themeMode === "dark" && "settings-toggle-btn--active",
-          )}
-          onClick={controller.toggleThemeMode}
-          variant="secondary"
-          size="xs"
-        >
-          <span className="material-symbols-outlined text-md">
-            {controller.themeMode === "dark" ? "light_mode" : "dark_mode"}
-          </span>
-          <span>{controller.themeMode === "dark" ? "Light" : "Dark"}</span>
-        </Button>
-      </div>
 
-      <div className="settings-row">
-        <div className="settings-row-info">
-          <span className="settings-row-label">Group inline tool calls</span>
-          <span className="settings-row-desc">
-            Collapse consecutive auto-approved tool calls into a single
-            expandable block by default.
-          </span>
+        <div className="settings-row">
+          <div className="settings-row-info">
+            <span className="settings-row-label">Group inline tool calls</span>
+            <span className="settings-row-desc">
+              Collapse consecutive auto-approved tool calls into a single
+              expandable block by default.
+            </span>
+          </div>
+          <ToggleSwitch
+            checked={controller.groupInlineToolCalls}
+            onChange={controller.setGroupInlineToolCalls}
+            className="settings-switch"
+            title="Group inline tool calls"
+          />
         </div>
-        <ToggleSwitch
-          checked={controller.groupInlineToolCalls}
-          onChange={controller.setGroupInlineToolCalls}
-          className="settings-switch"
-          title="Group inline tool calls"
-        />
-      </div>
       </SectionCard>
 
       <SectionCard
@@ -1530,10 +1529,9 @@ function AppearanceSection({
           </Button>
         }
       >
-
-
         <div className="settings-provider-list mt-8">
-          {controller.customProfiles.length === 0 && !controller.isAddingProfile ? (
+          {controller.customProfiles.length === 0 &&
+          !controller.isAddingProfile ? (
             <Panel variant="inset" className="settings-empty-panel">
               <span className="material-symbols-outlined settings-empty-panel__icon">
                 forum
@@ -1568,9 +1566,11 @@ function AppearanceSection({
                   "settings-provider-card cursor-pointer transition-colors relative border",
                   controller.defaultCommunicationProfile === profile.id
                     ? "border-primary bg-primary/5"
-                    : "border-transparent hover:border-primary/50"
+                    : "border-transparent hover:border-primary/50",
                 )}
-                onClick={() => controller.setDefaultCommunicationProfile(profile.id)}
+                onClick={() =>
+                  controller.setDefaultCommunicationProfile(profile.id)
+                }
               >
                 {controller.defaultCommunicationProfile === profile.id && (
                   <div className="absolute top-0 left-0 w-1 h-full bg-primary rounded-l-md" />
@@ -1579,7 +1579,10 @@ function AppearanceSection({
                   <span className="settings-provider-card__title shrink-0">
                     {profile.name}
                   </span>
-                  <span className="settings-provider-card__meta text-ellipsis overflow-hidden whitespace-nowrap" title={profile.promptSnippet}>
+                  <span
+                    className="settings-provider-card__meta text-ellipsis overflow-hidden whitespace-nowrap"
+                    title={profile.promptSnippet}
+                  >
                     {profile.promptSnippet}
                   </span>
                 </div>
@@ -1650,7 +1653,9 @@ function ProfileConfigurator({
   onCancel: () => void;
 }) {
   const [name, setName] = useState(profile?.name ?? "");
-  const [promptSnippet, setPromptSnippet] = useState(profile?.promptSnippet ?? "");
+  const [promptSnippet, setPromptSnippet] = useState(
+    profile?.promptSnippet ?? "",
+  );
 
   const handleSaveClick = () => {
     if (!name.trim() || !promptSnippet.trim()) return;
@@ -1689,7 +1694,10 @@ function ProfileConfigurator({
       </div>
 
       <div className="settings-provider-form__footer">
-        <div className="settings-provider-form__status" aria-live="polite"></div>
+        <div
+          className="settings-provider-form__status"
+          aria-live="polite"
+        ></div>
 
         <div className="settings-provider-form__actions">
           <Button type="button" variant="ghost" size="xs" onClick={onCancel}>
@@ -2581,7 +2589,11 @@ function CommandEntryForm({
   const handleSubmit = () => {
     const trimmed = pattern.trim();
     if (!trimmed) return;
-    onSave({ pattern: trimmed, matchMode, description: description.trim() || undefined });
+    onSave({
+      pattern: trimmed,
+      matchMode,
+      description: description.trim() || undefined,
+    });
   };
 
   return (
@@ -2605,12 +2617,16 @@ function CommandEntryForm({
             onChange={(e) => setMatchMode(e.target.value as MatchMode)}
           >
             {MATCH_MODE_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value}>{o.label}</option>
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
             ))}
           </SelectField>
         </div>
         <div className="settings-field settings-field--full-span">
-          <label className="settings-field-label">Description <span style={{fontWeight: 400}}>(optional)</span></label>
+          <label className="settings-field-label">
+            Description <span style={{ fontWeight: 400 }}>(optional)</span>
+          </label>
           <TextField
             value={description}
             onChange={(e) => setDescription(e.target.value)}
@@ -2625,7 +2641,12 @@ function CommandEntryForm({
           <Button type="button" variant="ghost" size="xs" onClick={onCancel}>
             Cancel
           </Button>
-          <Button type="button" size="xs" onClick={handleSubmit} disabled={!pattern.trim()}>
+          <Button
+            type="button"
+            size="xs"
+            onClick={handleSubmit}
+            disabled={!pattern.trim()}
+          >
             Save
           </Button>
         </div>
@@ -2663,12 +2684,8 @@ function CommandEntryRow({
         </span>
       </div>
       <div className="settings-provider-card__actions">
-        {isDefault && (
-          <Badge variant="muted">built-in</Badge>
-        )}
-        {isSubagent && (
-          <Badge variant="primary">{entry.source}</Badge>
-        )}
+        {isDefault && <Badge variant="muted">built-in</Badge>}
+        {isSubagent && <Badge variant="primary">{entry.source}</Badge>}
         <IconButton
           className="settings-provider-card__icon-btn"
           onClick={onEdit}
@@ -2709,7 +2726,10 @@ function CommandListSubpanel({
   emptyTitle: string;
   emptyDesc: string;
   listName: "allow" | "deny";
-  onAdd: (listName: "allow" | "deny", entry: Omit<CommandListEntry, "id" | "source">) => void;
+  onAdd: (
+    listName: "allow" | "deny",
+    entry: Omit<CommandListEntry, "id" | "source">,
+  ) => void;
   onEdit: (listName: "allow" | "deny", entry: CommandListEntry) => void;
   onDelete: (listName: "allow" | "deny", id: string) => void;
 }) {
@@ -2724,7 +2744,10 @@ function CommandListSubpanel({
         <Button
           type="button"
           size="xs"
-          onClick={() => { setIsAdding(true); setEditingId(null); }}
+          onClick={() => {
+            setIsAdding(true);
+            setEditingId(null);
+          }}
           className="text-nowrap"
         >
           Add Entry
@@ -2744,10 +2767,14 @@ function CommandListSubpanel({
 
         {entries.length === 0 && !isAdding ? (
           <Panel variant="inset" className="settings-empty-panel">
-            <span className="material-symbols-outlined settings-empty-panel__icon">{emptyIcon}</span>
+            <span className="material-symbols-outlined settings-empty-panel__icon">
+              {emptyIcon}
+            </span>
             <div className="settings-empty-panel__copy">
               <span className="settings-empty-panel__title">{emptyTitle}</span>
-              <span className="settings-empty-panel__description">{emptyDesc}</span>
+              <span className="settings-empty-panel__description">
+                {emptyDesc}
+              </span>
             </div>
           </Panel>
         ) : null}
@@ -2822,7 +2849,10 @@ function CommandListSection({
     await controller.addCommandEntry(listName, full);
   };
 
-  const handleEdit = async (listName: "allow" | "deny", entry: CommandListEntry) => {
+  const handleEdit = async (
+    listName: "allow" | "deny",
+    entry: CommandListEntry,
+  ) => {
     await controller.updateCommandEntry(listName, entry);
   };
 
@@ -2840,9 +2870,15 @@ function CommandListSection({
         emptyTitle="No allowed commands"
         emptyDesc="Add commands to skip approval prompts when auto-run is active."
         listName="allow"
-        onAdd={(l, e) => { void handleAdd(l, e); }}
-        onEdit={(l, e) => { void handleEdit(l, e); }}
-        onDelete={(l, id) => { void handleDelete(l, id); }}
+        onAdd={(l, e) => {
+          void handleAdd(l, e);
+        }}
+        onEdit={(l, e) => {
+          void handleEdit(l, e);
+        }}
+        onDelete={(l, id) => {
+          void handleDelete(l, id);
+        }}
       />
       <CommandListSubpanel
         title="Deny List"
@@ -2852,9 +2888,15 @@ function CommandListSection({
         emptyTitle="No denied commands"
         emptyDesc="Add commands that should always require user confirmation."
         listName="deny"
-        onAdd={(l, e) => { void handleAdd(l, e); }}
-        onEdit={(l, e) => { void handleEdit(l, e); }}
-        onDelete={(l, id) => { void handleDelete(l, id); }}
+        onAdd={(l, e) => {
+          void handleAdd(l, e);
+        }}
+        onEdit={(l, e) => {
+          void handleEdit(l, e);
+        }}
+        onDelete={(l, id) => {
+          void handleDelete(l, id);
+        }}
       />
     </div>
   );
