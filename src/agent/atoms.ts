@@ -41,11 +41,14 @@ export const themeModeAtom = atomWithStorage<"dark" | "light">(
   "dark",
 );
 
-/** Global fallback communication profile */
-export const globalCommunicationProfileAtom = atomWithStorage<string>(
+/** Default communication profile inherited by new agents */
+export const defaultCommunicationProfileAtom = atomWithStorage<string>(
   "rakh.communication-profile",
   "pragmatic",
 );
+
+/** @deprecated Use defaultCommunicationProfileAtom instead. */
+export const globalCommunicationProfileAtom = defaultCommunicationProfileAtom;
 
 
 

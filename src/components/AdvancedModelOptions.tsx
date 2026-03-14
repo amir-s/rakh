@@ -7,6 +7,8 @@ import type {
   ReasoningEffort,
   ReasoningVisibility,
 } from "@/agent/types";
+import { defaultCommunicationProfileAtom } from "@/agent/atoms";
+import { resolveCommunicationProfileId } from "@/agent/communicationProfiles";
 
 /* ─────────────────────────────────────────────────────────────────────────────
    AdvancedModelOptionsButton
@@ -37,6 +39,14 @@ export function AdvancedModelOptionsButton({
 
   const showAdvanced = provider === "openai" || provider === "anthropic";
   const profiles = useAtomValue(profilesAtom);
+  const defaultCommunicationProfile = useAtomValue(
+    defaultCommunicationProfileAtom,
+  );
+  const resolvedCommunicationProfile = resolveCommunicationProfileId(
+    communicationProfile,
+    profiles,
+    defaultCommunicationProfile,
+  );
 
   /* Close when clicking outside */
   useEffect(() => {
@@ -80,7 +90,8 @@ export function AdvancedModelOptionsButton({
               <span className="ns-advanced-label">Communication Profile</span>
               <select
                 className="w-full bg-transparent border border-border-subtle rounded px-2 py-1 text-sm focus:outline-none focus:border-border cursor-pointer appearance-none text-right placeholder-muted pr-6 relative"
-                value={communicationProfile}
+                value={resolvedCommunicationProfile ?? ""}
+                disabled={profiles.length === 0}
                 onChange={(e) => onCommunicationProfileChange(e.target.value)}
                 style={{
                   backgroundImage: `url("data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22292.4%22%20height%3D%22292.4%22%3E%3Cpath%20fill%3D%22%239ba1a6%22%20d%3D%22M287%2069.4a17.6%2017.6%200%200%200-13-5.4H18.4c-5%200-9.3%201.8-12.9%205.4A17.6%2017.6%200%200%200%200%2082.2c0%205%201.8%209.3%205.4%2012.9l128%20127.9c3.6%203.6%207.8%205.4%2012.8%205.4s9.2-1.8%2012.8-5.4L287%2095c3.5-3.5%205.4-7.8%205.4-12.8%200-5-1.9-9.2-5.5-12.8z%22%2F%3E%3C%2Fsvg%3E")`,
@@ -89,18 +100,21 @@ export function AdvancedModelOptionsButton({
                   backgroundSize: "0.65rem auto",
                 }}
               >
-                <option value="global" className="bg-popover text-popover-foreground">
-                  Default (Global)
-                </option>
-                {profiles.map((p) => (
-                  <option
-                    key={p.id}
-                    value={p.id}
-                    className="bg-popover text-popover-foreground"
-                  >
-                    {p.name}
+                {profiles.length === 0 ? (
+                  <option value="" className="bg-popover text-popover-foreground">
+                    No profiles available
                   </option>
-                ))}
+                ) : (
+                  profiles.map((p) => (
+                    <option
+                      key={p.id}
+                      value={p.id}
+                      className="bg-popover text-popover-foreground"
+                    >
+                      {p.name}
+                    </option>
+                  ))
+                )}
               </select>
             </div>
           )}

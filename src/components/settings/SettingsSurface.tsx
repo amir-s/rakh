@@ -956,13 +956,13 @@ function AppearanceSection({
                 key={profile.id}
                 className={cn(
                   "settings-provider-card cursor-pointer transition-colors relative border",
-                  controller.globalCommunicationProfile === profile.id
+                  controller.defaultCommunicationProfile === profile.id
                     ? "border-primary bg-primary/5"
                     : "border-transparent hover:border-primary/50"
                 )}
-                onClick={() => controller.setGlobalCommunicationProfile(profile.id)}
+                onClick={() => controller.setDefaultCommunicationProfile(profile.id)}
               >
-                {controller.globalCommunicationProfile === profile.id && (
+                {controller.defaultCommunicationProfile === profile.id && (
                   <div className="absolute top-0 left-0 w-1 h-full bg-primary rounded-l-md" />
                 )}
                 <div className="flex flex-row items-center gap-3 min-w-0 flex-1 pl-2">
@@ -989,12 +989,21 @@ function AppearanceSection({
                   </IconButton>
                   <IconButton
                     className="settings-provider-card__icon-btn settings-provider-card__icon-btn--danger"
+                    disabled={controller.customProfiles.length <= 1}
                     onClick={(e) => {
                       e.stopPropagation();
                       void controller.deleteProfile(profile.id);
                     }}
-                    title={`Delete ${profile.name}`}
-                    aria-label={`Delete ${profile.name}`}
+                    title={
+                      controller.customProfiles.length <= 1
+                        ? "You must keep at least one profile"
+                        : `Delete ${profile.name}`
+                    }
+                    aria-label={
+                      controller.customProfiles.length <= 1
+                        ? "You must keep at least one profile"
+                        : `Delete ${profile.name}`
+                    }
                   >
                     <span className="material-symbols-outlined text-sm">
                       delete

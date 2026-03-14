@@ -13,8 +13,10 @@ import {
   agentAtomFamily,
   debugModeEnabledAtom,
   patchAgentState,
+  defaultCommunicationProfileAtom,
 } from "@/agent/atoms";
 import { loadProviders, providersAtom, loadProfiles, profilesAtom, loadCommandList, commandListAtom } from "@/agent/db";
+import { resolveCommunicationProfileId } from "@/agent/communicationProfiles";
 import {
   loadMcpServers,
   loadMcpSettings,
@@ -222,6 +224,23 @@ export default function App() {
         // Load providers and profiles into global store early
         jotaiStore.set(providersAtom, providers);
         jotaiStore.set(profilesAtom, profiles);
+        const storedDefaultCommunicationProfile = jotaiStore.get(
+          defaultCommunicationProfileAtom,
+        );
+        const resolvedDefaultCommunicationProfile = resolveCommunicationProfileId(
+          undefined,
+          profiles,
+          storedDefaultCommunicationProfile,
+        );
+        if (
+          resolvedDefaultCommunicationProfile &&
+          resolvedDefaultCommunicationProfile !== storedDefaultCommunicationProfile
+        ) {
+          jotaiStore.set(
+            defaultCommunicationProfileAtom,
+            resolvedDefaultCommunicationProfile,
+          );
+        }
         jotaiStore.set(mcpServersAtom, mcpServers);
         jotaiStore.set(mcpSettingsAtom, mcpSettings);
         jotaiStore.set(commandListAtom, commandList);

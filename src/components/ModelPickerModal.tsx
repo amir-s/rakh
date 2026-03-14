@@ -8,6 +8,8 @@ import {
   fmtPrice,
   type GatewayModel,
 } from "@/agent/useModels";
+import { defaultCommunicationProfileAtom } from "@/agent/atoms";
+import { resolveCommunicationProfileId } from "@/agent/communicationProfiles";
 import { profilesAtom } from "@/agent/db";
 import { useAtomValue } from "jotai";
 
@@ -53,8 +55,18 @@ export default function ModelPickerModal({
   onClose,
 }: ModelPickerModalProps) {
   const [query, setQuery] = useState("");
-  const [profile, setProfile] = useState<string | undefined>(currentProfile);
   const profiles = useAtomValue(profilesAtom);
+  const defaultCommunicationProfile = useAtomValue(
+    defaultCommunicationProfileAtom,
+  );
+  const resolvedCurrentProfile = resolveCommunicationProfileId(
+    currentProfile,
+    profiles,
+    defaultCommunicationProfile,
+  );
+  const [profile, setProfile] = useState<string | undefined>(
+    resolvedCurrentProfile,
+  );
   const filtered = useFilteredModels(models, query);
 
   const initialIndex = Math.max(
@@ -70,6 +82,10 @@ export default function ModelPickerModal({
   useEffect(() => {
     searchRef.current?.focus();
   }, []);
+
+  useEffect(() => {
+    setProfile(resolvedCurrentProfile);
+  }, [resolvedCurrentProfile]);
 
   // Reset focused index when query changes
   useEffect(() => {
@@ -166,19 +182,21 @@ export default function ModelPickerModal({
           <div className="flex flex-col gap-1.5 mt-2 px-1">
             <span className="text-xs text-muted font-medium">Communication Profile (Override)</span>
             <SelectField
-              value={profile ?? "global"}
+              value={profile ?? ""}
+              disabled={profiles.length === 0}
               onChange={(e: React.ChangeEvent<HTMLSelectElement>) =>
-                setProfile(
-                  e.target.value === "global" ? undefined : e.target.value,
-                )
+                setProfile(e.target.value || undefined)
               }
             >
-              <option value="global">Use Global Default</option>
-              {profiles.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                </option>
-              ))}
+              {profiles.length === 0 ? (
+                <option value="">No profiles available</option>
+              ) : (
+                profiles.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))
+              )}
             </SelectField>
           </div>
         </div>

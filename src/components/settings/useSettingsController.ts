@@ -8,7 +8,7 @@ import {
   themeModeAtom,
   themeNameAtom,
   groupInlineToolCallsAtom,
-  globalCommunicationProfileAtom,
+  defaultCommunicationProfileAtom,
   voiceInputEnabledAtom,
   voiceModelPathAtom,
   jotaiStore,
@@ -23,6 +23,7 @@ import {
   type CommandList,
   type CommandListEntry,
 } from "@/agent/db";
+import { resolveCommunicationProfileId } from "@/agent/communicationProfiles";
 import {
   mcpServersAtom,
   mcpSettingsAtom,
@@ -78,8 +79,8 @@ export interface SettingsControllerValue {
   setThemeName: (name: ThemeName) => void;
   groupInlineToolCalls: boolean;
   setGroupInlineToolCalls: (enabled: boolean) => void;
-  globalCommunicationProfile: string;
-  setGlobalCommunicationProfile: (profile: string) => void;
+  defaultCommunicationProfile: string;
+  setDefaultCommunicationProfile: (profile: string) => void;
   customProfiles: CommunicationProfileRecord[];
   setCustomProfiles: (profiles: CommunicationProfileRecord[]) => void;
   isAddingProfile: boolean;
@@ -116,8 +117,8 @@ export function useSettingsController(): SettingsControllerValue {
   const [groupInlineToolCalls, setGroupInlineToolCalls] = useAtom(
     groupInlineToolCallsAtom,
   );
-  const [globalCommunicationProfile, setGlobalCommunicationProfile] = useAtom(
-    globalCommunicationProfileAtom,
+  const [defaultCommunicationProfile, setDefaultCommunicationProfile] = useAtom(
+    defaultCommunicationProfileAtom,
   );
   const [customProfiles, setCustomProfiles] = useAtom(profilesAtom);
   const [commandList, setCommandList] = useAtom(commandListAtom);
@@ -142,18 +143,48 @@ export function useSettingsController(): SettingsControllerValue {
     async (profile: CommunicationProfileRecord) => {
       const { saveProfile, loadProfiles } = await import("@/agent/db");
       await saveProfile(profile);
-      setCustomProfiles(await loadProfiles());
+      const nextProfiles = await loadProfiles();
+      setCustomProfiles(nextProfiles);
+      const nextDefaultCommunicationProfile = resolveCommunicationProfileId(
+        undefined,
+        nextProfiles,
+        defaultCommunicationProfile,
+      );
+      if (nextDefaultCommunicationProfile) {
+        setDefaultCommunicationProfile(nextDefaultCommunicationProfile);
+      }
     },
-    [setCustomProfiles],
+    [
+      defaultCommunicationProfile,
+      setCustomProfiles,
+      setDefaultCommunicationProfile,
+    ],
   );
 
   const handleDeleteProfile = useCallback(
     async (id: string) => {
+      if (customProfiles.length <= 1) return;
       const { deleteProfile, loadProfiles } = await import("@/agent/db");
       await deleteProfile(id);
-      setCustomProfiles(await loadProfiles());
+      const nextProfiles = await loadProfiles();
+      setCustomProfiles(nextProfiles);
+      const nextDefaultCommunicationProfile = resolveCommunicationProfileId(
+        undefined,
+        nextProfiles,
+        defaultCommunicationProfile === id
+          ? undefined
+          : defaultCommunicationProfile,
+      );
+      if (nextDefaultCommunicationProfile) {
+        setDefaultCommunicationProfile(nextDefaultCommunicationProfile);
+      }
     },
-    [setCustomProfiles],
+    [
+      customProfiles.length,
+      defaultCommunicationProfile,
+      setCustomProfiles,
+      setDefaultCommunicationProfile,
+    ],
   );
 
   const handleSaveCommandList = useCallback(
@@ -314,8 +345,8 @@ export function useSettingsController(): SettingsControllerValue {
     setThemeName,
     groupInlineToolCalls,
     setGroupInlineToolCalls,
-    globalCommunicationProfile,
-    setGlobalCommunicationProfile,
+    defaultCommunicationProfile,
+    setDefaultCommunicationProfile,
     customProfiles,
     setCustomProfiles,
     isAddingProfile,

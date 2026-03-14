@@ -29,10 +29,16 @@ vi.mock("@tauri-apps/api/event", () => ({
 }));
 
 vi.mock("./atoms", () => ({
+  jotaiStore: {
+    get: vi.fn((atom: unknown) =>
+      atom === "default-communication-profile-atom" ? "pragmatic" : undefined,
+    ),
+  },
   getAgentState: (...args: unknown[]) => getAgentStateMock(...args),
   patchSessionPersistenceState: (...args: unknown[]) =>
     patchSessionPersistenceStateMock(...args),
   DEFAULT_MODEL: defaultModel,
+  defaultCommunicationProfileAtom: "default-communication-profile-atom",
 }));
 
 vi.mock("@/logging/client", () => ({
@@ -135,6 +141,7 @@ describe("persistence", () => {
     expect(session.worktreeDeclined).toBe(false);
     expect(session.pinned).toBe(false);
     expect(session.showDebug).toBe(false);
+    expect(session.communicationProfile).toBe("pragmatic");
   });
 
   it("isSessionEmpty returns true for a blank/default agent state", () => {
