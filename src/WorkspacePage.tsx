@@ -416,7 +416,9 @@ export default function WorkspacePage() {
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
   const [projectSettingsProject, setProjectSettingsProject] =
     useState<SavedProject | null>(null);
-  const [projectCommands, setProjectCommands] = useState<ProjectCommandConfig[]>([]);
+  const [projectCommands, setProjectCommands] = useState<
+    ProjectCommandConfig[]
+  >([]);
   const [commandBarOpen, setCommandBarOpen] = useState(true);
   const [terminalCommandRequest, setTerminalCommandRequest] = useState<{
     id: number;
@@ -440,7 +442,8 @@ export default function WorkspacePage() {
   const cwd = agent.config.cwd.trim();
   const worktreePath = agent.config.worktreePath?.trim() ?? "";
   const worktreeBranch = agent.config.worktreeBranch?.trim() ?? "";
-  const hasManagedWorktree = worktreePath.length > 0 && worktreeBranch.length > 0;
+  const hasManagedWorktree =
+    worktreePath.length > 0 && worktreeBranch.length > 0;
 
   // Track unseen updates even when pane is collapsed
   const {
@@ -539,11 +542,10 @@ export default function WorkspacePage() {
     }
 
     let cancelled = false;
-    const savedProject =
-      findSavedProject(projectPath) ?? {
-        path: projectPath,
-        name: inferProjectName(projectPath),
-      };
+    const savedProject = findSavedProject(projectPath) ?? {
+      path: projectPath,
+      name: inferProjectName(projectPath),
+    };
 
     void resolveSavedProject(savedProject)
       .then((resolvedProject) => {
@@ -567,9 +569,7 @@ export default function WorkspacePage() {
   const handleOpenLatestLogs = useCallback(() => {
     void openLogViewerWindow({
       origin: "debug-pane",
-      filter: agent.lastRunTraceId
-        ? { traceId: agent.lastRunTraceId }
-        : {},
+      filter: agent.lastRunTraceId ? { traceId: agent.lastRunTraceId } : {},
     });
   }, [agent.lastRunTraceId]);
   const handleOpenAssistantLogs = useCallback((traceId: string) => {
@@ -598,7 +598,10 @@ export default function WorkspacePage() {
     }
 
     setHandoffState((prev) => ({ ...prev, loading: true, error: null }));
-    const nextState = await readWorktreeHandoffState(worktreePath, worktreeBranch);
+    const nextState = await readWorktreeHandoffState(
+      worktreePath,
+      worktreeBranch,
+    );
     setHandoffState(nextState);
   }, [hasManagedWorktree, worktreeBranch, worktreePath]);
 
@@ -638,7 +641,10 @@ export default function WorkspacePage() {
 
       requestAnimationFrame(() => {
         textareaRef.current?.focus();
-        textareaRef.current?.setSelectionRange(nextValue.length, nextValue.length);
+        textareaRef.current?.setSelectionRange(
+          nextValue.length,
+          nextValue.length,
+        );
       });
     },
     [setInput],
@@ -710,14 +716,13 @@ export default function WorkspacePage() {
     const projectPath = agent.config.projectPath?.trim();
     if (!projectPath) return;
 
-    const savedProject =
-      findSavedProject(projectPath) ?? {
-        path: projectPath,
-        name: inferProjectName(projectPath),
-        ...(agent.config.setupCommand
-          ? { setupCommand: agent.config.setupCommand }
-          : {}),
-      };
+    const savedProject = findSavedProject(projectPath) ?? {
+      path: projectPath,
+      name: inferProjectName(projectPath),
+      ...(agent.config.setupCommand
+        ? { setupCommand: agent.config.setupCommand }
+        : {}),
+    };
 
     void resolveSavedProject(savedProject).then((resolvedProject) => {
       setProjectSettingsProject(resolvedProject);
@@ -812,7 +817,9 @@ export default function WorkspacePage() {
 
       if (writeProjectConfig) {
         await writeProjectScriptsConfig(project.path, {
-          ...(project.setupCommand ? { setupCommand: project.setupCommand } : {}),
+          ...(project.setupCommand
+            ? { setupCommand: project.setupCommand }
+            : {}),
           ...(project.commands?.length ? { commands: project.commands } : {}),
         });
       }
@@ -978,7 +985,6 @@ export default function WorkspacePage() {
     }
   };
 
-
   const injectAssistantMessage = useCallback(
     (content: string) => {
       patchAgentState(activeTabId, (prev) => ({
@@ -1031,7 +1037,9 @@ export default function WorkspacePage() {
     if (text.startsWith("/model ")) {
       const modelId = text.slice("/model ".length).trim();
       if (isAgentBusy) {
-        injectAssistantMessage("⚠ Cannot switch model while the agent is busy.");
+        injectAssistantMessage(
+          "⚠ Cannot switch model while the agent is busy.",
+        );
         setInput("");
         return;
       }
@@ -1180,7 +1188,7 @@ export default function WorkspacePage() {
       : "Send";
   const commandBarShortcutKeys =
     typeof navigator !== "undefined" &&
-    (((navigator.platform ?? "").toLowerCase().startsWith("mac")) ||
+    ((navigator.platform ?? "").toLowerCase().startsWith("mac") ||
       navigator.userAgent.toLowerCase().includes("mac os"))
       ? ["⌘", "B"]
       : ["Ctrl", "B"];
@@ -1233,7 +1241,9 @@ export default function WorkspacePage() {
                 </button>
               ) : null}
               <span className="project-command-bar__shortcut-hint">
-                <span className="project-command-bar__shortcut-label">Toggle</span>
+                <span className="project-command-bar__shortcut-label">
+                  Toggle
+                </span>
                 <span
                   className="project-command-bar__shortcut-keys"
                   aria-hidden="true"
@@ -1305,119 +1315,140 @@ export default function WorkspacePage() {
               return (
                 <div key={group.key} className="conversation-group">
                   <AgentMessage
-                  name={group.agentName ?? "Rakh"}
-                  icon={subagentMeta?.icon}
-                  accentColor={subagentMeta?.color}
-                  streaming={streaming}
-                  badge={latestMessage.badge}
-                  animated={animated}
-                  collapsible={isSubagent}
-                  defaultCollapsed={false}
-                >
-                  {groupMessages.map((msg) => {
-                      const visibleToolCalls = msg.toolCalls ?? [];
-                      const toolCallRenderItems =
-                        toolCallRenderItemsByMessage[msg.id] ?? [];
-                      const showReasoning =
-                        !!msg.reasoning || !!msg.reasoningStreaming;
-                      const reasoningExpanded =
-                        reasoningExpandedById[msg.id] ?? false;
-                      const showThinkingDots =
-                        !!msg.streaming &&
-                        !msg.content &&
-                        !showReasoning &&
-                        visibleToolCalls.length === 0;
-                      const showStreamingCursor =
-                        !!msg.streaming && !showThinkingDots;
-                      const hasRenderableSegmentContent =
-                        showReasoning ||
-                        !!msg.content ||
-                        showThinkingDots ||
-                        showStreamingCursor ||
-                        toolCallRenderItems.length > 0 ||
-                        ((agent.showDebug ?? false) && !!msg.traceId);
+                    name={group.agentName ?? "Rakh"}
+                    icon={subagentMeta?.icon}
+                    accentColor={subagentMeta?.color}
+                    streaming={streaming}
+                    badge={latestMessage.badge}
+                    animated={animated}
+                    collapsible={isSubagent}
+                    defaultCollapsed={false}
+                  >
+                    {(() => {
+                      const seenTraceIds = new Set<string>();
+                      return groupMessages.map((msg) => {
+                        const visibleToolCalls = msg.toolCalls ?? [];
+                        const toolCallRenderItems =
+                          toolCallRenderItemsByMessage[msg.id] ?? [];
+                        const showReasoning =
+                          !!msg.reasoning || !!msg.reasoningStreaming;
+                        const reasoningExpanded =
+                          reasoningExpandedById[msg.id] ?? false;
+                        const showThinkingDots =
+                          !!msg.streaming &&
+                          !msg.content &&
+                          !showReasoning &&
+                          visibleToolCalls.length === 0;
+                        const showStreamingCursor =
+                          !!msg.streaming && !showThinkingDots;
+                        const showTraceAction =
+                          (agent.showDebug ?? false) &&
+                          typeof msg.traceId === "string" &&
+                          msg.traceId.length > 0 &&
+                          !seenTraceIds.has(msg.traceId);
+                        if (
+                          typeof msg.traceId === "string" &&
+                          msg.traceId.length > 0
+                        ) {
+                          seenTraceIds.add(msg.traceId);
+                        }
+                        const hasRenderableSegmentContent =
+                          showReasoning ||
+                          !!msg.content ||
+                          showThinkingDots ||
+                          showStreamingCursor ||
+                          toolCallRenderItems.length > 0 ||
+                          ((agent.showDebug ?? false) && !!msg.traceId);
 
-                      if (!hasRenderableSegmentContent) {
-                        return null;
-                      }
+                        if (!hasRenderableSegmentContent) {
+                          return null;
+                        }
 
-                      return (
-                        <div key={msg.id} className="agent-message-segment">
-                          {/* Reasoning content */}
-                          {showReasoning && (
-                            <ReasoningThought
-                              messageId={msg.id}
-                              reasoning={msg.reasoning}
-                              reasoningStreaming={msg.reasoningStreaming}
-                              reasoningStartedAtMs={msg.reasoningStartedAtMs}
-                              reasoningDurationMs={msg.reasoningDurationMs}
-                              expanded={reasoningExpanded}
-                              onToggle={toggleReasoning}
-                            />
-                          )}
+                        return (
+                          <div
+                            key={msg.id}
+                            className={cn(
+                              "agent-message-segment",
+                              showTraceAction &&
+                                "agent-message-segment--with-trace-action",
+                            )}
+                          >
+                            {/* Reasoning content */}
+                            {showReasoning && (
+                              <ReasoningThought
+                                messageId={msg.id}
+                                reasoning={msg.reasoning}
+                                reasoningStreaming={msg.reasoningStreaming}
+                                reasoningStartedAtMs={msg.reasoningStartedAtMs}
+                                reasoningDurationMs={msg.reasoningDurationMs}
+                                expanded={reasoningExpanded}
+                                onToggle={toggleReasoning}
+                              />
+                            )}
 
-                          {/* Text content */}
-                          {msg.content && <Markdown>{msg.content}</Markdown>}
+                            {/* Text content */}
+                            {msg.content && <Markdown>{msg.content}</Markdown>}
 
-                          {/* Streaming cursor or thinking animation */}
-                          {showThinkingDots ? (
-                            <div className="thinking-dots mt-0.5 mb-0.5">
-                              <span />
-                              <span />
-                              <span />
-                            </div>
-                          ) : showStreamingCursor ? (
-                            <span className="animate-blink ml-0.5">◍</span>
-                          ) : null}
+                            {/* Streaming cursor or thinking animation */}
+                            {showThinkingDots ? (
+                              <div className="thinking-dots mt-0.5 mb-0.5">
+                                <span />
+                                <span />
+                                <span />
+                              </div>
+                            ) : showStreamingCursor ? (
+                              <span className="animate-blink ml-0.5">◍</span>
+                            ) : null}
 
-                          {/* Tool calls */}
-                          {toolCallRenderItems.length > 0 && (
-                            <div className="mt-2 flex flex-col gap-1">
-                              {toolCallRenderItems.map((item, index) =>
-                                item.kind === "group" ? (
-                                  <GroupedInlineToolCall
-                                    key={`group:${item.toolCalls[0]?.id ?? index}`}
-                                    toolCalls={item.toolCalls}
-                                    onInspect={(toolCall) =>
-                                      setToolDetailsModal(toolCall)
-                                    }
-                                    onOpenLogs={handleOpenToolLogs}
-                                    cwd={agent.config.cwd}
-                                    showDebug={agent.showDebug ?? false}
-                                  />
-                                ) : item.renderKind === "user_input" ? (
-                                  <UserInputCard
-                                    key={item.toolCall.id}
-                                    toolCall={item.toolCall}
-                                    tabId={activeTabId}
-                                  />
-                                ) : item.renderKind === "approval" ? (
-                                  <ToolCallApproval
-                                    key={item.toolCall.id}
-                                    toolCall={item.toolCall}
-                                    cwd={agent.config.cwd}
-                                    tabId={activeTabId}
-                                    onOpenProjectSettings={openCurrentProjectSettings}
-                                  />
-                                ) : (
-                                  renderCompactToolCall(
-                                    item,
-                                    agent.config.cwd,
-                                    agent.showDebug ?? false,
-                                    setToolDetailsModal,
-                                    handleOpenToolLogs,
-                                  )
-                                ),
-                              )}
-                            </div>
-                          )}
+                            {/* Tool calls */}
+                            {toolCallRenderItems.length > 0 && (
+                              <div className="mt-2 flex flex-col gap-1">
+                                {toolCallRenderItems.map((item, index) =>
+                                  item.kind === "group" ? (
+                                    <GroupedInlineToolCall
+                                      key={`group:${item.toolCalls[0]?.id ?? index}`}
+                                      toolCalls={item.toolCalls}
+                                      onInspect={(toolCall) =>
+                                        setToolDetailsModal(toolCall)
+                                      }
+                                      onOpenLogs={handleOpenToolLogs}
+                                      cwd={agent.config.cwd}
+                                      showDebug={agent.showDebug ?? false}
+                                    />
+                                  ) : item.renderKind === "user_input" ? (
+                                    <UserInputCard
+                                      key={item.toolCall.id}
+                                      toolCall={item.toolCall}
+                                      tabId={activeTabId}
+                                    />
+                                  ) : item.renderKind === "approval" ? (
+                                    <ToolCallApproval
+                                      key={item.toolCall.id}
+                                      toolCall={item.toolCall}
+                                      cwd={agent.config.cwd}
+                                      tabId={activeTabId}
+                                      onOpenProjectSettings={
+                                        openCurrentProjectSettings
+                                      }
+                                    />
+                                  ) : (
+                                    renderCompactToolCall(
+                                      item,
+                                      agent.config.cwd,
+                                      agent.showDebug ?? false,
+                                      setToolDetailsModal,
+                                      handleOpenToolLogs,
+                                    )
+                                  ),
+                                )}
+                              </div>
+                            )}
 
-                          {agent.showDebug && msg.traceId ? (
-                            <div className="mt-2 flex justify-end">
+                            {showTraceAction ? (
                               <Button
                                 variant="ghost"
                                 size="xxs"
-                                className="px-1.5"
+                                className="msg-trace-action"
                                 aria-label="View trace logs"
                                 title="View trace logs"
                                 onClick={() =>
@@ -1425,17 +1456,17 @@ export default function WorkspacePage() {
                                 }
                               >
                                 <span
-                                  className="material-symbols-outlined text-sm"
+                                  className="material-symbols-outlined text-xs"
                                   aria-hidden="true"
                                 >
                                   timeline
                                 </span>
                               </Button>
-                            </div>
-                          ) : null}
-                        </div>
-                      );
-                    })}
+                            ) : null}
+                          </div>
+                        );
+                      });
+                    })()}
                   </AgentMessage>
 
                   {cards.length > 0 ? (
@@ -1530,7 +1561,9 @@ export default function WorkspacePage() {
               <div className="chat-input-shell">
                 {isChatDropActive && (
                   <div className="chat-drop-overlay" aria-hidden="true">
-                    <span className="material-symbols-outlined">upload_file</span>
+                    <span className="material-symbols-outlined">
+                      upload_file
+                    </span>
                     <span>Drop to attach</span>
                   </div>
                 )}
@@ -1553,7 +1586,12 @@ export default function WorkspacePage() {
                           aria-label={`Remove ${img.name}`}
                           type="button"
                         >
-                          <span className="material-symbols-outlined" style={{ fontSize: 14 }}>close</span>
+                          <span
+                            className="material-symbols-outlined"
+                            style={{ fontSize: 14 }}
+                          >
+                            close
+                          </span>
                         </button>
                       </div>
                     ))}

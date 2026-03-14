@@ -148,6 +148,26 @@
     color-mix(in srgb, var(--color-primary) 14%, transparent); */
 }
 
+.agent-message-segment--with-trace-action {
+  position: relative;
+}
+
+.msg-body--agent:hover .msg-trace-action {
+  opacity: 1;
+}
+
+.msg-trace-action {
+  position: fixed;
+  top: 0px;
+  right: -20px;
+  width: 20px;
+  min-width: 20px;
+  padding: 0;
+  border: none;
+  opacity: 0.2;
+  transition: opacity var(--t-fast);
+}
+
 .conversation-cards {
   display: flex;
   flex-direction: column;

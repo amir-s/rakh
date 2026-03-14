@@ -836,6 +836,41 @@ describe("WorkspacePage chat input", () => {
     });
   });
 
+  it("deduplicates assistant trace log actions within a bubble for the same trace id", () => {
+    workspaceMocks.agentState = {
+      ...workspaceMocks.agentState,
+      showDebug: true,
+    };
+    workspaceMocks.chatBubbleGroups = [
+      {
+        kind: "assistant",
+        key: "assistant:msg-trace-dedupe",
+        messages: [
+          {
+            id: "msg-trace-1",
+            role: "assistant",
+            content: "First segment",
+            timestamp: 1,
+            traceId: "trace-assistant-shared",
+          },
+          {
+            id: "msg-trace-2",
+            role: "assistant",
+            content: "Second segment",
+            timestamp: 2,
+            traceId: "trace-assistant-shared",
+          },
+        ],
+      },
+    ];
+
+    render(<WorkspacePage />);
+
+    expect(
+      screen.getAllByRole("button", { name: "View trace logs" }),
+    ).toHaveLength(1);
+  });
+
   it("hides assistant trace log actions when debug mode is off", () => {
     workspaceMocks.agentState = {
       ...workspaceMocks.agentState,
