@@ -45,6 +45,8 @@ vi.mock("@/agent/atoms", () => ({
   themeModeAtom: atom("dark"),
   themeNameAtom: atom("default"),
   agentAtomFamily: vi.fn(),
+  debugModeEnabledAtom: atom(false),
+  patchAgentState: vi.fn(),
 }));
 
 vi.mock("@/agent/db", () => ({

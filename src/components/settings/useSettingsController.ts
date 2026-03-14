@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { useAtom } from "jotai";
 import {
   appUpdaterStateAtom,
+  debugModeEnabledAtom,
   notifyOnAttentionAtom,
   themeModeAtom,
   themeNameAtom,
@@ -69,6 +70,8 @@ export interface SettingsControllerValue {
   mcpSettings: McpSettings;
   setMcpSettings: (settings: McpSettings) => void;
   envKeysAvailable: EnvKeyEntry[];
+  debugModeEnabled: boolean;
+  setDebugModeEnabled: (enabled: boolean) => void;
   themeMode: "dark" | "light";
   toggleThemeMode: () => void;
   themeName: ThemeName;
@@ -107,6 +110,7 @@ export function useSettingsController(): SettingsControllerValue {
   const [providers, setProviders] = useAtom(providersAtom);
   const [mcpServers, setMcpServers] = useAtom(mcpServersAtom);
   const [mcpSettings, setMcpSettings] = useAtom(mcpSettingsAtom);
+  const [debugModeEnabled, setDebugModeEnabled] = useAtom(debugModeEnabledAtom);
   const [themeMode, setThemeMode] = useAtom(themeModeAtom);
   const [themeName, setThemeName] = useAtom(themeNameAtom);
   const [groupInlineToolCalls, setGroupInlineToolCalls] = useAtom(
@@ -302,6 +306,8 @@ export function useSettingsController(): SettingsControllerValue {
     mcpSettings,
     setMcpSettings,
     envKeysAvailable,
+    debugModeEnabled,
+    setDebugModeEnabled,
     themeMode,
     toggleThemeMode,
     themeName,

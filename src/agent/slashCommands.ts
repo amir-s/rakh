@@ -19,7 +19,7 @@ const STATIC_SLASH_COMMANDS: SlashCommandDefinition[] = [
   },
   {
     command: "/debug",
-    description: "Toggle debug mode (stream event logging).",
+    description: "Toggle global debug mode (stream event logging).",
     insertText: "/debug ",
     takesArguments: false,
   },

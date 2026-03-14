@@ -1,5 +1,5 @@
 import "@/styles/globals.css";
-import { Provider, useAtom } from "jotai";
+import { Provider, useAtom, useAtomValue } from "jotai";
 import { useEffect, useRef, useState } from "react";
 import TopChrome from "@/components/TopChrome";
 import AgentNotificationManager from "@/components/AgentNotificationManager";
@@ -11,6 +11,8 @@ import {
   themeModeAtom,
   themeNameAtom,
   agentAtomFamily,
+  debugModeEnabledAtom,
+  patchAgentState,
 } from "@/agent/atoms";
 import { loadProviders, providersAtom, loadProfiles, profilesAtom, loadCommandList, commandListAtom } from "@/agent/db";
 import {
@@ -67,6 +69,24 @@ function ThemeApplier() {
     }
     appliedSubagentVarsRef.current = nextVarNames;
   }, [themeMode, themeName]);
+  return null;
+}
+
+function DebugModeSynchronizer() {
+  const { tabs } = useTabs();
+  const debugModeEnabled = useAtomValue(debugModeEnabledAtom);
+
+  useEffect(() => {
+    for (const tab of tabs) {
+      if (tab.mode === "settings") continue;
+
+      const currentShowDebug = jotaiStore.get(agentAtomFamily(tab.id)).showDebug ?? false;
+      if (currentShowDebug === debugModeEnabled) continue;
+
+      patchAgentState(tab.id, { showDebug: debugModeEnabled });
+    }
+  }, [tabs, debugModeEnabled]);
+
   return null;
 }
 
@@ -278,6 +298,7 @@ export default function App() {
       <Provider store={jotaiStore}>
         <TabsProvider initialSessions={initialSessions}>
           <ThemeApplier />
+          <DebugModeSynchronizer />
           <AutoSaveManager />
           <AgentNotificationManager />
           <DesktopTrayManager />

@@ -51,7 +51,11 @@ import { useVoiceInputController } from "@/components/voice-input/useVoiceInputC
 import { useTabs } from "@/contexts/TabsContext";
 import { useAgent, useStopAgent } from "@/agent/useAgents";
 import { useModels } from "@/agent/useModels";
-import { patchAgentState, voiceInputEnabledAtom } from "@/agent/atoms";
+import {
+  patchAgentState,
+  setGlobalDebugMode,
+  voiceInputEnabledAtom,
+} from "@/agent/atoms";
 import {
   formatSlashCommandHelpMarkdown,
   getSlashCommandCatalog,
@@ -1004,10 +1008,7 @@ export default function WorkspacePage() {
     }
 
     if (text === "/debug") {
-      patchAgentState(activeTabId, (prev) => ({
-        ...prev,
-        showDebug: !(prev.showDebug ?? false),
-      }));
+      setGlobalDebugMode(!(agent.showDebug ?? false));
       setInput("");
       return;
     }

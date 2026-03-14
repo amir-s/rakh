@@ -60,6 +60,7 @@ const workspaceMocks = vi.hoisted(() => ({
   setAutoApproveCommandsMock: vi.fn(),
   openSettingsTabMock: vi.fn<(section?: string) => void>(),
   patchAgentStateMock: vi.fn(),
+  setGlobalDebugModeMock: vi.fn(),
   updateTabMock: vi.fn(),
   findSavedProjectMock: vi.fn(),
   inferProjectNameMock: vi.fn((path: string) => path.split("/").pop() ?? path),
@@ -209,6 +210,7 @@ vi.mock("@/agent/persistence", () => ({
 
 vi.mock("@/agent/atoms", () => ({
   patchAgentState: workspaceMocks.patchAgentStateMock,
+  setGlobalDebugMode: workspaceMocks.setGlobalDebugModeMock,
   voiceInputEnabledAtom: {},
 }));
 
@@ -613,6 +615,7 @@ describe("WorkspacePage chat input", () => {
     workspaceMocks.setAutoApproveCommandsMock.mockReset();
     workspaceMocks.openSettingsTabMock.mockReset();
     workspaceMocks.patchAgentStateMock.mockReset();
+    workspaceMocks.setGlobalDebugModeMock.mockReset();
     workspaceMocks.updateTabMock.mockReset();
     workspaceMocks.findSavedProjectMock.mockReset();
     workspaceMocks.inferProjectNameMock.mockReset();
@@ -1145,7 +1148,7 @@ describe("WorkspacePage chat input", () => {
     });
   });
 
-  it("keeps the local /debug toggle behavior", async () => {
+  it("toggles the global debug mode shortcut on /debug", async () => {
     render(<WorkspacePage />);
 
     const textbox = screen.getByRole("textbox");
@@ -1160,10 +1163,7 @@ describe("WorkspacePage chat input", () => {
     fireEvent.keyDown(textbox, { key: "Enter" });
 
     expect(workspaceMocks.sendMessageMock).not.toHaveBeenCalled();
-    const nextState = applyLastPatch({
-      showDebug: false,
-    });
-    expect(nextState.showDebug).toBe(true);
+    expect(workspaceMocks.setGlobalDebugModeMock).toHaveBeenCalledWith(true);
   });
 
   it("toggles grouped inline tool calls for the current session", async () => {
