@@ -300,7 +300,7 @@ export interface AgentConfig {
   worktreeDeclined?: boolean;
   /** Provider-level advanced options chosen at session creation time. */
   advancedOptions?: AdvancedModelOptions;
-  /** Chosen communication profile. If omitted or "global", falls back to global setting. */
+  /** Concrete communication profile id inherited when the session is created. */
   communicationProfile?: string;
 }
 

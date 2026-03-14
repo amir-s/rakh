@@ -1,6 +1,12 @@
 import type { Tab } from "@/contexts/TabsContext";
 import { logFrontendSoon } from "@/logging/client";
-import { patchAgentState } from "./atoms";
+import {
+  defaultCommunicationProfileAtom,
+  jotaiStore,
+  patchAgentState,
+} from "./atoms";
+import { resolveCommunicationProfileId } from "./communicationProfiles";
+import { profilesAtom } from "./db";
 import {
   loadArchivedSessions,
   restoreSession,
@@ -108,6 +114,11 @@ export function hydratePersistedSession(
   const restoreError = options.restoreError ?? null;
   const queuedMessages = parseQueuedMessages(session.queuedMessages);
   const queueState = parseQueueState(session.queueState, queuedMessages);
+  const communicationProfile = resolveCommunicationProfileId(
+    session.communicationProfile,
+    jotaiStore.get(profilesAtom),
+    jotaiStore.get(defaultCommunicationProfileAtom),
+  );
 
   patchAgentState(session.id, {
     status: restoreError ? "error" : "idle",
@@ -121,7 +132,7 @@ export function hydratePersistedSession(
       worktreeBranch: session.worktreeBranch || undefined,
       worktreeDeclined: session.worktreeDeclined || undefined,
       advancedOptions: parseAdvancedOptions(session.advancedOptions),
-      communicationProfile: session.communicationProfile === "global" ? undefined : session.communicationProfile,
+      communicationProfile,
     },
     plan: {
       markdown: session.planMarkdown,

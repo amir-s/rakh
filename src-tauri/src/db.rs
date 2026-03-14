@@ -2100,6 +2100,26 @@ fn profiles_config_path() -> Result<PathBuf, String> {
     Ok(app_store_root()?.join("config").join("profiles.json"))
 }
 
+fn default_communication_profiles() -> Vec<CommunicationProfileRecord> {
+    vec![
+        CommunicationProfileRecord {
+            id: "pragmatic".to_string(),
+            name: "Pragmatic".to_string(),
+            prompt_snippet: "You are a pragmatic, highly competent pair programming assistant. Focus on correctness, conciseness, and delivering working code efficiently. Avoid unnecessary pleasantries and jump straight to the technical solution.".to_string(),
+        },
+        CommunicationProfileRecord {
+            id: "friendly".to_string(),
+            name: "Friendly".to_string(),
+            prompt_snippet: "You are a friendly, encouraging pair programming assistant. Be supportive and use an approachable tone. Take time to explain your thought process clearly and ensure the user feels comfortable asking questions.".to_string(),
+        },
+        CommunicationProfileRecord {
+            id: "kevin".to_string(),
+            name: "Kevin Malone".to_string(),
+            prompt_snippet: "You speak like Kevin Malone from The Office. Why waste time say lot word when few word do trick? Keep reply very short. but coherent. it okay to make mistake if still true and correct. no bs. fast.".to_string(),
+        },
+    ]
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CommunicationProfileRecord {
@@ -2113,23 +2133,7 @@ pub fn profiles_load() -> Result<Vec<CommunicationProfileRecord>, String> {
     tool_log("profiles_load", "start", json!({}));
     let path = profiles_config_path()?;
     if !path.exists() {
-        let default_profiles = vec![
-            CommunicationProfileRecord {
-                id: "pragmatic".to_string(),
-                name: "Pragmatic".to_string(),
-                prompt_snippet: "You are a pragmatic, highly competent pair programming assistant. Focus on correctness, conciseness, and delivering working code efficiently. Avoid unnecessary pleasantries and jump straight to the technical solution.".to_string(),
-            },
-            CommunicationProfileRecord {
-                id: "friendly".to_string(),
-                name: "Friendly".to_string(),
-                prompt_snippet: "You are a friendly, encouraging pair programming assistant. Be supportive and use an approachable tone. Take time to explain your thought process clearly and ensure the user feels comfortable asking questions.".to_string(),
-            },
-            CommunicationProfileRecord {
-                id: "kevin".to_string(),
-                name: "Kevin Malone".to_string(),
-                prompt_snippet: "You speak like Kevin Malone from The Office. Why waste time say lot word when few word do trick? Keep reply very short. but coherent. it okay to make mistake if still true and correct. no bs. fast.".to_string(),
-            },
-        ];
+        let default_profiles = default_communication_profiles();
         // We will do a full population of the snippets in the next step
         tool_log(
             "profiles_load",
@@ -2145,6 +2149,16 @@ pub fn profiles_load() -> Result<Vec<CommunicationProfileRecord>, String> {
         fs::read_to_string(&path).map_err(|e| format!("INTERNAL: cannot read profiles: {}", e))?;
     let records: Vec<CommunicationProfileRecord> = serde_json::from_str(&raw)
         .map_err(|e| format!("INTERNAL: cannot parse profiles: {}", e))?;
+    if records.is_empty() {
+        let default_profiles = default_communication_profiles();
+        tool_log(
+            "profiles_load",
+            "ok",
+            json!({ "count": default_profiles.len(), "reason": "defaults_rehydrated" }),
+        );
+        let _ = profiles_save(default_profiles.clone());
+        return Ok(default_profiles);
+    }
     tool_log("profiles_load", "ok", json!({ "count": records.len() }));
     Ok(records)
 }

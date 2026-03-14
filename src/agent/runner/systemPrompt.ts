@@ -4,6 +4,7 @@ import {
   jotaiStore,
   globalCommunicationProfileAtom,
 } from "../atoms";
+import { getCommunicationProfileRecord } from "../communicationProfiles";
 import { profilesAtom, type ProviderInstance } from "../db";
 import { getModelCatalogEntry } from "../modelCatalog";
 import {
@@ -49,13 +50,13 @@ export function buildSystemPromptRuntimeContext(
 export function getCommunicationInstruction(
   profile: string | undefined,
 ): string | null {
-  const targetId =
-    !profile || profile === "global"
-      ? jotaiStore.get(globalCommunicationProfileAtom)
-      : profile;
-  if (!targetId) return null;
+  const defaultProfileId = jotaiStore.get(globalCommunicationProfileAtom);
   const profiles = jotaiStore.get(profilesAtom);
-  const match = profiles.find((p) => p.id === targetId);
+  const match = getCommunicationProfileRecord(
+    profile,
+    profiles,
+    defaultProfileId,
+  );
   return match ? match.promptSnippet : null;
 }
 

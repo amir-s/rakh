@@ -44,6 +44,7 @@ vi.mock("@/agent/atoms", () => ({
   jotaiStore: createStore(),
   themeModeAtom: atom("dark"),
   themeNameAtom: atom("default"),
+  defaultCommunicationProfileAtom: atom("pragmatic"),
   agentAtomFamily: vi.fn(),
   debugModeEnabledAtom: atom(false),
   patchAgentState: vi.fn(),

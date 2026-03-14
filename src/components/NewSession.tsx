@@ -8,7 +8,8 @@ import {
   type KeyboardEvent,
 } from "react";
 import { useModels, useSelectedModel } from "@/agent/useModels";
-import { useAtom } from "jotai";
+import { useAtom, useAtomValue } from "jotai";
+import { defaultCommunicationProfileAtom } from "@/agent/atoms";
 import { providersAtom } from "@/agent/db";
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
@@ -183,9 +184,11 @@ export default function NewSession({ onSubmit }: NewSessionProps) {
     useState<AdvancedModelOptions>(loadAdvancedOptions);
   const [projectSettingsProject, setProjectSettingsProject] =
     useState<SavedProject | null>(null);
-  // The global default profile handles fallback later if not provided.
-  const [communicationProfile, setCommunicationProfile] =
-    useState<string>("global");
+  const defaultCommunicationProfile = useAtomValue(
+    defaultCommunicationProfileAtom,
+  );
+  const [communicationProfileOverride, setCommunicationProfileOverride] =
+    useState<string | null>(null);
 
   const dropdownRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -324,6 +327,10 @@ export default function NewSession({ onSubmit }: NewSessionProps) {
     [],
   );
 
+  const handleCommunicationProfileChange = useCallback((profile: string) => {
+    setCommunicationProfileOverride(profile);
+  }, []);
+
   /* ── Submit on Enter (no shift) ────────────────────────────────────────── */
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -334,6 +341,8 @@ export default function NewSession({ onSubmit }: NewSessionProps) {
       }
       const text = input.trim();
       const ctxLen = selectedModelObj?.context_length;
+      const communicationProfile =
+        communicationProfileOverride || defaultCommunicationProfile || undefined;
       if (text) {
         onSubmit(
           text,
@@ -676,8 +685,10 @@ export default function NewSession({ onSubmit }: NewSessionProps) {
               hasAnyProviderKey={hasAnyProviderKey}
               advancedOptions={advancedOptions}
               onAdvancedOptionsChange={updateAdvancedOptions}
-              communicationProfile={communicationProfile}
-              onCommunicationProfileChange={setCommunicationProfile}
+              communicationProfile={
+                communicationProfileOverride ?? defaultCommunicationProfile
+              }
+              onCommunicationProfileChange={handleCommunicationProfileChange}
             />
           </div>
           {/* end ns-selectors-row */}

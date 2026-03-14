@@ -24,7 +24,9 @@ import { logFrontendSoon } from "@/logging/client";
 import type { AgentQueueState, AgentState } from "./types";
 import {
   DEFAULT_MODEL,
+  defaultCommunicationProfileAtom,
   getAgentState,
+  jotaiStore,
   patchSessionPersistenceState,
 } from "./atoms";
 
@@ -270,7 +272,10 @@ export function buildPersistedSession(
     advancedOptions: state.config.advancedOptions
       ? JSON.stringify(state.config.advancedOptions)
       : "{}",
-    communicationProfile: state.config.communicationProfile || "global",
+    communicationProfile:
+      state.config.communicationProfile ||
+      jotaiStore.get(defaultCommunicationProfileAtom) ||
+      "pragmatic",
     // created_at is only used on the initial INSERT; the DB preserves the
     // original value on subsequent upserts (not included in ON CONFLICT SET).
     createdAt: now,
