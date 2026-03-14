@@ -179,6 +179,64 @@ Review data is captured in two places:
 - `AgentState.reviewEdits`: per-file original-to-current diffs shown in the
   review pane
 
+### ToolGateway and output compaction
+
+All agent-visible tool calls now flow through one gateway entrypoint in
+[`src/agent/runner/toolGateway.ts`](../src/agent/runner/toolGateway.ts).
+That includes:
+
+- local built-in tools
+- MCP-backed tools after MCP-specific normalization
+- synthetic runner-owned tools such as subagent delegation and user input
+
+The gateway receives a per-call state snapshot with:
+
+- `tabId`, `runId`, `agentId`, and `toolCallId`
+- tool source kind (`local`, `mcp`, or `synthetic`)
+- execution origin (`agent` or `gateway`)
+- optional `intention` stripped from tool arguments before execution
+- estimated context pressure derived from current API messages
+
+Current V1 policies are post-execution only:
+
+- `huge-output`: replace oversized successful results with a temporary tool
+  artifact reference
+- `summary`: optionally summarize an artifactized tool result with an internal
+  model when the originating tool call included an `intention`
+
+Policy config is injected via `ToolGatewayConfigProvider`, but the current
+bootstrap defaults are still hard-coded beside gateway creation. This keeps the
+policy internals stable so future Settings-backed config only needs to replace
+the provider, not the policy implementations.
+
+Current default thresholds:
+
+- base threshold: `64 KiB`
+- `32 KiB` when estimated context usage is at least `75%`
+- `16 KiB` when estimated context usage is at least `90%`
+
+If the selected model does not have a known `contextLength`, the gateway cannot
+compute context usage percentage and falls back to the base threshold.
+
+The summary policy reuses the parent model by default. It can be switched to a
+dedicated override model through injected config, but that is not wired to user
+settings yet.
+
+#### Design choices
+
+- Artifactize instead of truncating: large tool output is preserved in full and
+  moved out of model context rather than being clipped inline.
+- Summarize only after artifactization: the raw output stays available for
+  follow-up inspection through tool-artifact helpers.
+- Require explicit intention for summaries: the internal summarizer only runs
+  when the parent agent tells the gateway what matters.
+- Restrict internal summary tools: the silent summarizer can only use
+  `agent_tool_artifact_get` and `agent_tool_artifact_search`, which limits
+  accidental side effects.
+- Keep compaction UI local to the tool row: when summary generation is in
+  flight, the affected tool call shows its own spinner and hover hint instead
+  of changing the entire tab status.
+
 ### Subagents and artifacts
 
 Subagents are registered in
