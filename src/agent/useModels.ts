@@ -1,6 +1,10 @@
 import { useState, useCallback, useMemo } from "react";
 import { useAtomValue } from "jotai";
-import { providersAtom } from "./db";
+import {
+  providersAtom,
+  normalizeProviderCachedModels,
+  type ProviderInstance,
+} from "./db";
 import { rankFuzzyItems } from "@/utils/fuzzySearch";
 import {
   STATIC_MODEL_CATALOG,
@@ -60,47 +64,7 @@ export function filterModelsForQuery(
  */
 export function useModels() {
   const providers = useAtomValue(providersAtom);
-
-  const models = useMemo(() => {
-    const list: ModelCatalogEntry[] = [];
-
-    for (const provider of providers) {
-      if (provider.type === "openai" || provider.type === "anthropic") {
-        // Find matching models from the static catalog
-        const matchingModels = STATIC_MODEL_CATALOG.filter(
-          (m) => m.owned_by === provider.type,
-        );
-        for (const staticModel of matchingModels) {
-          list.push({
-            ...staticModel,
-            id: `${provider.name}/${staticModel.id}`,
-            name: `${staticModel.name}`,
-            providerId: provider.id,
-          });
-        }
-      } else if (
-        provider.type === "openai-compatible" &&
-        provider.cachedModels
-      ) {
-        for (const m of provider.cachedModels) {
-          const rawId =
-            typeof m.id === "string" ? m.id : String(m.id ?? "unknown");
-          list.push({
-            id: `${provider.name}/${rawId}`,
-            providerId: provider.id,
-            name: rawId,
-            owned_by: "openai-compatible",
-            tags: [],
-            sdk_id: rawId,
-          });
-        }
-      }
-    }
-
-    // Keep the dynamic registry in sync so getModelCatalogEntry works in the runner
-    registerDynamicModels(list);
-    return list;
-  }, [providers]);
+  const models = useMemo(() => buildGatewayModels(providers), [providers]);
 
   return {
     models,
@@ -149,4 +113,53 @@ export function useSelectedModel(
   );
 
   return [model, setModel];
+}
+
+export function buildGatewayModels(
+  providers: ProviderInstance[],
+): ModelCatalogEntry[] {
+  const list: ModelCatalogEntry[] = [];
+
+  for (const provider of providers) {
+    if (provider.type === "openai" || provider.type === "anthropic") {
+      const matchingModels = STATIC_MODEL_CATALOG.filter(
+        (m) => m.owned_by === provider.type,
+      );
+      for (const staticModel of matchingModels) {
+        list.push({
+          ...staticModel,
+          id: `${provider.name}/${staticModel.id}`,
+          name: `${staticModel.name}`,
+          providerId: provider.id,
+        });
+      }
+      continue;
+    }
+
+    if (provider.type !== "openai-compatible") continue;
+
+    for (const model of normalizeProviderCachedModels(provider.cachedModels)) {
+      list.push({
+        id: `${provider.name}/${model.id}`,
+        providerId: provider.id,
+        name: model.name ?? model.id,
+        owned_by: "openai-compatible",
+        tags: [],
+        context_length: model.limit?.context,
+        pricing:
+          model.cost && (
+            model.cost.input !== undefined || model.cost.output !== undefined
+          )
+            ? {
+                prompt: model.cost.input ?? 0,
+                completion: model.cost.output ?? 0,
+              }
+            : undefined,
+        sdk_id: model.id,
+      });
+    }
+  }
+
+  registerDynamicModels(list);
+  return list;
 }

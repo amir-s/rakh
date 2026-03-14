@@ -29,6 +29,11 @@ const mcpMocks = vi.hoisted(() => ({
   testMcpServerMock: vi.fn<(server: unknown) => Promise<unknown>>(),
 }));
 
+const dbMocks = vi.hoisted(() => ({
+  saveProviderMock: vi.fn<(provider: unknown) => Promise<void>>(),
+  deleteProviderMock: vi.fn<(id: string) => Promise<void>>(),
+}));
+
 vi.mock("@/agent/useEnvProviderKeys", () => ({
   useEnvProviderKeys: () => [],
   isTauriRuntime: () => false,
@@ -42,6 +47,17 @@ vi.mock("@/notifications", () => ({
 vi.mock("@/agent/persistence", () => ({
   upsertWorkspaceSessions: vi.fn(async () => undefined),
 }));
+
+vi.mock("@/agent/db", async () => {
+  const actual = await vi.importActual<typeof import("@/agent/db")>(
+    "@/agent/db",
+  );
+  return {
+    ...actual,
+    saveProvider: (...args: unknown[]) => dbMocks.saveProviderMock(args[0]),
+    deleteProvider: (...args: unknown[]) => dbMocks.deleteProviderMock(args[0] as string),
+  };
+});
 
 vi.mock("@/updater", () => ({
   checkForAppUpdates: () => updaterMocks.checkForAppUpdatesMock(),
@@ -120,7 +136,12 @@ vi.mock("@/components/ui/JsonCodeEditor", () => ({
 function SettingsPageHarness({
   initialSection = "appearance",
 }: {
-  initialSection?: "appearance" | "updates" | "mcp" | "developer";
+  initialSection?:
+    | "appearance"
+    | "updates"
+    | "mcp"
+    | "developer"
+    | "providers";
 }) {
   const { openSettingsTab } = useTabs();
 
@@ -132,7 +153,12 @@ function SettingsPageHarness({
 }
 
 function renderSettingsPage(
-  initialSection: "appearance" | "updates" | "mcp" | "developer" = "appearance",
+  initialSection:
+    | "appearance"
+    | "updates"
+    | "mcp"
+    | "developer"
+    | "providers" = "appearance",
 ) {
   return render(
     <Provider store={jotaiStore}>
@@ -162,8 +188,12 @@ describe("SettingsPage", () => {
     });
     updaterMocks.checkForAppUpdatesMock.mockReset();
     updaterMocks.installAppUpdateMock.mockReset();
+    dbMocks.saveProviderMock.mockReset();
+    dbMocks.deleteProviderMock.mockReset();
     updaterMocks.checkForAppUpdatesMock.mockResolvedValue(undefined);
     updaterMocks.installAppUpdateMock.mockResolvedValue(undefined);
+    dbMocks.saveProviderMock.mockResolvedValue(undefined);
+    dbMocks.deleteProviderMock.mockResolvedValue(undefined);
     mcpMocks.saveMcpServersMock.mockReset();
     mcpMocks.saveMcpSettingsMock.mockReset();
     mcpMocks.testMcpServerMock.mockReset();
@@ -190,9 +220,11 @@ describe("SettingsPage", () => {
       ],
       toolCount: 2,
     });
+    vi.stubGlobal("fetch", vi.fn());
   });
 
   afterEach(() => {
+    vi.unstubAllGlobals();
     cleanup();
   });
 
@@ -378,5 +410,106 @@ describe("SettingsPage", () => {
     ).not.toBeNull();
     expect(dialog.textContent).toContain('"NODE_ENV": "production"');
     expect(dialog.textContent).toContain('"timeoutMs": 15000');
+  });
+
+  it("saves custom provider model metadata from the providers settings section", async () => {
+    const fetchMock = vi.mocked(global.fetch);
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        data: [
+          { id: "meta/llama-3.3-70b" },
+          { id: "qwen/qwen-2.5-coder" },
+        ],
+      }),
+    } as Response);
+
+    renderSettingsPage("providers");
+
+    await waitFor(() => {
+      expect(screen.getByText("Provider Registry")).not.toBeNull();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /Add Provider/i }));
+
+    fireEvent.change(screen.getByRole("textbox", { name: "Name" }), {
+      target: { value: "Local Gateway" },
+    });
+    fireEvent.change(screen.getByRole("combobox", { name: "Provider Type" }), {
+      target: { value: "openai-compatible" },
+    });
+    fireEvent.change(
+      screen.getByRole("textbox", { name: "Base URL (include version)" }),
+      {
+        target: { value: "http://localhost:11434/v1" },
+      },
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Test" }));
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        "http://localhost:11434/v1/models",
+        expect.objectContaining({
+          headers: expect.objectContaining({
+            "Content-Type": "application/json",
+          }),
+        }),
+      );
+    });
+
+    await waitFor(() => {
+      expect(screen.getAllByText("meta/llama-3.3-70b").length).toBeGreaterThan(0);
+      expect(screen.getAllByText("qwen/qwen-2.5-coder").length).toBeGreaterThan(0);
+    });
+
+    fireEvent.change(screen.getAllByLabelText("Context limit")[0], {
+      target: { value: "131072" },
+    });
+    fireEvent.change(screen.getAllByLabelText("Input cost / 1M")[0], {
+      target: { value: "0.15" },
+    });
+    fireEvent.change(screen.getAllByLabelText("Output cost / 1M")[0], {
+      target: { value: "0.60" },
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Save Provider" }));
+
+    await waitFor(() => {
+      expect(dbMocks.saveProviderMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: "Local Gateway",
+          type: "openai-compatible",
+          baseUrl: "http://localhost:11434/v1",
+          cachedModels: [
+            {
+              id: "meta/llama-3.3-70b",
+              cost: { input: 0.15, output: 0.6 },
+              limit: { context: 131072 },
+            },
+            {
+              id: "qwen/qwen-2.5-coder",
+            },
+          ],
+        }),
+      );
+    });
+
+    expect(jotaiStore.get(providersAtom)).toEqual([
+      expect.objectContaining({
+        name: "Local Gateway",
+        type: "openai-compatible",
+        cachedModels: [
+          expect.objectContaining({
+            id: "meta/llama-3.3-70b",
+            cost: { input: 0.15, output: 0.6 },
+            limit: { context: 131072 },
+          }),
+          expect.objectContaining({
+            id: "qwen/qwen-2.5-coder",
+          }),
+        ],
+      }),
+    ]);
   });
 });

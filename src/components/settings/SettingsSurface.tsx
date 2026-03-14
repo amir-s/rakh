@@ -29,8 +29,11 @@ import {
 } from "@/agent/useEnvProviderKeys";
 import {
   deleteProvider,
+  mergeProviderCachedModels,
+  normalizeProviderCachedModels,
   saveProvider,
   type ProviderInstance,
+  type ProviderModelRecord,
   type CommunicationProfileRecord,
   type CommandListEntry,
   type MatchMode,
@@ -399,7 +402,7 @@ function McpSchemaHelpModal({
 async function fetchOpenAICompatibleModels(
   baseUrl: string,
   apiKey: string,
-): Promise<Record<string, unknown>[]> {
+): Promise<ProviderModelRecord[]> {
   const url = baseUrl.trim().replace(/\/+$/, "");
   if (!url) {
     throw new Error("Please enter a base URL first.");
@@ -424,6 +427,103 @@ async function fetchOpenAICompatibleModels(
     .map((model) => model.id?.trim())
     .filter((id): id is string => Boolean(id))
     .map((id) => ({ id, owned_by: "openai-compatible" }));
+}
+
+function formatNumberInput(value?: number): string {
+  return typeof value === "number" && Number.isFinite(value) ? String(value) : "";
+}
+
+function parseOptionalNumberInput(
+  value: string,
+  { allowZero }: { allowZero: boolean },
+): number | undefined {
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  const parsed = Number(trimmed);
+  if (!Number.isFinite(parsed)) return Number.NaN;
+  if (allowZero ? parsed < 0 : parsed <= 0) return Number.NaN;
+  return parsed;
+}
+
+interface ProviderModelDraft {
+  id: string;
+  name?: string;
+  context: string;
+  inputCost: string;
+  outputCost: string;
+}
+
+function toProviderModelDraft(model: ProviderModelRecord): ProviderModelDraft {
+  return {
+    id: model.id,
+    name: model.name,
+    context: formatNumberInput(model.limit?.context),
+    inputCost: formatNumberInput(model.cost?.input),
+    outputCost: formatNumberInput(model.cost?.output),
+  };
+}
+
+function toProviderModelRecord(
+  draft: ProviderModelDraft,
+): ProviderModelRecord | null {
+  const id = draft.id.trim();
+  if (!id) return null;
+
+  const context = parseOptionalNumberInput(draft.context, { allowZero: false });
+  const input = parseOptionalNumberInput(draft.inputCost, { allowZero: true });
+  const output = parseOptionalNumberInput(draft.outputCost, { allowZero: true });
+
+  if (
+    Number.isNaN(context) ||
+    Number.isNaN(input) ||
+    Number.isNaN(output)
+  ) {
+    return null;
+  }
+
+  return {
+    id,
+    ...(draft.name?.trim() ? { name: draft.name.trim() } : {}),
+    cost:
+      input !== undefined || output !== undefined
+        ? {
+            ...(input !== undefined ? { input } : {}),
+            ...(output !== undefined ? { output } : {}),
+          }
+        : undefined,
+    limit: context !== undefined ? { context } : undefined,
+  };
+}
+
+function toProviderModelRecordLoose(
+  draft: ProviderModelDraft,
+): ProviderModelRecord | null {
+  const strictRecord = toProviderModelRecord(draft);
+  if (strictRecord) return strictRecord;
+
+  const id = draft.id.trim();
+  if (!id) return null;
+
+  const context = parseOptionalNumberInput(draft.context, { allowZero: false });
+  const input = parseOptionalNumberInput(draft.inputCost, { allowZero: true });
+  const output = parseOptionalNumberInput(draft.outputCost, { allowZero: true });
+
+  return {
+    id,
+    ...(draft.name?.trim() ? { name: draft.name.trim() } : {}),
+    cost:
+      (!Number.isNaN(input) && input !== undefined) ||
+      (!Number.isNaN(output) && output !== undefined)
+        ? {
+            ...(!Number.isNaN(input) && input !== undefined ? { input } : {}),
+            ...(!Number.isNaN(output) && output !== undefined
+              ? { output }
+              : {}),
+          }
+        : undefined,
+    limit:
+      !Number.isNaN(context) && context !== undefined ? { context } : undefined,
+  };
 }
 
 function formatUpdaterLastChecked(lastCheckedAt: number | null): string {
@@ -483,15 +583,58 @@ function ProviderConfigurator({
   const [keyVisible, setKeyVisible] = useState(false);
   const [testStatus, setTestStatus] = useState<TestStatus>("idle");
   const [testError, setTestError] = useState<string | null>(null);
-  const [cachedModels, setCachedModels] = useState<Record<string, unknown>[]>(
-    provider?.cachedModels ?? [],
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [cachedModels, setCachedModels] = useState<ProviderModelDraft[]>(() =>
+    normalizeProviderCachedModels(provider?.cachedModels).map(
+      toProviderModelDraft,
+    ),
   );
 
   const isCustom = type === "openai-compatible";
   const hasCachedModels = cachedModels.length > 0;
 
+  const buildCachedModelRecords = useCallback(() => {
+    const nextModels = cachedModels.map(toProviderModelRecord);
+    if (nextModels.some((model) => model === null)) {
+      setSaveError(
+        "Custom model metadata must be numeric. Context limit must be greater than 0 and costs cannot be negative.",
+      );
+      return null;
+    }
+
+    setSaveError(null);
+    return nextModels.filter(
+      (model): model is ProviderModelRecord => model !== null,
+    );
+  }, [cachedModels]);
+
+  const updateCachedModelDraft = useCallback(
+    (
+      index: number,
+      field: keyof Pick<
+        ProviderModelDraft,
+        "context" | "inputCost" | "outputCost"
+      >,
+      value: string,
+    ) => {
+      setSaveError(null);
+      setCachedModels((currentModels) =>
+        currentModels.map((currentModel, currentIndex) =>
+          currentIndex === index
+            ? {
+                ...currentModel,
+                [field]: value,
+              }
+            : currentModel,
+        ),
+      );
+    },
+    [],
+  );
+
   const handleTest = async () => {
     if (!isCustom) {
+      setSaveError(null);
       setTestStatus("ok");
       return;
     }
@@ -500,7 +643,14 @@ function ProviderConfigurator({
     setTestError(null);
     try {
       const models = await fetchOpenAICompatibleModels(baseUrl, apiKey);
-      setCachedModels(models);
+      setCachedModels((currentModels) =>
+        mergeProviderCachedModels(
+          currentModels
+            .map(toProviderModelRecordLoose)
+            .filter((model): model is ProviderModelRecord => model !== null),
+          models,
+        ).map(toProviderModelDraft),
+      );
       setTestStatus("ok");
     } catch (error) {
       setTestStatus("error");
@@ -510,13 +660,16 @@ function ProviderConfigurator({
 
   const handleSaveClick = () => {
     if (!name.trim()) return;
+    const nextCachedModels = isCustom ? buildCachedModelRecords() : undefined;
+    if (isCustom && nextCachedModels === null) return;
+
     onSave({
       id: provider?.id ?? uuidv4(),
       name: name.trim(),
       type,
       apiKey: apiKey.trim(),
       baseUrl: isCustom ? baseUrl.trim() : undefined,
-      cachedModels: isCustom ? cachedModels : undefined,
+      cachedModels: nextCachedModels ?? undefined,
     });
   };
 
@@ -524,8 +677,11 @@ function ProviderConfigurator({
     <Panel className="settings-provider-form">
       <div className="settings-provider-form__grid">
         <div className="settings-field">
-          <label className="settings-field-label">Name</label>
+          <label className="settings-field-label" htmlFor="provider-name">
+            Name
+          </label>
           <TextField
+            id="provider-name"
             type="text"
             value={name}
             onChange={(e) => setName(e.target.value)}
@@ -535,8 +691,11 @@ function ProviderConfigurator({
         </div>
 
         <div className="settings-field">
-          <label className="settings-field-label">Provider Type</label>
+          <label className="settings-field-label" htmlFor="provider-type">
+            Provider Type
+          </label>
           <SelectField
+            id="provider-type"
             className="settings-input settings-provider-form__select"
             value={type}
             onChange={(e) =>
@@ -552,10 +711,11 @@ function ProviderConfigurator({
         </div>
 
         <div className="settings-field">
-          <label className="settings-field-label">
+          <label className="settings-field-label" htmlFor="provider-api-key">
             {isCustom ? "API Key (optional)" : "API Key"}
           </label>
           <TextField
+            id="provider-api-key"
             type={keyVisible ? "text" : "password"}
             value={apiKey}
             onChange={(e) => setApiKey(e.target.value)}
@@ -578,10 +738,11 @@ function ProviderConfigurator({
 
         {isCustom ? (
           <div className="settings-field">
-            <label className="settings-field-label">
+            <label className="settings-field-label" htmlFor="provider-base-url">
               Base URL (include version)
             </label>
             <TextField
+              id="provider-base-url"
               type="text"
               value={baseUrl}
               onChange={(e) => setBaseUrl(e.target.value)}
@@ -591,6 +752,138 @@ function ProviderConfigurator({
           </div>
         ) : null}
       </div>
+
+      {isCustom ? (
+        <div className="settings-provider-models">
+          <div className="settings-provider-models__header">
+            <div>
+              <p className="settings-provider-models__title">Loaded models</p>
+              <p className="settings-provider-models__description">
+                Refresh from the provider, then add optional context and token
+                pricing metadata for runtime stats.
+              </p>
+            </div>
+            <Badge variant={hasCachedModels ? "success" : "muted"}>
+              {cachedModels.length} loaded
+            </Badge>
+          </div>
+
+          {hasCachedModels ? (
+            <div className="settings-provider-models__list">
+              {cachedModels.map((model, index) => (
+                <Panel
+                  key={model.id}
+                  variant="inset"
+                  className="settings-provider-model"
+                >
+                  <div className="settings-provider-model__copy">
+                    <span className="settings-provider-model__name">
+                      {model.name || model.id}
+                    </span>
+                    <span className="settings-provider-model__id">
+                      {model.id}
+                    </span>
+                  </div>
+                  <div className="settings-provider-model__grid">
+                    <div className="settings-field">
+                      <label
+                        className="settings-field-label"
+                        htmlFor={`provider-model-context-${index}`}
+                      >
+                        Context limit
+                      </label>
+                      <TextField
+                        id={`provider-model-context-${index}`}
+                        type="number"
+                        inputMode="numeric"
+                        min="1"
+                        step="1"
+                        value={model.context}
+                        onChange={(event) =>
+                          updateCachedModelDraft(
+                            index,
+                            "context",
+                            event.target.value,
+                          )
+                        }
+                        placeholder="e.g. 128000"
+                        wrapClassName="settings-input-wrap"
+                      />
+                    </div>
+
+                    <div className="settings-field">
+                      <label
+                        className="settings-field-label"
+                        htmlFor={`provider-model-input-cost-${index}`}
+                      >
+                        Input cost / 1M
+                      </label>
+                      <TextField
+                        id={`provider-model-input-cost-${index}`}
+                        type="number"
+                        inputMode="decimal"
+                        min="0"
+                        step="0.001"
+                        value={model.inputCost}
+                        onChange={(event) =>
+                          updateCachedModelDraft(
+                            index,
+                            "inputCost",
+                            event.target.value,
+                          )
+                        }
+                        placeholder="e.g. 0.15"
+                        wrapClassName="settings-input-wrap"
+                      />
+                    </div>
+
+                    <div className="settings-field">
+                      <label
+                        className="settings-field-label"
+                        htmlFor={`provider-model-output-cost-${index}`}
+                      >
+                        Output cost / 1M
+                      </label>
+                      <TextField
+                        id={`provider-model-output-cost-${index}`}
+                        type="number"
+                        inputMode="decimal"
+                        min="0"
+                        step="0.001"
+                        value={model.outputCost}
+                        onChange={(event) =>
+                          updateCachedModelDraft(
+                            index,
+                            "outputCost",
+                            event.target.value,
+                          )
+                        }
+                        placeholder="e.g. 0.60"
+                        wrapClassName="settings-input-wrap"
+                      />
+                    </div>
+                  </div>
+                </Panel>
+              ))}
+            </div>
+          ) : (
+            <Panel variant="inset" className="settings-empty-panel">
+              <span className="material-symbols-outlined settings-empty-panel__icon">
+                database
+              </span>
+              <div className="settings-empty-panel__copy">
+                <span className="settings-empty-panel__title">
+                  No models loaded yet
+                </span>
+                <span className="settings-empty-panel__description">
+                  Test the connection here or refresh the provider later to pull
+                  the available `/models` list into local settings.
+                </span>
+              </div>
+            </Panel>
+          )}
+        </div>
+      ) : null}
 
       <div className="settings-provider-form__footer">
         <div className="settings-provider-form__status" aria-live="polite">
@@ -602,6 +895,12 @@ function ProviderConfigurator({
               {isCustom && hasCachedModels
                 ? `${cachedModels.length} model${cachedModels.length === 1 ? "" : "s"} loaded.`
                 : "Provider looks valid."}
+            </span>
+          ) : null}
+          {saveError ? (
+            <span className="settings-feedback settings-feedback--error">
+              <span className="material-symbols-outlined text-md">error</span>
+              {saveError}
             </span>
           ) : null}
           {testStatus === "error" && testError ? (
@@ -1290,7 +1589,7 @@ function ProvidersSection({
       );
       const updatedProvider: ProviderInstance = {
         ...provider,
-        cachedModels: models,
+        cachedModels: mergeProviderCachedModels(provider.cachedModels, models),
       };
 
       await saveProvider(updatedProvider);
@@ -1449,6 +1748,12 @@ function ProvidersSection({
                   </span>
                   <span className="settings-provider-card__meta">
                     {provider.type}
+                    {provider.type === "openai-compatible" &&
+                    (provider.cachedModels?.length ?? 0) > 0
+                      ? ` · ${provider.cachedModels?.length} model${
+                          provider.cachedModels?.length === 1 ? "" : "s"
+                        }`
+                      : ""}
                   </span>
                 </div>
                 <div className="settings-provider-card__actions">
