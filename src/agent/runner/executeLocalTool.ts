@@ -21,12 +21,13 @@ import { buildEditFileDiffFiles, buildWriteFileDiffFiles } from "@/components/pa
 import { serializeDiff } from "@/components/diffSerialization";
 import type { LogContext } from "@/logging/types";
 
-import { writeRunnerLog } from "./logging";
 import { parseArgs } from "./utils";
 import {
   ensureManagedWorktreeLease,
   isManagedWorktreeWriteTool,
 } from "./worktreeLease";
+import { stripToolGatewayInputFields } from "../toolGateway";
+import type { ToolGatewayExecutorResult } from "./toolGateway";
 
 function shouldStreamToolOutput(toolName: string): boolean {
   return toolName === "exec_run" || toolName === "git_worktree_init";
@@ -48,7 +49,7 @@ interface ExecuteLocalToolOptions {
 
 export async function executeLocalTool(
   opts: ExecuteLocalToolOptions,
-): Promise<ToolResult<unknown>> {
+): Promise<ToolGatewayExecutorResult> {
   const {
     tabId,
     runId,
@@ -59,8 +60,6 @@ export async function executeLocalTool(
     args,
     logContext,
     updateToolCallById,
-    logEventPrefix = "runner.tool",
-    logMessageName = toolName,
   } = opts;
 
   const preCwd = getAgentState(tabId).config.cwd;
@@ -78,7 +77,7 @@ export async function executeLocalTool(
         status: "error",
         result: leaseError.error,
       });
-      return leaseError;
+      return { result: leaseError };
     }
   }
 
@@ -93,7 +92,7 @@ export async function executeLocalTool(
       status: "error",
       result: validationResult.error,
     });
-    return validationResult;
+    return { result: validationResult };
   }
 
   if (toolName === "workspace_editFile") {
@@ -154,7 +153,7 @@ export async function executeLocalTool(
         },
       };
       updateToolCallById({ status: "denied" });
-      return deniedResult;
+      return { result: deniedResult, finalStatus: "denied" };
     }
   }
 
@@ -183,23 +182,7 @@ export async function executeLocalTool(
     },
   );
 
-  updateToolCallById({
-    status: result.ok ? "done" : "error",
-    result: result.ok ? result.data : result.error,
-  });
-  writeRunnerLog({
-    level: result.ok ? "info" : "error",
-    tags: ["frontend", "agent-loop", "tool-calls"],
-    event: result.ok ? `${logEventPrefix}.end` : `${logEventPrefix}.error`,
-    message: result.ok
-      ? `${logMessageName} completed`
-      : `${logMessageName} failed`,
-    kind: result.ok ? "end" : "error",
-    data: result.ok ? result.data : result.error,
-    context: logContext,
-  });
-
-  return result;
+  return { result };
 }
 
 export function buildPendingToolDisplay(
@@ -207,10 +190,12 @@ export function buildPendingToolDisplay(
   toolName: string,
   rawArgs: unknown,
 ): ToolCallDisplay {
+  const parsedArgs = parseArgs(rawArgs);
+  const { strippedArgs } = stripToolGatewayInputFields(parsedArgs);
   return {
     id: toolCallId,
     tool: toolName,
-    args: parseArgs(rawArgs),
+    args: strippedArgs,
     status: "pending",
   };
 }

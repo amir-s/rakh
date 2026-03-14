@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { jsonSchema, tool as aiTool } from "ai";
 import { atom } from "jotai";
 import type { LogContext } from "@/logging/types";
+import { TOOL_GATEWAY_INTENTION_DESCRIPTION } from "./toolGateway";
 
 type JsonObject = Record<string, unknown>;
 
@@ -192,10 +193,33 @@ function slugify(value: string): string {
 
 function normalizeInputSchema(schema: unknown): JsonObject {
   if (schema && typeof schema === "object" && !Array.isArray(schema)) {
-    return schema as JsonObject;
+    const normalized = schema as JsonObject;
+    const properties =
+      normalized.properties &&
+      typeof normalized.properties === "object" &&
+      !Array.isArray(normalized.properties)
+        ? { ...(normalized.properties as JsonObject) }
+        : {};
+    if (!("intention" in properties)) {
+      properties.intention = {
+        type: "string",
+        description: TOOL_GATEWAY_INTENTION_DESCRIPTION,
+      };
+    }
+    return {
+      ...normalized,
+      type: "object",
+      properties,
+    };
   }
   return {
     type: "object",
+    properties: {
+      intention: {
+        type: "string",
+        description: TOOL_GATEWAY_INTENTION_DESCRIPTION,
+      },
+    },
     additionalProperties: true,
   };
 }
