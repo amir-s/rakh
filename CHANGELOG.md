@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.13.0](https://github.com/amir-s/rakh/compare/rakh-v0.12.0...rakh-v0.13.0) (2026-03-14)
+
+
+### Features
+
+* add debug mode setting and log viewer shortcut ([fc59f8b](https://github.com/amir-s/rakh/commit/fc59f8b8c25edf610e4180bcdbf7a35010f92f41))
+* inherit session icons from projects ([51734a2](https://github.com/amir-s/rakh/commit/51734a2b0ae65618f7c1c32525c021dcff4d553d))
+* persist projects in config and add project icons ([7a80fb4](https://github.com/amir-s/rakh/commit/7a80fb44dcf6541209809481a8c34c52c7e83293))
+* **settings:** add models.dev provider prefills ([3625800](https://github.com/amir-s/rakh/commit/362580038e692e80c710f67276e075efd5e5168a))
+* **settings:** support custom model metadata ([5fda5fe](https://github.com/amir-s/rakh/commit/5fda5fe2ffcf00035967e41a40eb4a5b3d904d7e))
+
+
+### Bug Fixes
+
+* **settings:** show models.dev matches in a popover ([8e71332](https://github.com/amir-s/rakh/commit/8e713320cc9110b83f2811eca410206b26b4a4d3))
+* **test:** await menu close assertion in ArchivedTabsMenu test ([0e066ac](https://github.com/amir-s/rakh/commit/0e066acd17dde0dd7b636c3fecce5e758e0109b4))
+
 ## [0.12.0](https://github.com/amir-s/rakh/compare/rakh-v0.11.0...rakh-v0.12.0) (2026-03-13)
 
 
