@@ -338,6 +338,43 @@ function matchesFilter(entry: LogEntry, filter: LogQueryFilter): boolean {
     : filter.tags.some((tag) => entry.tags.includes(tag));
 }
 
+function normalizeSearchQuery(query: string): string {
+  return query.trim().toLocaleLowerCase();
+}
+
+function searchableEntryText(entry: LogEntry): string {
+  return [
+    entry.id,
+    entry.timestamp,
+    String(entry.timestampMs),
+    entry.level,
+    entry.source,
+    entry.tags.join(" "),
+    entry.event,
+    entry.message,
+    entry.traceId ?? "",
+    entry.correlationId ?? "",
+    entry.parentId ?? "",
+    String(entry.depth),
+    entry.kind,
+    typeof entry.durationMs === "number" ? String(entry.durationMs) : "",
+    entry.data !== undefined ? safePrettyJson(entry.data) : "",
+  ]
+    .join("\n")
+    .toLocaleLowerCase();
+}
+
+function filterEntriesBySearch(
+  entries: LogEntry[],
+  searchQuery: string,
+): LogEntry[] {
+  const normalizedQuery = normalizeSearchQuery(searchQuery);
+  if (!normalizedQuery) return entries;
+  return entries.filter((entry) =>
+    searchableEntryText(entry).includes(normalizedQuery),
+  );
+}
+
 function levelVariant(
   level: LogLevel,
 ): "muted" | "primary" | "info" | "warning" | "danger" {
@@ -1489,6 +1526,7 @@ export default function LogsWindowApp({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<ViewerNotice>(null);
+  const [searchText, setSearchText] = useState("");
   const noticeIdRef = useRef(0);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const liveBufferRef = useRef<Map<string, LogEntry>>(new Map());
@@ -1496,10 +1534,12 @@ export default function LogsWindowApp({
   const queryingRef = useRef(false);
   const requestIdRef = useRef(0);
   const deferredEntries = useDeferredValue(entries);
+  const deferredSearchText = useDeferredValue(searchText);
 
   const filter = useMemo(() => buildQueryFilter(controls), [controls]);
   const activeTraceId = filter.traceId?.trim() ?? "";
   const activeCorrelationId = filter.correlationId?.trim() ?? "";
+  const searchQuery = normalizeSearchQuery(searchText);
   const filterRef = useRef(filter);
   useEffect(() => {
     filterRef.current = filter;
@@ -1552,6 +1592,7 @@ export default function LogsWindowApp({
         setTailEnabled(payload.tailEnabled ?? true);
         setExpandedIds(new Set());
         setNotice(null);
+        setSearchText("");
       })
       .then((dispose) => {
         if (stopped) {
@@ -1659,7 +1700,7 @@ export default function LogsWindowApp({
     const container = scrollRef.current;
     if (!container) return;
     container.scrollTop = container.scrollHeight;
-  }, [deferredEntries, tailEnabled, expandedIds]);
+  }, [deferredEntries, deferredSearchText, tailEnabled, expandedIds]);
 
   useEffect(() => {
     if (!notice || notice.autoCloseMs == null) return;
@@ -1673,16 +1714,20 @@ export default function LogsWindowApp({
   }, [notice]);
 
   const isTreeView = Boolean(filter.traceId || filter.correlationId);
-  const appliedFilterCount = activeFilterCount(filter);
+  const appliedFilterCount = activeFilterCount(filter) + (searchQuery ? 1 : 0);
   const includedTags = useMemo(() => new Set(filter.tags ?? []), [filter.tags]);
   const excludedTags = useMemo(
     () => new Set(filter.excludeTags ?? []),
     [filter.excludeTags],
   );
   const filterTags = visibleTagPills(filter);
+  const visibleEntries = useMemo(
+    () => filterEntriesBySearch(deferredEntries, deferredSearchText),
+    [deferredEntries, deferredSearchText],
+  );
   const tree = useMemo(
-    () => (isTreeView ? buildTree(deferredEntries) : []),
-    [deferredEntries, isTreeView],
+    () => (isTreeView ? buildTree(visibleEntries) : []),
+    [visibleEntries, isTreeView],
   );
 
   const handleScroll = () => {
@@ -1721,6 +1766,7 @@ export default function LogsWindowApp({
     setTailEnabled(true);
     setExpandedIds(new Set());
     setNotice(null);
+    setSearchText("");
   };
 
   const handleExport = async () => {
@@ -1820,8 +1866,8 @@ export default function LogsWindowApp({
       <div className="flex h-screen w-full flex-col px-5 py-5">
         <div className="flex h-full flex-col rounded-2xl border border-border-subtle bg-surface shadow-[0_16px_40px_rgb(0_0_0_/_0.12)]">
           <div className="border-b border-border-subtle px-4 py-3">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="min-w-0 flex-1">
+            <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 lg:grid-cols-[auto_minmax(20rem,1fr)_auto]">
+              <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
                   <div className="text-xxs font-bold tracking-[0.08em] uppercase text-primary">
                     Structured Logs
@@ -1843,7 +1889,46 @@ export default function LogsWindowApp({
                   ) : null}
                 </div>
               </div>
-              <div className="flex flex-wrap items-center gap-2">
+              <div className="order-3 col-span-2 min-w-0 lg:order-2 lg:col-span-1 lg:justify-self-center lg:w-full">
+                <TextField
+                  type="text"
+                  value={searchText}
+                  onChange={(event) => setSearchText(event.target.value)}
+                  placeholder="Search logs"
+                  aria-label="Search logs"
+                  autoComplete="off"
+                  spellCheck={false}
+                  wrapClassName="border-border-subtle bg-inset/80"
+                  startAdornment={
+                    <span
+                      className="material-symbols-outlined text-muted"
+                      style={{ fontSize: 18, marginLeft: 10, flexShrink: 0 }}
+                      aria-hidden="true"
+                    >
+                      search
+                    </span>
+                  }
+                  endAdornment={
+                    searchQuery ? (
+                      <IconButton
+                        type="button"
+                        aria-label="Clear log search"
+                        title="Clear search"
+                        onClick={() => setSearchText("")}
+                        className="mr-1"
+                      >
+                        <span
+                          className="material-symbols-outlined text-md"
+                          aria-hidden="true"
+                        >
+                          close
+                        </span>
+                      </IconButton>
+                    ) : null
+                  }
+                />
+              </div>
+              <div className="order-2 flex flex-wrap items-center justify-end gap-2 lg:order-3">
                 {tailEnabled ? (
                   <Badge variant="success">TAILING</Badge>
                 ) : (
@@ -1989,7 +2074,7 @@ export default function LogsWindowApp({
                 <div className="py-12 text-center text-sm text-error">
                   {error}
                 </div>
-              ) : deferredEntries.length === 0 ? (
+              ) : visibleEntries.length === 0 ? (
                 <div className="py-12 text-center text-sm text-muted">
                   No log entries match the current filter.
                 </div>
@@ -2008,7 +2093,7 @@ export default function LogsWindowApp({
                 />
               ) : (
                 <div className="flex flex-col gap-3">
-                  {deferredEntries.map((entry) => (
+                  {visibleEntries.map((entry) => (
                     <LogEntryRow
                       key={entry.id}
                       entry={entry}
