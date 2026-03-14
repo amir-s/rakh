@@ -1776,6 +1776,10 @@ fn providers_config_path() -> Result<PathBuf, String> {
     Ok(app_store_root()?.join("config").join("providers.json"))
 }
 
+fn projects_config_path() -> Result<PathBuf, String> {
+    Ok(app_store_root()?.join("config").join("projects.json"))
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProviderRecord {
@@ -1788,6 +1792,31 @@ pub struct ProviderRecord {
     pub base_url: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cached_models: Option<Vec<Value>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectCommandRecord {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    pub label: String,
+    pub command: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub icon: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub show_label: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct SavedProjectRecord {
+    pub path: String,
+    pub name: String,
+    pub icon: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub setup_command: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub commands: Option<Vec<ProjectCommandRecord>>,
 }
 
 #[tauri::command]
@@ -1838,6 +1867,53 @@ pub fn providers_save(providers: Vec<ProviderRecord>) -> Result<(), String> {
         }
     }
     tool_log("providers_save", "ok", json!({ "count": providers.len() }));
+    Ok(())
+}
+
+#[tauri::command]
+pub fn projects_load() -> Result<Vec<SavedProjectRecord>, String> {
+    tool_log("projects_load", "start", json!({}));
+    let path = projects_config_path()?;
+    if !path.exists() {
+        tool_log(
+            "projects_load",
+            "ok",
+            json!({ "count": 0, "reason": "file_absent" }),
+        );
+        return Ok(vec![]);
+    }
+    let raw =
+        fs::read_to_string(&path).map_err(|e| format!("INTERNAL: cannot read projects: {}", e))?;
+    let records: Vec<SavedProjectRecord> = serde_json::from_str(&raw)
+        .map_err(|e| format!("INTERNAL: cannot parse projects: {}", e))?;
+    tool_log("projects_load", "ok", json!({ "count": records.len() }));
+    Ok(records)
+}
+
+#[tauri::command]
+pub fn projects_save(projects: Vec<SavedProjectRecord>) -> Result<(), String> {
+    tool_log("projects_save", "start", json!({ "count": projects.len() }));
+    let path = projects_config_path()?;
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|e| format!("INTERNAL: cannot create config dir: {}", e))?;
+    }
+    let raw = serde_json::to_string_pretty(&projects)
+        .map_err(|e| format!("INTERNAL: cannot serialise projects: {}", e))?;
+    let tmp = path.with_extension(format!("json.tmp-{}", now_ms()));
+    fs::write(&tmp, raw.as_bytes())
+        .map_err(|e| format!("INTERNAL: cannot write projects tmp: {}", e))?;
+    match fs::rename(&tmp, &path) {
+        Ok(()) => {}
+        Err(e) => {
+            if path.exists() {
+                let _ = fs::remove_file(&tmp);
+            } else {
+                return Err(format!("INTERNAL: cannot rename projects file: {}", e));
+            }
+        }
+    }
+    tool_log("projects_save", "ok", json!({ "count": projects.len() }));
     Ok(())
 }
 
@@ -2265,6 +2341,65 @@ mod tests {
         let config_path = providers_config_path().unwrap();
         let raw = std::fs::read_to_string(&config_path).unwrap();
         assert!(raw.trim().starts_with('['), "File should be a JSON array");
+
+        match prev_home {
+            Some(v) => std::env::set_var("HOME", v),
+            None => std::env::remove_var("HOME"),
+        }
+    }
+
+    #[test]
+    fn test_projects_load_returns_empty_when_absent() {
+        let _guard = HOME_TEST_LOCK
+            .get_or_init(|| Mutex::new(()))
+            .lock()
+            .unwrap();
+        let tmp = tempdir().unwrap();
+        let prev_home = std::env::var("HOME").ok();
+        std::env::set_var("HOME", tmp.path());
+
+        let result = projects_load().expect("projects_load should not error");
+        assert!(result.is_empty(), "Expected empty list when file is absent");
+
+        match prev_home {
+            Some(v) => std::env::set_var("HOME", v),
+            None => std::env::remove_var("HOME"),
+        }
+    }
+
+    #[test]
+    fn test_projects_save_and_load_roundtrip() {
+        let _guard = HOME_TEST_LOCK
+            .get_or_init(|| Mutex::new(()))
+            .lock()
+            .unwrap();
+        let tmp = tempdir().unwrap();
+        let prev_home = std::env::var("HOME").ok();
+        std::env::set_var("HOME", tmp.path());
+
+        let projects = vec![SavedProjectRecord {
+            path: "/repo/platform".to_string(),
+            name: "Platform API".to_string(),
+            icon: "folder_code".to_string(),
+            setup_command: Some("pnpm install".to_string()),
+            commands: Some(vec![ProjectCommandRecord {
+                id: Some("dev".to_string()),
+                label: "Dev".to_string(),
+                command: "pnpm dev".to_string(),
+                icon: Some("play_arrow".to_string()),
+                show_label: Some(false),
+            }]),
+        }];
+
+        projects_save(projects.clone()).expect("projects_save should succeed");
+        let loaded = projects_load().expect("projects_load should succeed");
+
+        assert_eq!(loaded, projects);
+
+        let config_path = projects_config_path().unwrap();
+        let raw = std::fs::read_to_string(&config_path).unwrap();
+        assert!(raw.contains("\"icon\": \"folder_code\""));
+        assert!(raw.contains("\"setupCommand\": \"pnpm install\""));
 
         match prev_home {
             Some(v) => std::env::set_var("HOME", v),

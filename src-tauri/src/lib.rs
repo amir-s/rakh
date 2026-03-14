@@ -71,6 +71,8 @@ pub fn run() {
             db::db_artifact_list,
             db::providers_load,
             db::providers_save,
+            db::projects_load,
+            db::projects_save,
             db::profiles_load,
             db::profiles_save,
             db::command_list_load,

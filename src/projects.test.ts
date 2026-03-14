@@ -8,6 +8,7 @@ describe("projects", () => {
         {
           path: "/repo",
           name: "Repo",
+          icon: "folder_code",
           setupCommand: "local setup",
           commands: [
             {
@@ -34,6 +35,7 @@ describe("projects", () => {
     ).toEqual({
       path: "/repo",
       name: "Repo",
+      icon: "folder_code",
       hasProjectConfigFile: true,
       setupCommand: "repo setup",
       commands: [

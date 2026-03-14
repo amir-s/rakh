@@ -18,6 +18,7 @@ import {
 } from "@/agent/persistence";
 import { useTabs } from "@/contexts/TabsContext";
 import { Badge, TextField } from "@/components/ui";
+import { loadSavedProjects } from "@/projects";
 import {
   buildArchivedSessionItems,
   groupArchivedSessionItems,
@@ -148,6 +149,7 @@ export default function ArchivedTabsMenu() {
   }, []);
 
   const loadArchived = useCallback(async () => {
+    await loadSavedProjects();
     const list = await loadRecentSessions();
     setSessions(list);
   }, []);

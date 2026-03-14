@@ -29,9 +29,10 @@ import type {
 } from "@/agent/types";
 import { DEFAULT_ADVANCED_OPTIONS } from "@/agent/types";
 import {
+  DEFAULT_PROJECT_ICON,
+  getSavedProjects,
   loadSavedProjects,
   removeSavedProject,
-  resolveSavedProject,
   resolveSavedProjects,
   upsertSavedProject,
   type SavedProject,
@@ -171,7 +172,7 @@ function RecentTabRow({
 
 export default function NewSession({ onSubmit }: NewSessionProps) {
   const [input, setInput] = useState("");
-  const [projects, setProjects] = useState<SavedProject[]>(loadSavedProjects);
+  const [projects, setProjects] = useState<SavedProject[]>(getSavedProjects);
   const [recentSessions, setRecentSessions] = useState<PersistedSession[]>([]);
   const [selectedProject, setSelectedProject] = useState<SavedProject | null>(
     null,
@@ -221,13 +222,15 @@ export default function NewSession({ onSubmit }: NewSessionProps) {
   useEffect(() => {
     let cancelled = false;
 
-    void resolveSavedProjects(loadSavedProjects()).then((resolved) => {
-      if (cancelled) return;
-      setProjects(resolved);
-      setSelectedProject((prev) =>
-        prev ? resolved.find((project) => project.path === prev.path) ?? prev : prev,
-      );
-    });
+    void loadSavedProjects().then((savedProjects) =>
+      resolveSavedProjects(savedProjects).then((resolved) => {
+        if (cancelled) return;
+        setProjects(resolved);
+        setSelectedProject((prev) =>
+          prev ? resolved.find((project) => project.path === prev.path) ?? prev : prev,
+        );
+      }),
+    );
 
     return () => {
       cancelled = true;
@@ -387,8 +390,8 @@ export default function NewSession({ onSubmit }: NewSessionProps) {
 
   const addProject = useCallback(async (path: string) => {
     const name = path.split("/").filter(Boolean).pop() ?? path;
-    const newProject = { path, name };
-    const savedProjects = upsertSavedProject(newProject);
+    const newProject = { path, name, icon: DEFAULT_PROJECT_ICON };
+    const savedProjects = await upsertSavedProject(newProject);
     const resolvedProjects = await resolveSavedProjects(savedProjects);
     const resolvedProject =
       resolvedProjects.find((project) => project.path === path) ?? newProject;
@@ -400,9 +403,9 @@ export default function NewSession({ onSubmit }: NewSessionProps) {
   }, []);
 
   const removeProject = useCallback(
-    (e: React.SyntheticEvent, projectPath: string) => {
+    async (e: React.SyntheticEvent, projectPath: string) => {
       e.stopPropagation();
-      setProjects(removeSavedProject(projectPath));
+      setProjects(await removeSavedProject(projectPath));
       if (selectedProject?.path === projectPath) {
         setSelectedProject(null);
       }
@@ -415,6 +418,7 @@ export default function NewSession({ onSubmit }: NewSessionProps) {
       const nextProject = {
         path: project.path,
         name: project.name,
+        icon: project.icon || DEFAULT_PROJECT_ICON,
         ...(project.setupCommand ? { setupCommand: project.setupCommand } : {}),
         ...(project.commands?.length ? { commands: project.commands } : {}),
       };
@@ -426,7 +430,7 @@ export default function NewSession({ onSubmit }: NewSessionProps) {
         });
       }
 
-      const savedProjects = upsertSavedProject(nextProject);
+      const savedProjects = await upsertSavedProject(nextProject);
       const resolvedProjects = await resolveSavedProjects(savedProjects);
       const resolvedProject =
         resolvedProjects.find((entry) => entry.path === nextProject.path) ??
@@ -446,6 +450,7 @@ export default function NewSession({ onSubmit }: NewSessionProps) {
       const nextProject = {
         path: project.path,
         name: project.name,
+        icon: project.icon || DEFAULT_PROJECT_ICON,
         ...(project.setupCommand ? { setupCommand: project.setupCommand } : {}),
         ...(project.commands?.length ? { commands: project.commands } : {}),
       };
@@ -455,7 +460,7 @@ export default function NewSession({ onSubmit }: NewSessionProps) {
         ...(project.commands?.length ? { commands: project.commands } : {}),
       });
 
-      const savedProjects = upsertSavedProject(nextProject);
+      const savedProjects = await upsertSavedProject(nextProject);
       const resolvedProjects = await resolveSavedProjects(savedProjects);
       const resolvedProject =
         resolvedProjects.find((entry) => entry.path === nextProject.path) ??
@@ -477,7 +482,7 @@ export default function NewSession({ onSubmit }: NewSessionProps) {
         multiple: false,
       });
       if (result) {
-        addProject(result);
+        await addProject(result);
       }
     } catch (error) {
       logFrontendSoon({
@@ -521,7 +526,7 @@ export default function NewSession({ onSubmit }: NewSessionProps) {
       }>("tauri://drag-drop", (event) => {
         const paths = event.payload.paths;
         if (paths && paths.length > 0) {
-          addProject(paths[0]);
+          void addProject(paths[0]);
         }
         setIsDragging(false);
       });
@@ -568,7 +573,7 @@ export default function NewSession({ onSubmit }: NewSessionProps) {
                   onClick={() => setDropdownOpen((v) => !v)}
                 >
                   <span className="material-symbols-outlined text-lg">
-                    account_tree
+                    {selectedProject?.icon || "account_tree"}
                   </span>
                   <span>
                     {selectedProject ? selectedProject.name : "Select Project"}
@@ -601,7 +606,7 @@ export default function NewSession({ onSubmit }: NewSessionProps) {
                           onClick={() => selectProject(p)}
                         >
                           <span className="material-symbols-outlined text-muted text-lg">
-                            folder
+                            {p.icon || DEFAULT_PROJECT_ICON}
                           </span>
                           <span className="ns-dropdown-item-name">{p.name}</span>
                           <span className="ns-dropdown-item-path">{p.path}</span>
@@ -609,11 +614,11 @@ export default function NewSession({ onSubmit }: NewSessionProps) {
                             role="button"
                             tabIndex={0}
                             className="ns-dropdown-item-remove ml-auto flex items-center justify-center px-1 py-0.5 border-none bg-transparent cursor-pointer opacity-50 transition-opacity hover:opacity-100"
-                            onClick={(e) => removeProject(e, p.path)}
+                            onClick={(e) => void removeProject(e, p.path)}
                             onKeyDown={(e) => {
                               if (e.key === "Enter" || e.key === " ") {
                                 e.preventDefault();
-                                removeProject(e, p.path);
+                                void removeProject(e, p.path);
                               }
                             }}
                             title="Remove project"

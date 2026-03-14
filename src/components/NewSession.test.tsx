@@ -41,6 +41,19 @@ const sessionRestoreMock = vi.hoisted(() => ({
   focusOrOpenPersistedSession: vi.fn(),
 }));
 
+const projectsMock = vi.hoisted(() => ({
+  getSavedProjectsMock: vi.fn(),
+  loadSavedProjectsMock: vi.fn(),
+  findSavedProjectMock: vi.fn(),
+  inferProjectNameMock: vi.fn((projectPath: string) =>
+    projectPath.split("/").filter(Boolean).pop() ?? projectPath,
+  ),
+  removeSavedProjectMock: vi.fn(),
+  resolveSavedProjectMock: vi.fn(),
+  resolveSavedProjectsMock: vi.fn(),
+  upsertSavedProjectMock: vi.fn(),
+}));
+
 vi.mock("@/contexts/TabsContext", () => ({
   useTabs: () => tabsContextMock.value,
 }));
@@ -81,6 +94,25 @@ vi.mock("@/components/ProviderSetupHint", () => ({
 
 vi.mock("@/components/ProjectSettingsModal", () => ({
   default: () => null,
+}));
+
+vi.mock("@/projects", () => ({
+  DEFAULT_PROJECT_ICON: "folder",
+  getSavedProjects: (...args: unknown[]) => projectsMock.getSavedProjectsMock(...args),
+  loadSavedProjects: (...args: unknown[]) =>
+    projectsMock.loadSavedProjectsMock(...args),
+  findSavedProject: (projectPath: string) =>
+    projectsMock.findSavedProjectMock(projectPath),
+  inferProjectName: (projectPath: string) =>
+    projectsMock.inferProjectNameMock(projectPath),
+  removeSavedProject: (...args: unknown[]) =>
+    projectsMock.removeSavedProjectMock(...args),
+  resolveSavedProject: (...args: unknown[]) =>
+    projectsMock.resolveSavedProjectMock(...args),
+  resolveSavedProjects: (...args: unknown[]) =>
+    projectsMock.resolveSavedProjectsMock(...args),
+  upsertSavedProject: (...args: unknown[]) =>
+    projectsMock.upsertSavedProjectMock(...args),
 }));
 
 vi.mock("@tauri-apps/api/event", () => ({
@@ -165,11 +197,29 @@ describe("NewSession recent tabs", () => {
     persistenceMock.loadRecentSessions.mockReset();
     persistenceMock.setSessionPinned.mockReset();
     sessionRestoreMock.focusOrOpenPersistedSession.mockReset();
+    projectsMock.getSavedProjectsMock.mockReset();
+    projectsMock.loadSavedProjectsMock.mockReset();
+    projectsMock.findSavedProjectMock.mockReset();
+    projectsMock.inferProjectNameMock.mockReset();
+    projectsMock.removeSavedProjectMock.mockReset();
+    projectsMock.resolveSavedProjectMock.mockReset();
+    projectsMock.resolveSavedProjectsMock.mockReset();
+    projectsMock.upsertSavedProjectMock.mockReset();
     jotaiMock.useAtomMock.mockReset();
     tauriEventMock.listenMock.mockReset();
     tauriEventMock.eventHandlers.clear();
     persistenceMock.setSessionPinned.mockResolvedValue(undefined);
     sessionRestoreMock.focusOrOpenPersistedSession.mockResolvedValue("restored");
+    projectsMock.getSavedProjectsMock.mockReturnValue([]);
+    projectsMock.loadSavedProjectsMock.mockResolvedValue([]);
+    projectsMock.findSavedProjectMock.mockReturnValue(null);
+    projectsMock.inferProjectNameMock.mockImplementation((projectPath: string) =>
+      projectPath.split("/").filter(Boolean).pop() ?? projectPath,
+    );
+    projectsMock.removeSavedProjectMock.mockResolvedValue([]);
+    projectsMock.resolveSavedProjectMock.mockImplementation(async (project) => project);
+    projectsMock.resolveSavedProjectsMock.mockImplementation(async (projects) => projects);
+    projectsMock.upsertSavedProjectMock.mockImplementation(async (project) => [project]);
     jotaiMock.useAtomMock.mockReturnValue([
       [{ name: "OpenAI", type: "openai" }],
       vi.fn(),

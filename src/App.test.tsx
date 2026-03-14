@@ -9,6 +9,7 @@ const appMocks = vi.hoisted(() => ({
   loadProvidersMock: vi.fn(),
   loadProfilesMock: vi.fn(),
   loadCommandListMock: vi.fn(),
+  loadSavedProjectsMock: vi.fn(),
   loadMcpServersMock: vi.fn(),
   loadMcpSettingsMock: vi.fn(),
   parseLogNavigatePayloadFromSearchMock: vi.fn(),
@@ -90,6 +91,10 @@ vi.mock("@/agent/persistence", () => ({
   markSessionAsPersisted: vi.fn(),
 }));
 
+vi.mock("@/projects", () => ({
+  loadSavedProjects: (...args: unknown[]) => appMocks.loadSavedProjectsMock(...args),
+}));
+
 vi.mock("@/agent/useEnvProviderKeys", () => ({
   preloadEnvProviderKeys: vi.fn(),
 }));
@@ -138,12 +143,14 @@ describe("App", () => {
     appMocks.loadProvidersMock.mockReset();
     appMocks.loadProfilesMock.mockReset();
     appMocks.loadCommandListMock.mockReset();
+    appMocks.loadSavedProjectsMock.mockReset();
     appMocks.loadMcpServersMock.mockReset();
     appMocks.loadMcpSettingsMock.mockReset();
     appMocks.parseLogNavigatePayloadFromSearchMock.mockReset();
     appMocks.logsWindowAppMock.mockReset();
     appMocks.workspacePageMock.mockReset();
     appMocks.topChromeMock.mockReset();
+    appMocks.loadSavedProjectsMock.mockResolvedValue([]);
     appMocks.parseLogNavigatePayloadFromSearchMock.mockReturnValue({
       origin: "manual",
       filter: { limit: 250 },
