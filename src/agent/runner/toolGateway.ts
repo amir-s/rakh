@@ -201,6 +201,7 @@ async function summarizeArtifactReference(
     parentId: options.logContext.parentId,
   });
   const startedAt = Date.now();
+  options.updateToolCallById({ gatewayPhase: "summarizing" });
   writeRunnerLog({
     level: "info",
     tags: ["frontend", "agent-loop", "tool-calls", "system"],
@@ -349,6 +350,8 @@ async function summarizeArtifactReference(
       context: childContext,
     });
     return null;
+  } finally {
+    options.updateToolCallById({ gatewayPhase: undefined });
   }
 }
 

@@ -177,6 +177,7 @@ describe("tool gateway", () => {
   });
 
   it("uses the injected override model for summary generation", async () => {
+    const updateToolCallById = vi.fn();
     const result = await executeThroughToolGateway({
       tabId: "tab-1",
       runId: "run-1",
@@ -198,7 +199,7 @@ describe("tool gateway", () => {
         },
       ],
       logContext: { tabId: "tab-1", traceId: "trace:1", depth: 1 },
-      updateToolCallById: vi.fn(),
+      updateToolCallById,
       configProvider: {
         getConfig: () => ({
           hugeOutput: {
@@ -242,6 +243,12 @@ describe("tool gateway", () => {
           content: expect.stringContaining("Artifact lines: 1"),
         }),
       ]),
+    });
+    expect(updateToolCallById).toHaveBeenCalledWith({
+      gatewayPhase: "summarizing",
+    });
+    expect(updateToolCallById).toHaveBeenCalledWith({
+      gatewayPhase: undefined,
     });
     expect(result).toEqual({
       ok: true,

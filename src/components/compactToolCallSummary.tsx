@@ -80,6 +80,20 @@ function formatBytes(bytes: number): string {
   return `${value.toFixed(value >= 10 ? 0 : 1)} ${units[unitIndex]}`;
 }
 
+function getGatewayPhaseDetails(
+  tc: ToolCallDisplay,
+): { label: string; description: string } | null {
+  switch (tc.gatewayPhase) {
+    case "summarizing":
+      return {
+        label: "Compacting",
+        description: "Results are being summarized to save space.",
+      };
+    default:
+      return null;
+  }
+}
+
 export function buildCollapsedArgPreview(tc: ToolCallDisplay): string | null {
   const gatewayRef = getToolGatewayArtifactRef(tc.result);
   if (gatewayRef) {
@@ -310,6 +324,7 @@ export function CompactToolCallSummaryRow({
       ? buildCollapsedArgPreview(tc)
       : argPreviewOverride;
   const execBadge = getExecCommandBadge(tc);
+  const gatewayPhase = getGatewayPhaseDetails(tc);
 
   return (
     <div
@@ -329,6 +344,23 @@ export function CompactToolCallSummaryRow({
       <span className="material-symbols-outlined text-base opacity-65 shrink-0">
         {icon}
       </span>
+      {gatewayPhase && (
+        <span
+          className="chat-ctrl-info shrink-0"
+          aria-label={gatewayPhase.label}
+        >
+          <span
+            className="inline-tool-gateway-spinner"
+            role="status"
+            aria-hidden="true"
+          />
+          <span className="chat-ctrl-popover inline-tool-gateway-popover">
+            <strong>{gatewayPhase.label}</strong>
+            <br />
+            {gatewayPhase.description}
+          </span>
+        </span>
+      )}
 
       <div className="inline-tool-summary-main">
         <span

@@ -74,7 +74,7 @@
   color: var(--color-text);
 }
 .msg-body-wrap {
-  overflow: hidden;
+  overflow: visible;
   opacity: 1;
   transition:
     max-height 0.38s cubic-bezier(0.22, 1, 0.36, 1),
@@ -83,6 +83,7 @@
 .msg-body-wrap--collapsed {
   position: relative;
   max-height: 156px;
+  overflow: hidden;
   opacity: 0.96;
 }
 .msg-body-wrap--collapsed::after {
