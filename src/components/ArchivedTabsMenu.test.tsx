@@ -4,7 +4,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import ArchivedTabsMenu from "./ArchivedTabsMenu";
 import type { PersistedSession, SessionChangeEvent } from "@/agent/persistence";
-import { PROJECTS_STORAGE_KEY } from "@/projects";
 
 const tabsContextMock = vi.hoisted(() => ({
   value: {
@@ -36,6 +35,14 @@ const sessionRestoreMock = vi.hoisted(() => ({
   focusOrOpenPersistedSession: vi.fn(),
 }));
 
+const projectsMock = vi.hoisted(() => ({
+  loadSavedProjectsMock: vi.fn(),
+  findSavedProjectMock: vi.fn(),
+  inferProjectNameMock: vi.fn((projectPath: string) =>
+    projectPath.split("/").filter(Boolean).pop() ?? projectPath,
+  ),
+}));
+
 vi.mock("@/contexts/TabsContext", () => ({
   useTabs: () => tabsContextMock.value,
 }));
@@ -43,6 +50,14 @@ vi.mock("@/contexts/TabsContext", () => ({
 vi.mock("@/agent/sessionRestore", () => ({
   focusOrOpenPersistedSession: (...args: unknown[]) =>
     sessionRestoreMock.focusOrOpenPersistedSession(...args),
+}));
+
+vi.mock("@/projects", () => ({
+  loadSavedProjects: () => projectsMock.loadSavedProjectsMock(),
+  findSavedProject: (projectPath: string) =>
+    projectsMock.findSavedProjectMock(projectPath),
+  inferProjectName: (projectPath: string) =>
+    projectsMock.inferProjectNameMock(projectPath),
 }));
 
 vi.mock("@/agent/persistence", async () => {
@@ -150,11 +165,13 @@ async function openMenu() {
 describe("ArchivedTabsMenu", () => {
   beforeEach(() => {
     cleanup();
-    localStorage.clear();
     persistenceMock.loadRecentSessions.mockReset();
     persistenceMock.deleteSession.mockReset();
     persistenceMock.setSessionPinned.mockReset();
     sessionRestoreMock.focusOrOpenPersistedSession.mockReset();
+    projectsMock.loadSavedProjectsMock.mockReset();
+    projectsMock.findSavedProjectMock.mockReset();
+    projectsMock.inferProjectNameMock.mockReset();
     tabsContextMock.value.addTabWithId.mockReset();
     tabsContextMock.value.setActiveTab.mockReset();
     tabsContextMock.value.tabs = [];
@@ -163,6 +180,11 @@ describe("ArchivedTabsMenu", () => {
     persistenceMock.deleteSession.mockResolvedValue(undefined);
     persistenceMock.setSessionPinned.mockResolvedValue(undefined);
     sessionRestoreMock.focusOrOpenPersistedSession.mockResolvedValue("restored");
+    projectsMock.loadSavedProjectsMock.mockResolvedValue([]);
+    projectsMock.findSavedProjectMock.mockReturnValue(null);
+    projectsMock.inferProjectNameMock.mockImplementation((projectPath: string) =>
+      projectPath.split("/").filter(Boolean).pop() ?? projectPath,
+    );
     Object.defineProperty(window, "__TAURI_INTERNALS__", {
       value: {},
       configurable: true,
@@ -183,15 +205,23 @@ describe("ArchivedTabsMenu", () => {
     );
   });
 
+  function mockPlatformProject() {
+    projectsMock.loadSavedProjectsMock.mockResolvedValue([
+      { path: "/repo/platform", name: "Platform API", icon: "folder" },
+    ]);
+    projectsMock.findSavedProjectMock.mockImplementation((projectPath: string) =>
+      projectPath === "/repo/platform"
+        ? { path: "/repo/platform", name: "Platform API", icon: "folder" }
+        : null,
+    );
+  }
+
   afterEach(() => {
     cleanup();
   });
 
   it("shows pinned tabs directly in the parent list above grouped projects and excludes them from grouped rows", async () => {
-    localStorage.setItem(
-      PROJECTS_STORAGE_KEY,
-      JSON.stringify([{ path: "/repo/platform", name: "Platform API" }]),
-    );
+    mockPlatformProject();
 
     persistenceMock.loadRecentSessions.mockResolvedValue([
       makeSession("platform-pinned", {
@@ -268,10 +298,7 @@ describe("ArchivedTabsMenu", () => {
   });
 
   it("unpins pinned tabs back into grouped project lists", async () => {
-    localStorage.setItem(
-      PROJECTS_STORAGE_KEY,
-      JSON.stringify([{ path: "/repo/platform", name: "Platform API" }]),
-    );
+    mockPlatformProject();
 
     persistenceMock.loadRecentSessions
       .mockResolvedValueOnce([
@@ -376,10 +403,7 @@ describe("ArchivedTabsMenu", () => {
   });
 
   it("collapses and expands project groups", async () => {
-    localStorage.setItem(
-      PROJECTS_STORAGE_KEY,
-      JSON.stringify([{ path: "/repo/platform", name: "Platform API" }]),
-    );
+    mockPlatformProject();
 
     persistenceMock.loadRecentSessions.mockResolvedValue([
       makeSession("platform", {
@@ -419,10 +443,7 @@ describe("ArchivedTabsMenu", () => {
   });
 
   it("searches across labels, titles, project names, and paths while hiding the pinned section", async () => {
-    localStorage.setItem(
-      PROJECTS_STORAGE_KEY,
-      JSON.stringify([{ path: "/repo/platform", name: "Platform API" }]),
-    );
+    mockPlatformProject();
 
     persistenceMock.loadRecentSessions.mockResolvedValue([
       makeSession("auth", {
@@ -531,10 +552,7 @@ describe("ArchivedTabsMenu", () => {
   });
 
   it("autofocuses search, clears query before closing on Escape, and resets state on reopen", async () => {
-    localStorage.setItem(
-      PROJECTS_STORAGE_KEY,
-      JSON.stringify([{ path: "/repo/platform", name: "Platform API" }]),
-    );
+    mockPlatformProject();
 
     const sessions = [
       makeSession("platform", {

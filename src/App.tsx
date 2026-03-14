@@ -46,6 +46,7 @@ import {
 import { STATIC_MODEL_CATALOG } from "@/agent/modelCatalog";
 import { getThemeSubagentColorVariables } from "@/styles/themes/registry";
 import { checkForAppUpdates } from "@/updater";
+import { loadSavedProjects } from "@/projects";
 
 /* ──────────────────────────────────────────────────────────────────────────────────
    ThemeApplier — syncs themeAtom to data-theme on <html>
@@ -219,8 +220,17 @@ export default function App() {
       loadMcpServers(),
       loadMcpSettings(),
       loadCommandList(),
+      loadSavedProjects(),
     ]).then(
-      ([sessions, providers, profiles, mcpServers, mcpSettings, commandList]) => {
+      ([
+        sessions,
+        providers,
+        profiles,
+        mcpServers,
+        mcpSettings,
+        commandList,
+        _savedProjects,
+      ]) => {
         // Load providers and profiles into global store early
         jotaiStore.set(providersAtom, providers);
         jotaiStore.set(profilesAtom, profiles);

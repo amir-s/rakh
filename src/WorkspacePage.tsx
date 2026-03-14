@@ -72,6 +72,7 @@ import {
 import { AnimatePresence, motion } from "framer-motion";
 import type { ToolCallDisplay } from "@/agent/types";
 import {
+  DEFAULT_PROJECT_ICON,
   findSavedProject,
   inferProjectName,
   resolveSavedProject,
@@ -545,6 +546,7 @@ export default function WorkspacePage() {
     const savedProject = findSavedProject(projectPath) ?? {
       path: projectPath,
       name: inferProjectName(projectPath),
+      icon: DEFAULT_PROJECT_ICON,
     };
 
     void resolveSavedProject(savedProject)
@@ -719,6 +721,7 @@ export default function WorkspacePage() {
     const savedProject = findSavedProject(projectPath) ?? {
       path: projectPath,
       name: inferProjectName(projectPath),
+      icon: DEFAULT_PROJECT_ICON,
       ...(agent.config.setupCommand
         ? { setupCommand: agent.config.setupCommand }
         : {}),
@@ -811,6 +814,7 @@ export default function WorkspacePage() {
       const nextProject: SavedProject = {
         path: project.path,
         name: project.name,
+        icon: project.icon || DEFAULT_PROJECT_ICON,
         ...(project.setupCommand ? { setupCommand: project.setupCommand } : {}),
         ...(project.commands?.length ? { commands: project.commands } : {}),
       };
@@ -824,10 +828,10 @@ export default function WorkspacePage() {
         });
       }
 
+      const savedProjects = await upsertSavedProject(nextProject);
       const resolvedProject = await resolveSavedProject(
-        upsertSavedProject(nextProject).find(
-          (entry) => entry.path === nextProject.path,
-        ) ?? nextProject,
+        savedProjects.find((entry) => entry.path === nextProject.path) ??
+          nextProject,
       );
       agent.setConfig({
         projectPath: resolvedProject.path,
@@ -846,6 +850,7 @@ export default function WorkspacePage() {
       const nextProject: SavedProject = {
         path: project.path,
         name: project.name,
+        icon: project.icon || DEFAULT_PROJECT_ICON,
         ...(project.setupCommand ? { setupCommand: project.setupCommand } : {}),
         ...(project.commands?.length ? { commands: project.commands } : {}),
       };
@@ -855,10 +860,10 @@ export default function WorkspacePage() {
         ...(project.commands?.length ? { commands: project.commands } : {}),
       });
 
+      const savedProjects = await upsertSavedProject(nextProject);
       const resolvedProject = await resolveSavedProject(
-        upsertSavedProject(nextProject).find(
-          (entry) => entry.path === nextProject.path,
-        ) ?? nextProject,
+        savedProjects.find((entry) => entry.path === nextProject.path) ??
+          nextProject,
       );
       agent.setConfig({
         projectPath: resolvedProject.path,

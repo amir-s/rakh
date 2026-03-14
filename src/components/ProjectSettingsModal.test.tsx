@@ -50,6 +50,18 @@ describe("ProjectSettingsModal", () => {
     ).not.toBeNull();
 
     fireEvent.change(
+      screen.getByRole("textbox", { name: "Project name" }),
+      { target: { value: " Repo Tools " } },
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Selected project icon folder" }),
+    );
+    fireEvent.change(
+      screen.getByRole("textbox", { name: "Search project icons" }),
+      { target: { value: "term" } },
+    );
+    fireEvent.click(screen.getByRole("option", { name: "terminal" }));
+    fireEvent.change(
       screen.getByPlaceholderText("npm install && npm run build"),
       { target: { value: "  npm install  " } },
     );
@@ -92,7 +104,8 @@ describe("ProjectSettingsModal", () => {
     expect(onCreateProjectConfig).toHaveBeenCalledWith({
       project: {
         path: "/repo",
-        name: "Repo",
+        name: "Repo Tools",
+        icon: "terminal",
         setupCommand: "npm install",
         commands: [
           {
@@ -123,7 +136,8 @@ describe("ProjectSettingsModal", () => {
     expect(onSave).toHaveBeenCalledWith({
       project: {
         path: "/repo",
-        name: "Repo",
+        name: "Repo Tools",
+        icon: "terminal",
         setupCommand: "npm install",
         commands: [
           {
@@ -138,6 +152,33 @@ describe("ProjectSettingsModal", () => {
       writeProjectConfig: true,
     });
     expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("filters project icon suggestions and applies the selected icon", () => {
+    render(
+      <ProjectSettingsModal
+        project={{ path: "/repo", name: "Repo" }}
+        onClose={() => undefined}
+        onSave={() => undefined}
+        onCreateProjectConfig={() => undefined}
+      />,
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Selected project icon folder" }),
+    );
+    fireEvent.change(screen.getByRole("textbox", { name: "Search project icons" }), {
+      target: { value: "term" },
+    });
+
+    fireEvent.click(screen.getByRole("option", { name: "terminal" }));
+
+    expect(
+      screen.getByRole("button", { name: "Selected project icon terminal" }),
+    ).not.toBeNull();
+    expect(
+      screen.queryByRole("dialog", { name: "Project icon picker" }),
+    ).toBeNull();
   });
 
   it("shows repo config path in the footer immediately when the repo config already exists", () => {
@@ -175,6 +216,7 @@ describe("ProjectSettingsModal", () => {
       project: {
         path: "/repo",
         name: "Repo",
+        icon: "folder",
       },
       writeProjectConfig: true,
     });

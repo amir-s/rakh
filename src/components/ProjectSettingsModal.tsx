@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import type { SavedProject } from "@/projects";
+import { DEFAULT_PROJECT_ICON, type SavedProject } from "@/projects";
+import { searchMaterialSymbolsOutlined } from "@/materialSymbols";
 import { PROJECT_SCRIPTS_CONFIG_PATH } from "@/projectScripts";
 import type { ProjectCommandConfig } from "@/projectScripts";
 import ProjectCommandBar from "@/components/ProjectCommandBar";
@@ -46,6 +47,7 @@ const PROJECT_COMMAND_ICON_OPTIONS: CommandIconOption[] = [
   { value: "package_2" },
   { value: "install_desktop" },
 ];
+const PROJECT_ICON_SEARCH_RESULT_LIMIT = 36;
 
 function createCommandDraft(command?: ProjectCommandConfig): CommandDraft {
   return {
@@ -121,13 +123,18 @@ interface ProjectSettingsModalProps {
 
 function buildProjectPayload(
   project: SavedProject,
+  projectName: string,
+  projectIcon: string,
   setupCommand: string,
   commands: CommandDraft[],
 ): SavedProject {
+  const normalizedName = projectName.trim() || project.name;
+  const normalizedIcon = projectIcon.trim() || DEFAULT_PROJECT_ICON;
   const nextCommands = buildCommands(commands);
   return {
     path: project.path,
-    name: project.name,
+    name: normalizedName,
+    icon: normalizedIcon,
     ...(setupCommand.trim() ? { setupCommand: setupCommand.trim() } : {}),
     ...(nextCommands.length > 0 ? { commands: nextCommands } : {}),
   };
@@ -139,6 +146,12 @@ export default function ProjectSettingsModal({
   onSave,
   onCreateProjectConfig,
 }: ProjectSettingsModalProps) {
+  const [projectName, setProjectName] = useState(project.name);
+  const [projectIcon, setProjectIcon] = useState(
+    project.icon?.trim() || DEFAULT_PROJECT_ICON,
+  );
+  const [projectIconPickerOpen, setProjectIconPickerOpen] = useState(false);
+  const [projectIconSearchQuery, setProjectIconSearchQuery] = useState("");
   const [setupCommand, setSetupCommand] = useState(project.setupCommand ?? "");
   const [commands, setCommands] = useState<CommandDraft[]>(
     project.commands?.map((command) => createCommandDraft(command)) ?? [],
@@ -159,13 +172,27 @@ export default function ProjectSettingsModal({
   const [iconPickerOpen, setIconPickerOpen] = useState(false);
   const [iconMenuPosition, setIconMenuPosition] =
     useState<IconMenuPosition | null>(null);
+  const [projectIconMenuPosition, setProjectIconMenuPosition] =
+    useState<IconMenuPosition | null>(null);
   const iconTriggerRef = useRef<HTMLButtonElement | null>(null);
   const iconMenuRef = useRef<HTMLDivElement | null>(null);
+  const projectIconTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const projectIconSearchInputRef = useRef<HTMLInputElement | null>(null);
+  const projectIconMenuRef = useRef<HTMLDivElement | null>(null);
   const projectConfigPath = `${project.path}/${PROJECT_SCRIPTS_CONFIG_PATH}`;
   const shouldShowRepoConfigSection =
     !hasProjectConfigFile && projectConfigStage !== "visible";
   const selectedCommandIcon = editingCommand?.draft.icon.trim() ?? "";
   const commandIconOptions = getCommandIconOptions(selectedCommandIcon);
+  const normalizedProjectIcon = projectIcon.trim();
+  const projectIconMatches = useMemo(
+    () =>
+      searchMaterialSymbolsOutlined(
+        projectIconSearchQuery,
+        PROJECT_ICON_SEARCH_RESULT_LIMIT,
+      ),
+    [projectIconSearchQuery],
+  );
   const previewCommands = useMemo<ProjectCommandConfig[]>(
     () =>
       commands.map((command) => ({
@@ -181,6 +208,10 @@ export default function ProjectSettingsModal({
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
+      if (projectIconPickerOpen) {
+        setProjectIconPickerOpen(false);
+        return;
+      }
       if (iconPickerOpen) {
         setIconPickerOpen(false);
         return;
@@ -189,12 +220,53 @@ export default function ProjectSettingsModal({
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [iconPickerOpen, onClose]);
+  }, [iconPickerOpen, onClose, projectIconPickerOpen]);
 
   useEffect(() => {
     setIconPickerOpen(false);
     setIconMenuPosition(null);
   }, [editingCommand?.draft.draftId]);
+
+  useEffect(() => {
+    if (!projectIconPickerOpen) return;
+
+    const updateProjectIconMenuPosition = () => {
+      const rect = projectIconTriggerRef.current?.getBoundingClientRect();
+      if (!rect) return;
+
+      setProjectIconMenuPosition({
+        top: rect.bottom + 8,
+        left: rect.left,
+        width: Math.max(rect.width + 220, 320),
+      });
+    };
+
+    const handlePointerDown = (event: MouseEvent) => {
+      if (
+        projectIconTriggerRef.current?.contains(event.target as Node) ||
+        projectIconMenuRef.current?.contains(event.target as Node)
+      ) {
+        return;
+      }
+      setProjectIconPickerOpen(false);
+    };
+
+    updateProjectIconMenuPosition();
+    window.addEventListener("mousedown", handlePointerDown);
+    window.addEventListener("resize", updateProjectIconMenuPosition);
+    window.addEventListener("scroll", updateProjectIconMenuPosition, true);
+
+    return () => {
+      window.removeEventListener("mousedown", handlePointerDown);
+      window.removeEventListener("resize", updateProjectIconMenuPosition);
+      window.removeEventListener("scroll", updateProjectIconMenuPosition, true);
+    };
+  }, [projectIconPickerOpen]);
+
+  useEffect(() => {
+    if (projectIconPickerOpen) return;
+    setProjectIconMenuPosition(null);
+  }, [projectIconPickerOpen]);
 
   useEffect(() => {
     if (!iconPickerOpen) return;
@@ -300,10 +372,84 @@ export default function ProjectSettingsModal({
         )
       : null;
 
+  const projectIconMenu =
+    projectIconPickerOpen && projectIconMenuPosition
+      ? createPortal(
+          <div
+            ref={projectIconMenuRef}
+            className="project-settings-modal__project-icon-menu"
+            role="dialog"
+            aria-label="Project icon picker"
+            onClick={(event) => event.stopPropagation()}
+            style={{
+              top: `${projectIconMenuPosition.top}px`,
+              left: `${projectIconMenuPosition.left}px`,
+              minWidth: `${projectIconMenuPosition.width}px`,
+            }}
+          >
+            <TextField
+              ref={projectIconSearchInputRef}
+              type="text"
+              value={projectIconSearchQuery}
+              onChange={(event) => setProjectIconSearchQuery(event.target.value)}
+              placeholder="Search icons"
+              className="project-settings-modal__input"
+              wrapClassName="project-settings-modal__input-wrap"
+              aria-label="Search project icons"
+              autoComplete="off"
+            />
+            <div
+              className="project-settings-modal__project-icon-list"
+              role="listbox"
+              aria-label="Project icon options"
+            >
+            {projectIconMatches.length > 0 ? (
+              projectIconMatches.map((iconName) => (
+                <button
+                  key={iconName}
+                  type="button"
+                  role="option"
+                  aria-label={iconName}
+                  aria-selected={iconName === normalizedProjectIcon}
+                  className="project-settings-modal__project-icon-option"
+                  onClick={() => {
+                    setProjectIcon(iconName);
+                    setProjectIconPickerOpen(false);
+                    setProjectIconSearchQuery("");
+                  }}
+                >
+                  <span
+                    className="material-symbols-outlined text-base"
+                    aria-hidden="true"
+                  >
+                    {iconName}
+                  </span>
+                  <span className="project-settings-modal__project-icon-option-label">
+                    {iconName}
+                  </span>
+                </button>
+              ))
+            ) : (
+              <div className="project-settings-modal__project-icon-empty">
+                No matching Material Symbols icons.
+              </div>
+            )}
+            </div>
+          </div>,
+          document.body,
+        )
+      : null;
+
   const handleSave = async () => {
     setIsSaving(true);
     try {
-      const nextProject = buildProjectPayload(project, setupCommand, commands);
+      const nextProject = buildProjectPayload(
+        project,
+        projectName,
+        projectIcon,
+        setupCommand,
+        commands,
+      );
       await onSave({
         project: nextProject,
         writeProjectConfig: hasProjectConfigFile,
@@ -317,7 +463,13 @@ export default function ProjectSettingsModal({
     setProjectConfigError(null);
     setProjectConfigStage("creating");
     try {
-      const nextProject = buildProjectPayload(project, setupCommand, commands);
+      const nextProject = buildProjectPayload(
+        project,
+        projectName,
+        projectIcon,
+        setupCommand,
+        commands,
+      );
       await onCreateProjectConfig({
         project: nextProject,
         writeProjectConfig: true,
@@ -348,6 +500,14 @@ export default function ProjectSettingsModal({
       return [...prev, next];
     });
     setEditingCommand(null);
+  };
+
+  const openProjectIconPicker = () => {
+    setProjectIconPickerOpen(true);
+    setProjectIconSearchQuery("");
+    window.requestAnimationFrame(() => {
+      projectIconSearchInputRef.current?.focus();
+    });
   };
 
   return createPortal(
@@ -384,6 +544,29 @@ export default function ProjectSettingsModal({
           <div className="tool-modal-section">
             <div className="tool-modal-section-label">Project</div>
             <div className="project-settings-modal__path">{project.path}</div>
+            <div className="project-settings-modal__project-row">
+              <button
+                ref={projectIconTriggerRef}
+                type="button"
+                className="project-settings-modal__project-icon-preview"
+                aria-label={`Selected project icon ${normalizedProjectIcon || DEFAULT_PROJECT_ICON}`}
+                onClick={openProjectIconPicker}
+              >
+                <span className="material-symbols-outlined text-base">
+                  {normalizedProjectIcon || DEFAULT_PROJECT_ICON}
+                </span>
+              </button>
+              <TextField
+                type="text"
+                value={projectName}
+                onChange={(event) => setProjectName(event.target.value)}
+                placeholder="Project name"
+                className="project-settings-modal__input"
+                wrapClassName="project-settings-modal__input-wrap"
+                autoFocus
+                aria-label="Project name"
+              />
+            </div>
           </div>
 
           <div className="tool-modal-section">
@@ -395,7 +578,6 @@ export default function ProjectSettingsModal({
               placeholder="npm install && npm run build"
               className="project-settings-modal__input"
               wrapClassName="project-settings-modal__input-wrap"
-              autoFocus
             />
             <p className="project-settings-modal__hint">
               Runs inside the new worktree after branch creation and before the
@@ -673,6 +855,7 @@ export default function ProjectSettingsModal({
         </div>
       </ModalShell>
       {iconMenu}
+      {projectIconMenu}
     </div>,
     document.body,
   );

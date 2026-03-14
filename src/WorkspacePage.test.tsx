@@ -169,6 +169,7 @@ vi.mock("@/contexts/TabsContext", () => ({
 }));
 
 vi.mock("@/projects", () => ({
+  DEFAULT_PROJECT_ICON: "folder",
   findSavedProject: (projectPath: string) =>
     workspaceMocks.findSavedProjectMock(projectPath),
   inferProjectName: (path: string) => workspaceMocks.inferProjectNameMock(path),
