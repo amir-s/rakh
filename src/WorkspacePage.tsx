@@ -48,7 +48,7 @@ import {
   VoiceInputToggleButton,
 } from "@/components/voice-input/VoiceInputUi";
 import { useVoiceInputController } from "@/components/voice-input/useVoiceInputController";
-import { useTabs } from "@/contexts/TabsContext";
+import { useTabs, type Tab } from "@/contexts/TabsContext";
 import { useAgent, useStopAgent } from "@/agent/useAgents";
 import { useModels } from "@/agent/useModels";
 import {
@@ -294,6 +294,17 @@ export default function WorkspacePage() {
   const { tabs, activeTabId, openSettingsTab, updateTab } = useTabs();
   const activeTab = tabs.find((t) => t.id === activeTabId);
   const isNewSession = activeTab?.mode !== "workspace";
+  const persistActiveTabChanges = useCallback(
+    async (changes: Partial<Tab>) => {
+      if (!activeTab) return;
+      updateTab(activeTabId, changes);
+      const nextTab: Tab = { ...activeTab, ...changes };
+      if (nextTab.mode === "workspace") {
+        await upsertSession(nextTab);
+      }
+    },
+    [activeTab, activeTabId, updateTab],
+  );
   const artifactInventoryEnabled = activeTab?.mode === "workspace";
   const voiceInputEnabled = useAtomValue(voiceInputEnabledAtom);
 
@@ -552,7 +563,11 @@ export default function WorkspacePage() {
     void resolveSavedProject(savedProject)
       .then((resolvedProject) => {
         if (cancelled) return;
+        const nextIcon = resolvedProject.icon || DEFAULT_PROJECT_ICON;
         setProjectCommands(resolvedProject.commands ?? []);
+        if (activeTab?.mode === "workspace" && activeTab.icon !== nextIcon) {
+          void persistActiveTabChanges({ icon: nextIcon });
+        }
       })
       .catch(() => {
         if (cancelled) return;
@@ -562,7 +577,7 @@ export default function WorkspacePage() {
     return () => {
       cancelled = true;
     };
-  }, [activeTabId, agent.config.projectPath, isNewSession]);
+  }, [activeTab, agent.config.projectPath, isNewSession, persistActiveTabChanges]);
 
   const toggleTerminal = useCallback(() => setTerminalOpen((v) => !v), []);
   const toggleCommandBar = useCallback(() => setCommandBarOpen((v) => !v), []);
@@ -833,16 +848,18 @@ export default function WorkspacePage() {
         savedProjects.find((entry) => entry.path === nextProject.path) ??
           nextProject,
       );
+      const nextIcon = resolvedProject.icon || DEFAULT_PROJECT_ICON;
       agent.setConfig({
         projectPath: resolvedProject.path,
         ...(resolvedProject.setupCommand
           ? { setupCommand: resolvedProject.setupCommand }
           : { setupCommand: undefined }),
       });
+      await persistActiveTabChanges({ icon: nextIcon });
       setProjectCommands(resolvedProject.commands ?? []);
       setProjectSettingsProject(null);
     },
-    [agent],
+    [agent, persistActiveTabChanges],
   );
 
   const handleCreateProjectConfig = useCallback(
@@ -865,16 +882,18 @@ export default function WorkspacePage() {
         savedProjects.find((entry) => entry.path === nextProject.path) ??
           nextProject,
       );
+      const nextIcon = resolvedProject.icon || DEFAULT_PROJECT_ICON;
       agent.setConfig({
         projectPath: resolvedProject.path,
         ...(resolvedProject.setupCommand
           ? { setupCommand: resolvedProject.setupCommand }
           : { setupCommand: undefined }),
       });
+      await persistActiveTabChanges({ icon: nextIcon });
       setProjectCommands(resolvedProject.commands ?? []);
       setProjectSettingsProject(resolvedProject);
     },
-    [agent],
+    [agent, persistActiveTabChanges],
   );
 
   const handleRunProjectCommand = useCallback(
@@ -1159,6 +1178,10 @@ export default function WorkspacePage() {
           communicationProfile,
         ) => {
           const cwd = project?.path ?? "";
+          const folder =
+            (cwd.split("/").filter(Boolean).pop() ?? cwd) || "New Tab";
+          const nextIcon =
+            project?.icon ?? activeTab?.icon ?? "chat_bubble_outline";
           agent.setConfig({
             cwd,
             model,
@@ -1168,10 +1191,11 @@ export default function WorkspacePage() {
             projectPath: project?.path,
             setupCommand: project?.setupCommand,
           });
-          // Rename tab to folder basename
-          const folder =
-            (cwd.split("/").filter(Boolean).pop() ?? cwd) || "New Tab";
-          updateTab(activeTabId, { mode: "workspace", label: folder });
+          void persistActiveTabChanges({
+            mode: "workspace",
+            label: folder,
+            icon: nextIcon,
+          });
           // Only send message if not empty
           if (message.trim()) {
             agent.sendMessage(message);
