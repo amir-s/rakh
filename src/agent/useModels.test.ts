@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { filterModelsForQuery, type GatewayModel } from "./useModels";
+import { filterModelsForQuery, buildGatewayModels, type GatewayModel } from "./useModels";
+import type { ProviderInstance } from "./db";
 
 const MODELS: GatewayModel[] = [
   {
@@ -66,5 +67,40 @@ describe("filterModelsForQuery", () => {
   it("supports searching openai-compatible models via custom alias", () => {
     const results = filterModelsForQuery(MODELS, "custom llama");
     expect(results[0]?.id).toBe("my-gateway/meta/llama-3.3-70b");
+  });
+
+  it("maps custom provider metadata into gateway models", () => {
+    const providers: ProviderInstance[] = [
+      {
+        id: "provider-compatible",
+        name: "my-gateway",
+        type: "openai-compatible",
+        apiKey: "",
+        baseUrl: "http://localhost:11434/v1",
+        cachedModels: [
+          {
+            id: "meta/llama-3.3-70b",
+            cost: { input: 0.15, output: 0.6 },
+            limit: { context: 131072 },
+          },
+        ],
+      },
+    ];
+
+    const models = buildGatewayModels(providers);
+
+    expect(models).toEqual([
+      expect.objectContaining({
+        id: "my-gateway/meta/llama-3.3-70b",
+        name: "meta/llama-3.3-70b",
+        providerId: "provider-compatible",
+        context_length: 131072,
+        pricing: {
+          prompt: 0.15,
+          completion: 0.6,
+        },
+        sdk_id: "meta/llama-3.3-70b",
+      }),
+    ]);
   });
 });
