@@ -138,6 +138,73 @@ describe("LogsWindowApp", () => {
     expect(screen.queryByText("Initial query message")).toBeNull();
   });
 
+  it("filters rendered logs with the header search field, including live updates", async () => {
+    logsMocks.queryLogsMock.mockResolvedValue([
+      makeEntry({
+        id: "alpha-entry",
+        timestampMs: 10,
+        message: "Alpha launch message",
+      }),
+      makeEntry({
+        id: "beta-entry",
+        timestampMs: 20,
+        message: "Beta deploy message",
+        data: { detail: "gamma payload" },
+      }),
+    ]);
+
+    render(
+      <LogsWindowApp
+        initialPayload={{ origin: "manual", filter: { limit: 100 } }}
+      />,
+    );
+
+    await screen.findByText("Alpha launch message");
+
+    fireEvent.change(screen.getByRole("textbox", { name: "Search logs" }), {
+      target: { value: "gamma" },
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("Beta deploy message")).not.toBeNull();
+      expect(screen.queryByText("Alpha launch message")).toBeNull();
+    });
+
+    await act(async () => {
+      liveHandler?.(
+        makeEntry({
+          id: "matching-live-entry",
+          timestampMs: 30,
+          message: "Fresh gamma live row",
+        }),
+      );
+      liveHandler?.(
+        makeEntry({
+          id: "non-matching-live-entry",
+          timestampMs: 40,
+          message: "Fresh delta live row",
+        }),
+      );
+      await new Promise((resolve) => window.setTimeout(resolve, 100));
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("Fresh gamma live row")).not.toBeNull();
+      expect(screen.queryByText("Fresh delta live row")).toBeNull();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Clear log search" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Alpha launch message")).not.toBeNull();
+      expect(screen.getByText("Fresh delta live row")).not.toBeNull();
+    });
+    expect(
+      (screen.getByRole("textbox", { name: "Search logs" }) as HTMLInputElement)
+        .value,
+    ).toBe("");
+  });
+
   it("renders inline filters and ignores time filters", async () => {
     logsMocks.queryLogsMock.mockResolvedValue([]);
 
@@ -298,6 +365,52 @@ describe("LogsWindowApp", () => {
       });
     });
     expect(screen.getByRole("button", { name: "Row limit 500" })).not.toBeNull();
+  });
+
+  it("clears the search field when reset is used", async () => {
+    logsMocks.queryLogsMock.mockResolvedValue([
+      makeEntry({
+        id: "reset-entry-a",
+        timestampMs: 10,
+        message: "Reset alpha row",
+      }),
+      makeEntry({
+        id: "reset-entry-b",
+        timestampMs: 20,
+        message: "Reset beta row",
+      }),
+    ]);
+
+    render(
+      <LogsWindowApp
+        initialPayload={{
+          origin: "manual",
+          filter: { limit: 100 },
+        }}
+      />,
+    );
+
+    await screen.findByText("Reset alpha row");
+
+    fireEvent.change(screen.getByRole("textbox", { name: "Search logs" }), {
+      target: { value: "beta" },
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("Reset beta row")).not.toBeNull();
+      expect(screen.queryByText("Reset alpha row")).toBeNull();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "RESET" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Reset alpha row")).not.toBeNull();
+      expect(screen.getByText("Reset beta row")).not.toBeNull();
+    });
+    expect(
+      (screen.getByRole("textbox", { name: "Search logs" }) as HTMLInputElement)
+        .value,
+    ).toBe("");
   });
 
   it("auto closes regular toasts, keeps export toasts until dismissed, and replaces older notices", async () => {
