@@ -134,6 +134,8 @@ export interface ToolCallDisplay {
   id: string;
   tool: string;
   args: Record<string, unknown>;
+  /** Internal ToolGateway phase for UI-only progress hints. */
+  gatewayPhase?: "summarizing";
   mcp?: {
     serverId: string;
     serverName: string;
