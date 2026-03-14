@@ -8,6 +8,7 @@ import type { Tab } from "@/contexts/TabsContext";
 import {
   DEFAULT_MODEL,
   appUpdaterStateAtom,
+  debugModeEnabledAtom,
   defaultAppUpdaterState,
   jotaiStore,
   patchAgentState,
@@ -40,6 +41,10 @@ const sessionRestoreMock = vi.hoisted(() => ({
   restoreMostRecentArchivedTab: vi.fn(),
 }));
 
+const loggingWindowMock = vi.hoisted(() => ({
+  openLogViewerWindow: vi.fn(),
+}));
+
 vi.mock("@/contexts/TabsContext", () => ({
   useTabs: () => tabsContextMock.value,
 }));
@@ -47,6 +52,12 @@ vi.mock("@/contexts/TabsContext", () => ({
 vi.mock("@/agent/sessionRestore", () => ({
   restoreMostRecentArchivedTab: (...args: unknown[]) =>
     sessionRestoreMock.restoreMostRecentArchivedTab(...args),
+}));
+
+vi.mock("@/logging/window", () => ({
+  DEFAULT_LOG_LIMIT: 500,
+  openLogViewerWindow: (...args: unknown[]) =>
+    loggingWindowMock.openLogViewerWindow(...args),
 }));
 
 vi.mock("@/components/ArchivedTabsMenu", () => ({
@@ -160,6 +171,7 @@ describe("TopChrome", () => {
     localStorage.clear();
     setNavigatorPlatform("MacIntel");
     jotaiStore.set(appUpdaterStateAtom, { ...defaultAppUpdaterState });
+    jotaiStore.set(debugModeEnabledAtom, false);
     tabsContextMock.value.tabs = [
       {
         id: "tab-1",
@@ -178,6 +190,8 @@ describe("TopChrome", () => {
     tabsContextMock.value.updateTab.mockReset();
     tabsContextMock.value.reorderTabs.mockReset();
     sessionRestoreMock.restoreMostRecentArchivedTab.mockReset();
+    loggingWindowMock.openLogViewerWindow.mockReset();
+    loggingWindowMock.openLogViewerWindow.mockResolvedValue(true);
     setAgentState("tab-1");
   });
 
@@ -210,6 +224,26 @@ describe("TopChrome", () => {
 
     expect(tabsContextMock.value.openSettingsTab).toHaveBeenCalledTimes(1);
     expect(tabsContextMock.value.openSettingsTab).toHaveBeenCalledWith();
+  });
+
+  it("hides the log viewer button while debug mode is disabled", () => {
+    renderTopChrome();
+
+    expect(screen.queryByTitle("Open log viewer")).toBeNull();
+  });
+
+  it("shows the log viewer button and opens the detached logs window in debug mode", () => {
+    jotaiStore.set(debugModeEnabledAtom, true);
+
+    renderTopChrome();
+
+    fireEvent.click(screen.getByTitle("Open log viewer"));
+
+    expect(loggingWindowMock.openLogViewerWindow).toHaveBeenCalledWith({
+      origin: "manual",
+      filter: { limit: 500 },
+      tailEnabled: true,
+    });
   });
 
   it("uses Cmd+, on macOS to open the settings tab", () => {

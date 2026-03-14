@@ -14,6 +14,7 @@ import {
   agentConfigAtomFamily,
   agentStatusAtomFamily,
   agentTabTitleAtomFamily,
+  debugModeEnabledAtom,
   jotaiStore,
 } from "@/agent/atoms";
 import {
@@ -25,6 +26,7 @@ import CloseTabModal from "@/components/CloseTabModal";
 import ArchivedTabsMenu from "@/components/ArchivedTabsMenu";
 import { cn } from "@/utils/cn";
 import { shouldShowAppUpdateBadge } from "@/updater";
+import { DEFAULT_LOG_LIMIT, openLogViewerWindow } from "@/logging/window";
 
 /* ── Types ──────────────────────────────────────────────────────────────── */
 type Platform = "mac" | "windows" | "other";
@@ -183,6 +185,7 @@ export default function TopChrome() {
     reorderTabs,
   } = useTabs();
   const appUpdater = useAtomValue(appUpdaterStateAtom);
+  const debugModeEnabled = useAtomValue(debugModeEnabledAtom);
   const showUpdateBadge = shouldShowAppUpdateBadge(appUpdater);
 
   // ── Close-confirmation modal ──────────────────────────────────────────
@@ -584,10 +587,26 @@ export default function TopChrome() {
         {/* ── Settings Controls ──────────────────────────────────────── */}
         <div
           className="win-controls"
-          aria-label="Settings"
+          aria-label="App controls"
           onDoubleClick={(e) => e.stopPropagation()}
         >
           <ArchivedTabsMenu />
+          {debugModeEnabled ? (
+            <button
+              className="win-btn w-9"
+              onClick={() =>
+                void openLogViewerWindow({
+                  origin: "manual",
+                  filter: { limit: DEFAULT_LOG_LIMIT },
+                  tailEnabled: true,
+                })
+              }
+              aria-label="Open log viewer"
+              title="Open log viewer"
+            >
+              <span className="material-symbols-outlined text-lg">receipt_long</span>
+            </button>
+          ) : null}
           <button
             className="win-btn w-9 relative"
             onClick={() => openSettingsTab()}

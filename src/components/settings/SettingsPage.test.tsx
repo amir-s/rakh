@@ -7,6 +7,7 @@ import { Provider } from "jotai";
 import { TabsProvider, useTabs } from "@/contexts/TabsContext";
 import {
   appUpdaterStateAtom,
+  debugModeEnabledAtom,
   defaultAppUpdaterState,
   groupInlineToolCallsAtom,
   jotaiStore,
@@ -119,7 +120,7 @@ vi.mock("@/components/ui/JsonCodeEditor", () => ({
 function SettingsPageHarness({
   initialSection = "appearance",
 }: {
-  initialSection?: "appearance" | "updates" | "mcp";
+  initialSection?: "appearance" | "updates" | "mcp" | "developer";
 }) {
   const { openSettingsTab } = useTabs();
 
@@ -131,7 +132,7 @@ function SettingsPageHarness({
 }
 
 function renderSettingsPage(
-  initialSection: "appearance" | "updates" | "mcp" = "appearance",
+  initialSection: "appearance" | "updates" | "mcp" | "developer" = "appearance",
 ) {
   return render(
     <Provider store={jotaiStore}>
@@ -149,6 +150,7 @@ describe("SettingsPage", () => {
     jotaiStore.set(providersAtom, []);
     jotaiStore.set(mcpServersAtom, []);
     jotaiStore.set(mcpSettingsAtom, { artifactizeReturnedFiles: false });
+    jotaiStore.set(debugModeEnabledAtom, false);
     jotaiStore.set(groupInlineToolCallsAtom, true);
     jotaiStore.set(appUpdaterStateAtom, {
       ...defaultAppUpdaterState,
@@ -245,6 +247,26 @@ describe("SettingsPage", () => {
       expect(screen.getByTitle("Group inline tool calls")).not.toBeNull();
     });
     expect(jotaiStore.get(groupInlineToolCallsAtom)).toBe(false);
+  });
+
+  it("toggles global debug mode from the developer settings section", async () => {
+    renderSettingsPage("developer");
+
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: "Developer" })).not.toBeNull();
+    });
+
+    fireEvent.click(screen.getByTitle("Debug mode"));
+
+    expect(jotaiStore.get(debugModeEnabledAtom)).toBe(true);
+
+    cleanup();
+    renderSettingsPage("developer");
+
+    await waitFor(() => {
+      expect(screen.getByTitle("Debug mode")).not.toBeNull();
+    });
+    expect(jotaiStore.get(debugModeEnabledAtom)).toBe(true);
   });
 
   it("renders the MCP settings section under AI and saves a tested server", async () => {

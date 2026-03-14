@@ -295,7 +295,7 @@ export function useResetAgent() {
       groupInlineToolCallsOverride: null,
       queuedMessages: [],
       queueState: "idle",
-      showDebug: false,
+      showDebug: prev.showDebug ?? false,
       lastRunTraceId: undefined,
     }));
   }, []);

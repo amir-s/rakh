@@ -8,6 +8,7 @@ export type SettingsSectionId =
   | "mcp"
   | "voice"
   | "command-list"
+  | "developer"
   | "updates";
 
 export type SettingsSectionGroupId = "general" | "ai" | "app";
@@ -80,6 +81,13 @@ export const SETTINGS_SECTIONS: SettingsSectionDefinition[] = [
     label: "Command List",
     description: "Allow or deny commands for automatic approval control.",
     icon: "shield",
+  },
+  {
+    id: "developer",
+    groupId: "app",
+    label: "Developer",
+    description: "Debug mode, diagnostics, and developer-facing tooling.",
+    icon: "bug_report",
   },
   {
     id: "updates",

@@ -18,6 +18,23 @@ export const jotaiStore = createStore();
 
 import { atomWithStorage } from "jotai/utils";
 
+const DEBUG_MODE_STORAGE_KEY = "rakh.debug-mode";
+
+function readStoredBoolean(key: string, fallback: boolean): boolean {
+  if (typeof window === "undefined") return fallback;
+
+  const raw = window.localStorage.getItem(key);
+  if (raw === null) return fallback;
+  if (raw === "true") return true;
+  if (raw === "false") return false;
+
+  try {
+    return Boolean(JSON.parse(raw) as unknown);
+  } catch {
+    return fallback;
+  }
+}
+
 /** UI colour scheme mode (light/dark) — persisted in localStorage */
 export const themeModeAtom = atomWithStorage<"dark" | "light">(
   "rakh.theme-mode",
@@ -57,6 +74,12 @@ export const themeNameAtom = atomWithStorage<ThemeName>(
 export const notifyOnAttentionAtom = atomWithStorage<boolean>(
   "rakh.notify-attention",
   false,
+);
+
+/** Whether global debug mode is enabled across the app */
+export const debugModeEnabledAtom = atomWithStorage<boolean>(
+  DEBUG_MODE_STORAGE_KEY,
+  import.meta.env.DEV,
 );
 
 /** Whether inline tool calls are grouped by default across sessions */
@@ -171,7 +194,7 @@ function makeDefaultAgentState(): AgentState {
     groupInlineToolCallsOverride: null,
     queuedMessages: [],
     queueState: "idle",
-    showDebug: import.meta.env.DEV,
+    showDebug: readStoredBoolean(DEBUG_MODE_STORAGE_KEY, import.meta.env.DEV),
   };
 }
 
@@ -305,6 +328,10 @@ export function patchAgentState(
 
 export function getAgentState(tabId: string): AgentState {
   return jotaiStore.get(agentAtomFamily(tabId));
+}
+
+export function setGlobalDebugMode(enabled: boolean): void {
+  jotaiStore.set(debugModeEnabledAtom, enabled);
 }
 
 export function patchSessionPersistenceState(

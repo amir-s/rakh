@@ -2115,6 +2115,37 @@ function CommandListSubpanel({
   );
 }
 
+function DeveloperSection({
+  controller,
+}: {
+  controller: SettingsControllerValue;
+}) {
+  return (
+    <div className="settings-page__section-stack">
+      <SectionCard
+        title="Diagnostics"
+        description="Control debug-only UI and the detached log viewer shortcut."
+      >
+        <div className="settings-row">
+          <div className="settings-row-info">
+            <span className="settings-row-label">Debug mode</span>
+            <span className="settings-row-desc">
+              Enables stream-event logging, extra debug UI, and the log viewer
+              button beside Settings in the title bar.
+            </span>
+          </div>
+          <ToggleSwitch
+            checked={controller.debugModeEnabled}
+            onChange={controller.setDebugModeEnabled}
+            className="settings-switch"
+            title="Debug mode"
+          />
+        </div>
+      </SectionCard>
+    </div>
+  );
+}
+
 function CommandListSection({
   controller,
 }: {
@@ -2184,6 +2215,8 @@ function renderSection(
       return <VoiceSection controller={controller} />;
     case "command-list":
       return <CommandListSection controller={controller} />;
+    case "developer":
+      return <DeveloperSection controller={controller} />;
     case "updates":
       return <UpdatesSection controller={controller} />;
     default:
