@@ -414,20 +414,68 @@ describe("SettingsPage", () => {
 
   it("saves custom provider model metadata from the providers settings section", async () => {
     const fetchMock = vi.mocked(global.fetch);
-    fetchMock.mockResolvedValue({
-      ok: true,
-      json: async () => ({
-        data: [
-          { id: "meta/llama-3.3-70b" },
-          { id: "qwen/qwen-2.5-coder" },
-        ],
-      }),
-    } as Response);
+    fetchMock.mockImplementation(async (input) => {
+      const url =
+        typeof input === "string"
+          ? input
+          : input instanceof Request
+            ? input.url
+            : String(input);
+
+      if (url === "https://models.dev/api.json") {
+        return {
+          ok: true,
+          json: async () => ({
+            openrouter: {
+              id: "openrouter",
+              name: "OpenRouter",
+              models: {
+                "meta/llama-3.3-70b": {
+                  id: "meta/llama-3.3-70b",
+                  name: "Llama 3.3 70B",
+                  cost: { input: 0.12, output: 0.48 },
+                  limit: { context: 65536 },
+                },
+              },
+            },
+            togetherai: {
+              id: "togetherai",
+              name: "Together AI",
+              models: {
+                "meta/llama-3.3-70b": {
+                  id: "meta/llama-3.3-70b",
+                  name: "Llama 3.3 70B",
+                  cost: { input: 0.15, output: 0.6 },
+                  limit: { context: 131072 },
+                },
+              },
+            },
+          }),
+        } as Response;
+      }
+
+      if (url === "http://localhost:11434/v1/models") {
+        return {
+          ok: true,
+          json: async () => ({
+            data: [
+              { id: "meta/llama-3.3-70b" },
+              { id: "qwen/qwen-2.5-coder" },
+            ],
+          }),
+        } as Response;
+      }
+
+      throw new Error(`Unexpected fetch request: ${url}`);
+    });
 
     renderSettingsPage("providers");
 
     await waitFor(() => {
       expect(screen.getByText("Provider Registry")).not.toBeNull();
+    });
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith("https://models.dev/api.json");
     });
 
     fireEvent.click(screen.getByRole("button", { name: /Add Provider/i }));
@@ -463,15 +511,50 @@ describe("SettingsPage", () => {
       expect(screen.getAllByText("qwen/qwen-2.5-coder").length).toBeGreaterThan(0);
     });
 
-    fireEvent.change(screen.getAllByLabelText("Context limit")[0], {
-      target: { value: "131072" },
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Prefill meta/llama-3.3-70b metadata from models.dev",
+      }),
+    );
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /OpenRouter/i })).not.toBeNull();
+      expect(
+        screen.getByRole("button", { name: /Together AI/i }),
+      ).not.toBeNull();
     });
-    fireEvent.change(screen.getAllByLabelText("Input cost / 1M")[0], {
-      target: { value: "0.15" },
+
+    fireEvent.change(
+      screen.getByRole("textbox", {
+        name: "Search models.dev providers for meta/llama-3.3-70b",
+      }),
+      {
+        target: { value: "together" },
+      },
+    );
+
+    await waitFor(() => {
+      expect(
+        screen.queryByRole("button", { name: /OpenRouter/i }),
+      ).toBeNull();
+      expect(
+        screen.getByRole("button", { name: /Together AI/i }),
+      ).not.toBeNull();
     });
-    fireEvent.change(screen.getAllByLabelText("Output cost / 1M")[0], {
-      target: { value: "0.60" },
-    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    fireEvent.click(screen.getByRole("button", { name: /Together AI/i }));
+
+    expect(
+      (screen.getAllByLabelText("Context limit")[0] as HTMLInputElement).value,
+    ).toBe("131072");
+    expect(
+      (screen.getAllByLabelText("Input cost / 1M")[0] as HTMLInputElement).value,
+    ).toBe("0.15");
+    expect(
+      (screen.getAllByLabelText("Output cost / 1M")[0] as HTMLInputElement).value,
+    ).toBe("0.6");
 
     fireEvent.click(screen.getByRole("button", { name: "Save Provider" }));
 

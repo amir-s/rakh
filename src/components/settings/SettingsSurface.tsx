@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type ReactNode,
@@ -31,13 +32,17 @@ import {
   deleteProvider,
   mergeProviderCachedModels,
   normalizeProviderCachedModels,
+  normalizeProviderModelRecord,
   saveProvider,
   type ProviderInstance,
+  type ProviderModelCost,
+  type ProviderModelLimit,
   type ProviderModelRecord,
   type CommunicationProfileRecord,
   type CommandListEntry,
   type MatchMode,
 } from "@/agent/db";
+import { rankFuzzyItems } from "@/utils/fuzzySearch";
 import {
   saveMcpSettings,
   saveMcpServers,
@@ -87,6 +92,26 @@ type ProviderRefreshStatus = "idle" | "loading" | "ok" | "error";
 type McpProbeStatus = "idle" | "testing" | "ok" | "error";
 
 const REFRESH_FEEDBACK_MS = 3000;
+const MODELS_DEV_API_URL = "https://models.dev/api.json";
+
+type ModelsDevStatus = "idle" | "loading" | "ready" | "error";
+
+interface ModelsDevOffer {
+  key: string;
+  providerId: string;
+  providerName: string;
+  modelId: string;
+  modelName: string;
+  cost?: ProviderModelCost;
+  limit?: ProviderModelLimit;
+}
+
+interface ModelsDevIndex {
+  offersByModelId: Record<string, ModelsDevOffer[]>;
+}
+
+let modelsDevIndexCache: ModelsDevIndex | null = null;
+let modelsDevIndexPromise: Promise<ModelsDevIndex> | null = null;
 
 const MCP_SCHEMA_STDIO_EXAMPLE = `{
   // Shown in Settings.
@@ -142,6 +167,113 @@ const mcpStreamableHttpServerDraftSchema = z.object({
   url: z.string().trim().min(1, '"url" is required for streamable-http servers.'),
   headers: mcpStringMapSchema.optional(),
 });
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function buildModelsDevIndex(payload: unknown): ModelsDevIndex {
+  if (!isRecord(payload)) {
+    throw new Error("Invalid models.dev payload.");
+  }
+
+  const offersByModelId: Record<string, ModelsDevOffer[]> = {};
+
+  for (const [providerKey, providerValue] of Object.entries(payload)) {
+    if (!isRecord(providerValue)) continue;
+
+    const providerId =
+      typeof providerValue.id === "string" && providerValue.id.trim()
+        ? providerValue.id.trim()
+        : providerKey;
+    const providerName =
+      typeof providerValue.name === "string" && providerValue.name.trim()
+        ? providerValue.name.trim()
+        : providerId;
+    const models = isRecord(providerValue.models) ? providerValue.models : null;
+    if (!models) continue;
+
+    for (const [modelKey, modelValue] of Object.entries(models)) {
+      const modelRecord = normalizeProviderModelRecord({
+        ...(isRecord(modelValue) ? modelValue : {}),
+        id:
+          isRecord(modelValue) &&
+          typeof modelValue.id === "string" &&
+          modelValue.id.trim()
+            ? modelValue.id.trim()
+            : modelKey,
+      });
+      if (!modelRecord) continue;
+
+      const modelName =
+        isRecord(modelValue) &&
+        typeof modelValue.name === "string" &&
+        modelValue.name.trim()
+          ? modelValue.name.trim()
+          : modelRecord.id;
+
+      const offer: ModelsDevOffer = {
+        key: `${providerId}:${modelRecord.id}`,
+        providerId,
+        providerName,
+        modelId: modelRecord.id,
+        modelName,
+        ...(modelRecord.cost ? { cost: modelRecord.cost } : {}),
+        ...(modelRecord.limit ? { limit: modelRecord.limit } : {}),
+      };
+
+      const existing = offersByModelId[modelRecord.id] ?? [];
+      existing.push(offer);
+      offersByModelId[modelRecord.id] = existing;
+    }
+  }
+
+  for (const offers of Object.values(offersByModelId)) {
+    offers.sort(
+      (a, b) =>
+        a.providerName.localeCompare(b.providerName) ||
+        a.providerId.localeCompare(b.providerId),
+    );
+  }
+
+  return { offersByModelId };
+}
+
+async function loadModelsDevIndex(): Promise<ModelsDevIndex> {
+  if (modelsDevIndexCache) return modelsDevIndexCache;
+  if (modelsDevIndexPromise) return modelsDevIndexPromise;
+
+  modelsDevIndexPromise = fetch(MODELS_DEV_API_URL)
+    .then(async (response) => {
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+      return response.json();
+    })
+    .then((payload) => {
+      const index = buildModelsDevIndex(payload);
+      modelsDevIndexCache = index;
+      return index;
+    })
+    .catch((error) => {
+      modelsDevIndexPromise = null;
+      throw error;
+    });
+
+  return modelsDevIndexPromise;
+}
+
+function filterModelsDevOffers(
+  offers: ModelsDevOffer[],
+  query: string,
+): ModelsDevOffer[] {
+  return rankFuzzyItems(offers, query, (offer) => [
+    offer.providerName,
+    offer.providerId,
+    offer.modelName,
+    offer.modelId,
+  ]).map((entry) => entry.item);
+}
 const mcpServerDraftSchema = z.discriminatedUnion("transport", [
   mcpStdioServerDraftSchema,
   mcpStreamableHttpServerDraftSchema,
@@ -526,6 +658,151 @@ function toProviderModelRecordLoose(
   };
 }
 
+function formatPrefillPrice(cost?: ProviderModelCost): string {
+  const parts: string[] = [];
+  if (typeof cost?.input === "number" && Number.isFinite(cost.input)) {
+    parts.push(`in $${cost.input}`);
+  }
+  if (typeof cost?.output === "number" && Number.isFinite(cost.output)) {
+    parts.push(`out $${cost.output}`);
+  }
+  return parts.join(" · ");
+}
+
+function ModelsDevPrefill({
+  modelId,
+  modelsDevStatus,
+  modelsDevError,
+  offers,
+  onApply,
+}: {
+  modelId: string;
+  modelsDevStatus: ModelsDevStatus;
+  modelsDevError: string | null;
+  offers: ModelsDevOffer[];
+  onApply: (offer: ModelsDevOffer) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+
+  const filteredOffers = useMemo(
+    () => filterModelsDevOffers(offers, query),
+    [offers, query],
+  );
+
+  const triggerLabel =
+    modelsDevStatus === "loading"
+      ? "Loading models.dev…"
+      : modelsDevStatus === "error"
+        ? "models.dev unavailable"
+        : offers.length > 0
+          ? "Prefill from models.dev"
+          : "No models.dev matches";
+
+  return (
+    <div className="settings-provider-model-prefill">
+      <div className="settings-provider-model-prefill__header">
+        <Button
+          type="button"
+          variant="ghost"
+          size="xxs"
+          className="settings-provider-model-prefill__trigger"
+          onClick={() => setOpen((current) => !current)}
+          disabled={modelsDevStatus === "loading"}
+          aria-expanded={open}
+          aria-label={`Prefill ${modelId} metadata from models.dev`}
+        >
+          <span className="material-symbols-outlined text-sm">dataset</span>
+          <span>{triggerLabel}</span>
+        </Button>
+        {modelsDevStatus === "ready" && offers.length > 0 ? (
+          <span className="settings-provider-model-prefill__count">
+            {offers.length} provider{offers.length === 1 ? "" : "s"}
+          </span>
+        ) : null}
+      </div>
+
+      {open ? (
+        <div className="settings-provider-model-prefill__panel">
+          {modelsDevStatus === "error" ? (
+            <div className="settings-provider-model-prefill__empty">
+              {modelsDevError ?? "models.dev could not be loaded."}
+            </div>
+          ) : modelsDevStatus === "loading" ? (
+            <div className="settings-provider-model-prefill__empty">
+              Loading models.dev catalog…
+            </div>
+          ) : offers.length === 0 ? (
+            <div className="settings-provider-model-prefill__empty">
+              No providers on models.dev currently expose this model ID.
+            </div>
+          ) : (
+            <>
+              <TextField
+                type="text"
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="Search provider…"
+                aria-label={`Search models.dev providers for ${modelId}`}
+                wrapClassName="settings-input-wrap"
+              />
+              <div className="settings-provider-model-prefill__list">
+                {filteredOffers.length === 0 ? (
+                  <div className="settings-provider-model-prefill__empty">
+                    No providers match that search.
+                  </div>
+                ) : (
+                  filteredOffers.map((offer) => {
+                    const context =
+                      typeof offer.limit?.context === "number"
+                        ? `${offer.limit.context.toLocaleString()} ctx`
+                        : "";
+                    const price = formatPrefillPrice(offer.cost);
+
+                    return (
+                      <button
+                        key={offer.key}
+                        type="button"
+                        className="settings-provider-model-prefill__option"
+                        onClick={() => {
+                          onApply(offer);
+                          setOpen(false);
+                          setQuery("");
+                        }}
+                      >
+                        <div className="settings-provider-model-prefill__option-copy">
+                          <span className="settings-provider-model-prefill__option-name">
+                            {offer.providerName}
+                          </span>
+                          <span className="settings-provider-model-prefill__option-meta">
+                            {offer.providerId}
+                          </span>
+                        </div>
+                        <div className="settings-provider-model-prefill__option-chips">
+                          {context ? (
+                            <span className="settings-provider-model-prefill__chip">
+                              {context}
+                            </span>
+                          ) : null}
+                          {price ? (
+                            <span className="settings-provider-model-prefill__chip">
+                              {price}
+                            </span>
+                          ) : null}
+                        </div>
+                      </button>
+                    );
+                  })
+                )}
+              </div>
+            </>
+          )}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function formatUpdaterLastChecked(lastCheckedAt: number | null): string {
   if (!lastCheckedAt) return "Automatic startup checks are enabled.";
   return `Last checked ${new Date(lastCheckedAt).toLocaleString([], {
@@ -567,10 +844,16 @@ function SectionCard({
 
 function ProviderConfigurator({
   provider,
+  modelsDevStatus,
+  modelsDevError,
+  modelsDevOffersByModelId,
   onSave,
   onCancel,
 }: {
   provider?: ProviderInstance;
+  modelsDevStatus: ModelsDevStatus;
+  modelsDevError: string | null;
+  modelsDevOffersByModelId: Record<string, ModelsDevOffer[]>;
   onSave: (provider: ProviderInstance) => void;
   onCancel: () => void;
 }) {
@@ -624,6 +907,25 @@ function ProviderConfigurator({
             ? {
                 ...currentModel,
                 [field]: value,
+              }
+            : currentModel,
+        ),
+      );
+    },
+    [],
+  );
+
+  const applyModelsDevOffer = useCallback(
+    (index: number, offer: ModelsDevOffer) => {
+      setSaveError(null);
+      setCachedModels((currentModels) =>
+        currentModels.map((currentModel, currentIndex) =>
+          currentIndex === index
+            ? {
+                ...currentModel,
+                context: formatNumberInput(offer.limit?.context),
+                inputCost: formatNumberInput(offer.cost?.input),
+                outputCost: formatNumberInput(offer.cost?.output),
               }
             : currentModel,
         ),
@@ -776,13 +1078,22 @@ function ProviderConfigurator({
                   variant="inset"
                   className="settings-provider-model"
                 >
-                  <div className="settings-provider-model__copy">
-                    <span className="settings-provider-model__name">
-                      {model.name || model.id}
-                    </span>
-                    <span className="settings-provider-model__id">
-                      {model.id}
-                    </span>
+                  <div className="settings-provider-model__top">
+                    <div className="settings-provider-model__copy">
+                      <span className="settings-provider-model__name">
+                        {model.name || model.id}
+                      </span>
+                      <span className="settings-provider-model__id">
+                        {model.id}
+                      </span>
+                    </div>
+                    <ModelsDevPrefill
+                      modelId={model.id}
+                      modelsDevStatus={modelsDevStatus}
+                      modelsDevError={modelsDevError}
+                      offers={modelsDevOffersByModelId[model.id] ?? []}
+                      onApply={(offer) => applyModelsDevOffer(index, offer)}
+                    />
                   </div>
                   <div className="settings-provider-model__grid">
                     <div className="settings-field">
@@ -1516,6 +1827,13 @@ function ProvidersSection({
   const [providerRefreshStatus, setProviderRefreshStatus] = useState<
     Record<string, ProviderRefreshStatus>
   >({});
+  const [modelsDevStatus, setModelsDevStatus] = useState<ModelsDevStatus>(
+    modelsDevIndexCache ? "ready" : "loading",
+  );
+  const [modelsDevError, setModelsDevError] = useState<string | null>(null);
+  const [modelsDevOffersByModelId, setModelsDevOffersByModelId] = useState<
+    Record<string, ModelsDevOffer[]>
+  >(modelsDevIndexCache?.offersByModelId ?? {});
   const refreshResetTimeoutsRef = useRef<Record<string, number>>({});
 
   const clearRefreshResetTimeout = useCallback((providerId: string) => {
@@ -1536,6 +1854,30 @@ function ProvidersSection({
     },
     [clearRefreshResetTimeout],
   );
+
+  useEffect(() => {
+    if (modelsDevIndexCache) return;
+
+    let cancelled = false;
+
+    void loadModelsDevIndex()
+      .then((index) => {
+        if (cancelled) return;
+        setModelsDevOffersByModelId(index.offersByModelId);
+        setModelsDevStatus("ready");
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        setModelsDevStatus("error");
+        setModelsDevError(
+          error instanceof Error ? error.message : String(error),
+        );
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     return () => {
@@ -1737,6 +2079,9 @@ function ProvidersSection({
               <ProviderConfigurator
                 key={provider.id}
                 provider={provider}
+                modelsDevStatus={modelsDevStatus}
+                modelsDevError={modelsDevError}
+                modelsDevOffersByModelId={modelsDevOffersByModelId}
                 onSave={handleSaveProvider}
                 onCancel={() => setEditingProviderId(null)}
               />
@@ -1810,6 +2155,9 @@ function ProvidersSection({
 
           {isAdding ? (
             <ProviderConfigurator
+              modelsDevStatus={modelsDevStatus}
+              modelsDevError={modelsDevError}
+              modelsDevOffersByModelId={modelsDevOffersByModelId}
               onSave={handleSaveProvider}
               onCancel={() => setIsAdding(false)}
             />
