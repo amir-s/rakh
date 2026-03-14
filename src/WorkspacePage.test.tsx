@@ -62,6 +62,36 @@ const workspaceMocks = vi.hoisted(() => ({
   patchAgentStateMock: vi.fn(),
   setGlobalDebugModeMock: vi.fn(),
   updateTabMock: vi.fn(),
+  tabs: [
+    {
+      id: "tab-1",
+      label: "Workspace",
+      icon: "chat_bubble_outline",
+      mode: "workspace" as const,
+      status: "idle" as const,
+    },
+  ] as Array<{
+    id: string;
+    label: string;
+    icon: string;
+    mode: "new" | "workspace" | "settings";
+    status: "idle";
+    pinned?: boolean;
+  }>,
+  newSessionOnSubmit: null as null | ((
+    message: string,
+    project:
+      | {
+          path: string;
+          icon?: string;
+          setupCommand?: string;
+        }
+      | null,
+    model: string,
+    contextLength?: number,
+    advancedOptions?: unknown,
+    communicationProfile?: string,
+  ) => void),
   findSavedProjectMock: vi.fn(),
   inferProjectNameMock: vi.fn((path: string) => path.split("/").pop() ?? path),
   resolveSavedProjectMock: vi.fn(),
@@ -153,15 +183,7 @@ vi.mock("@tauri-apps/api/event", () => ({
 
 vi.mock("@/contexts/TabsContext", () => ({
   useTabs: () => ({
-    tabs: [
-      {
-        id: "tab-1",
-        label: "Workspace",
-        icon: "chat_bubble_outline",
-        mode: "workspace" as const,
-        status: "idle" as const,
-      },
-    ],
+    tabs: workspaceMocks.tabs,
     activeTabId: "tab-1",
     openSettingsTab: workspaceMocks.openSettingsTabMock,
     updateTab: workspaceMocks.updateTabMock,
@@ -317,7 +339,14 @@ vi.mock("@/components/Markdown", () => ({
 }));
 
 vi.mock("@/components/NewSession", () => ({
-  default: () => null,
+  default: ({
+    onSubmit,
+  }: {
+    onSubmit: typeof workspaceMocks.newSessionOnSubmit;
+  }) => {
+    workspaceMocks.newSessionOnSubmit = onSubmit;
+    return <button>New session screen</button>;
+  },
 }));
 
 vi.mock("@/components/ChatControls", () => ({
@@ -618,6 +647,16 @@ describe("WorkspacePage chat input", () => {
     workspaceMocks.patchAgentStateMock.mockReset();
     workspaceMocks.setGlobalDebugModeMock.mockReset();
     workspaceMocks.updateTabMock.mockReset();
+    workspaceMocks.tabs = [
+      {
+        id: "tab-1",
+        label: "Workspace",
+        icon: "chat_bubble_outline",
+        mode: "workspace",
+        status: "idle",
+      },
+    ];
+    workspaceMocks.newSessionOnSubmit = null;
     workspaceMocks.findSavedProjectMock.mockReset();
     workspaceMocks.inferProjectNameMock.mockReset();
     workspaceMocks.resolveSavedProjectMock.mockReset();
@@ -1418,6 +1457,107 @@ describe("WorkspacePage chat input", () => {
     expect(screen.getByTestId("terminal").getAttribute("data-command")).toBe(
       "npm run dev",
     );
+  });
+
+  it("inherits and persists the project icon for workspace tabs", async () => {
+    workspaceMocks.agentState = {
+      ...workspaceMocks.agentState,
+      config: {
+        ...workspaceMocks.agentState.config,
+        projectPath: "/repo",
+      },
+    };
+    workspaceMocks.findSavedProjectMock.mockReturnValue({
+      path: "/repo",
+      name: "Repo",
+      icon: "terminal",
+    });
+    workspaceMocks.resolveSavedProjectMock.mockResolvedValue({
+      path: "/repo",
+      name: "Repo",
+      icon: "terminal",
+      commands: [],
+    });
+
+    render(<WorkspacePage />);
+
+    await waitFor(() => {
+      expect(workspaceMocks.updateTabMock).toHaveBeenCalledWith("tab-1", {
+        icon: "terminal",
+      });
+    });
+    await waitFor(() => {
+      expect(workspaceMocks.upsertSessionMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: "tab-1",
+          icon: "terminal",
+          mode: "workspace",
+        }),
+      );
+    });
+  });
+
+  it("persists the project icon when a new session is created", async () => {
+    workspaceMocks.tabs = [
+      {
+        id: "tab-1",
+        label: "New Tab",
+        icon: "chat_bubble_outline",
+        mode: "new",
+        status: "idle",
+      },
+    ];
+    workspaceMocks.agentState = {
+      ...workspaceMocks.agentState,
+      config: {
+        ...workspaceMocks.agentState.config,
+        cwd: "",
+        projectPath: undefined,
+      },
+    };
+
+    render(<WorkspacePage />);
+
+    expect(workspaceMocks.newSessionOnSubmit).not.toBeNull();
+    workspaceMocks.updateTabMock.mockClear();
+    workspaceMocks.upsertSessionMock.mockClear();
+
+    await act(async () => {
+      workspaceMocks.newSessionOnSubmit?.(
+        "",
+        {
+          path: "/repo",
+          icon: "terminal",
+          setupCommand: "npm install",
+        },
+        "model-1",
+      );
+    });
+
+    expect(workspaceMocks.setConfigMock).toHaveBeenCalledWith({
+      cwd: "/repo",
+      model: "model-1",
+      contextLength: undefined,
+      advancedOptions: undefined,
+      communicationProfile: undefined,
+      projectPath: "/repo",
+      setupCommand: "npm install",
+    });
+    expect(workspaceMocks.updateTabMock).toHaveBeenCalledWith("tab-1", {
+      mode: "workspace",
+      label: "repo",
+      icon: "terminal",
+    });
+    await waitFor(() => {
+      expect(workspaceMocks.upsertSessionMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: "tab-1",
+          label: "repo",
+          icon: "terminal",
+          mode: "workspace",
+        }),
+      );
+    });
   });
 
   it("toggles the project command bar with Cmd+B", async () => {

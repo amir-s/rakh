@@ -103,7 +103,7 @@ function saveAdvancedOptions(opts: AdvancedModelOptions) {
 interface NewSessionProps {
   onSubmit: (
     message: string,
-    project: { path: string; setupCommand?: string } | null,
+    project: { path: string; icon?: string; setupCommand?: string } | null,
     model: string,
     contextLength?: number,
     advancedOptions?: AdvancedModelOptions,
@@ -352,6 +352,7 @@ export default function NewSession({ onSubmit }: NewSessionProps) {
           selectedProject
             ? {
                 path: selectedProject.path,
+                ...(selectedProject.icon ? { icon: selectedProject.icon } : {}),
                 ...(selectedProject.setupCommand
                   ? { setupCommand: selectedProject.setupCommand }
                   : {}),
@@ -368,6 +369,7 @@ export default function NewSession({ onSubmit }: NewSessionProps) {
           selectedProject
             ? {
                 path: selectedProject.path,
+                ...(selectedProject.icon ? { icon: selectedProject.icon } : {}),
                 ...(selectedProject.setupCommand
                   ? { setupCommand: selectedProject.setupCommand }
                   : {}),
