@@ -1,0 +1,87 @@
+name: Architecture / refactor
+description: Propose cross-cutting engineering work, refactors, or internal platform changes.
+title: "[Architecture]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this for structural work that is bigger than a local bug fix and not just a user-facing feature.
+        Emphasize system boundaries, contracts, migration risk, and planning needs.
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Primary area
+      options:
+        - Agent runtime
+        - Tools, approvals, or worktrees
+        - Persistence or artifacts
+        - Backend or Tauri
+        - Provider or model integration
+        - Build, release, or updater
+        - Cross-cutting
+        - Other
+    validations:
+      required: true
+
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Expected scope
+      options:
+        - Medium
+        - Large or cross-cutting
+        - Multi-phase
+        - Unknown
+    validations:
+      required: true
+
+  - type: dropdown
+    id: planning
+    attributes:
+      label: Planning needed
+      options:
+        - Light design
+        - Significant design or RFC
+        - Implementation spike first
+        - Unknown
+    validations:
+      required: true
+
+  - type: textarea
+    id: goal
+    attributes:
+      label: Goal
+      placeholder: Simplify the runner execution model so tool execution, subagent orchestration, and streaming share the same lifecycle and cancellation rules.
+    validations:
+      required: true
+
+  - type: textarea
+    id: current_problem
+    attributes:
+      label: Current limitation
+      description: What architectural pressure, duplication, or reliability issue makes this worth doing?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposed_direction
+    attributes:
+      label: Proposed direction
+      description: Describe the target structure in subsystem and contract terms.
+    validations:
+      required: true
+
+  - type: textarea
+    id: risks
+    attributes:
+      label: Risks and migration concerns
+      description: Backward compatibility, persisted state, rollout, testing depth, or operational risk.
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Success criteria
+      description: What has to be true for this work to be considered done?
+    validations:
+      required: true

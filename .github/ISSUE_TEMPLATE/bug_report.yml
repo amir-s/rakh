@@ -1,120 +1,109 @@
 name: Bug report
-description: Report a reproducible problem in the desktop app, agent runtime, or tooling.
+description: Report a reproducible bug with enough signal for triage by a human or agent.
 title: "[Bug]: "
 body:
   - type: markdown
     attributes:
       value: |
-        Thanks for filing a bug. Please include a minimal reproduction and any relevant logs.
-
-        Desktop logs are usually here:
-        - release builds: `~/.rakh/logs/rakh.log`
-        - `npm run tauri:dev`: `~/.rakh-dev/logs/rakh.log`
-
-  - type: checkboxes
-    id: checks
-    attributes:
-      label: Pre-flight checks
-      options:
-        - label: I searched existing issues for the same problem.
-          required: true
-        - label: I can reproduce this on the latest main branch or current release build.
-          required: true
+        Keep this focused on the failing behavior, impacted subsystem, and evidence.
+        Prefer architecture or workflow terms over file-path lists.
 
   - type: dropdown
     id: area
     attributes:
       label: Area
-      description: Pick the part of Rakh that is closest to the failure.
       options:
-        - App shell and tabs
-        - Agent runtime or subagents
-        - Tool approvals or tool execution
-        - Filesystem, git, or worktrees
-        - Artifacts, plans, or persistence
+        - UI and tabs
+        - Agent runtime
+        - Tools, approvals, or worktrees
+        - Persistence or artifacts
         - Terminal or PTY
-        - Logging or diagnostics
-        - Provider setup or model selection
-        - Tauri or Rust backend
-        - Build, packaging, or updater
+        - Backend or Tauri
+        - Provider or model integration
+        - Build, release, or updater
         - Other
+    validations:
+      required: true
+
+  - type: dropdown
+    id: impact
+    attributes:
+      label: Impact
+      options:
+        - Blocker
+        - High
+        - Medium
+        - Low
+    validations:
+      required: true
+
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Expected scope
+      description: Best guess for the size of the fix.
+      options:
+        - Small or local
+        - Medium
+        - Large or cross-cutting
+        - Unknown
+    validations:
+      required: true
+
+  - type: dropdown
+    id: planning
+    attributes:
+      label: Planning needed
+      options:
+        - None or direct fix
+        - Light investigation
+        - Design review needed
+        - Unknown
     validations:
       required: true
 
   - type: textarea
     id: summary
     attributes:
-      label: What happened?
-      description: Describe the bug in one or two sentences.
-      placeholder: Opening a second workspace tab after restoring a session crashes the desktop app.
+      label: Problem
+      placeholder: Restoring a session with multiple tabs can leave the terminal pane blank until the app is restarted.
     validations:
       required: true
 
   - type: textarea
     id: steps
     attributes:
-      label: Steps to reproduce
-      description: Provide a reliable reproduction with the smallest possible set of steps.
+      label: Reproduction
       placeholder: |
-        1. Launch the app with `npm run tauri:dev`
-        2. Restore a saved session
-        3. Open a second tab
-        4. ...
+        1. Start the desktop app
+        2. Restore a saved session with two tabs
+        3. Switch to the second tab
+        4. Observe ...
     validations:
       required: true
 
   - type: textarea
     id: expected
     attributes:
-      label: What did you expect instead?
-      placeholder: The tab should open normally and preserve the restored session state.
+      label: Expected behavior
     validations:
       required: true
-
-  - type: input
-    id: version
-    attributes:
-      label: Rakh version
-      description: App version, commit SHA, or `main` if you built from source.
-      placeholder: v0.11.0 or 1a2b3c4 on main
-    validations:
-      required: true
-
-  - type: dropdown
-    id: platform
-    attributes:
-      label: Platform
-      options:
-        - macOS
-        - Windows
-        - Linux
-        - Other
-    validations:
-      required: true
-
-  - type: input
-    id: platform_version
-    attributes:
-      label: Platform version
-      description: OS version and architecture if relevant.
-      placeholder: macOS 15.4 (Apple Silicon)
-
-  - type: input
-    id: provider
-    attributes:
-      label: Provider and model
-      description: Include the configured provider/model when the bug involves agent runs.
-      placeholder: OpenAI / gpt-5.1, Anthropic / claude-4.5-sonnet, or N/A
 
   - type: textarea
-    id: logs
+    id: architecture
     attributes:
-      label: Logs, stack traces, or screenshots
-      description: Paste the most relevant excerpts. Remove secrets before posting.
+      label: Architectural notes
+      description: Relevant subsystem boundaries, state flow, contracts, or invariants. Avoid file lists unless unavoidable.
+
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence
+      description: Logs, stack traces, screenshots, or provider/model context if relevant.
       render: shell
 
   - type: textarea
     id: context
     attributes:
-      label: Additional context
-      description: Workspace shape, repo type, reproduction frequency, or anything else that narrows the issue.
+      label: Extra context
+      description: Version, platform, reproduction frequency, or constraints.
