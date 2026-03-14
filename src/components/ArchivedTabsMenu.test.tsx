@@ -370,7 +370,9 @@ describe("ArchivedTabsMenu", () => {
         tabs: tabsContextMock.value.tabs,
       });
     });
-    expect(screen.queryByText("Archived Tabs")).toBeNull();
+    await waitFor(() => {
+      expect(screen.queryByText("Archived Tabs")).toBeNull();
+    });
   });
 
   it("collapses and expands project groups", async () => {
