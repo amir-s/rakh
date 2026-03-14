@@ -15,6 +15,7 @@ import type {
   ApiMessage,
   ConversationCard,
   ToolCallDisplay,
+  ToolErrorCode,
   ToolResult,
 } from "../types";
 import type { LogContext } from "@/logging/types";
@@ -46,6 +47,7 @@ import {
   RunAbortedError,
   serializeToolResultForModel,
 } from "./utils";
+import { executeThroughToolGateway } from "./toolGateway";
 
 function buildToolCallDisplay(
   toolCallId: string,
@@ -262,182 +264,218 @@ export async function agentLoop(
             }));
           }
 
-          if (tc.function.name === "agent_subagent_call") {
-            const saPreArgs = parseArgs(tc.function.arguments);
-            const subagentId =
-              typeof saPreArgs.subagentId === "string"
-                ? saPreArgs.subagentId
-                : "";
-            const subagentMessage =
-              typeof saPreArgs.message === "string" ? saPreArgs.message : "";
-            const subagentDef = getSubagent(subagentId);
+          const rawArgs = parseArgs(tc.function.arguments);
+          const mcpTool = mcpRuntime.toolsByName[tc.function.name];
+          const artifactizeReturnedFiles =
+            jotaiStore.get(mcpSettingsAtom)?.artifactizeReturnedFiles === true;
 
-            if (!subagentDef) {
-              updateToolCallById({
-                status: "error",
-                result: {
-                  code: "NOT_FOUND",
-                  message: `Unknown subagent "${subagentId}"`,
-                },
-              });
-              return {
-                tool_call_id: tcId,
-                result: {
-                  ok: false as const,
-                  error: {
-                    code: "NOT_FOUND" as const,
-                    message: `Unknown subagent "${subagentId}"`,
+          const result = await executeThroughToolGateway({
+            tabId,
+            runId,
+            agentId: "agent_main",
+            toolCallId: tcId,
+            toolName: tc.function.name,
+            rawArgs,
+            currentModelId: modelId,
+            contextLength: getAgentState(tabId).config.contextLength,
+            apiMessages: currentApiMessages,
+            providers,
+            providerOptions,
+            advancedOptions: advancedOpts,
+            logContext: toolLog.context,
+            updateToolCallById,
+            mcpTool,
+            syntheticExecutors: {
+              agent_subagent_call: async (args) => {
+                const subagentId =
+                  typeof args.subagentId === "string" ? args.subagentId : "";
+                const subagentMessage =
+                  typeof args.message === "string" ? args.message : "";
+                const subagentDef = getSubagent(subagentId);
+
+                if (!subagentDef) {
+                  updateToolCallById({
+                    status: "error",
+                    result: {
+                      code: "NOT_FOUND",
+                      message: `Unknown subagent "${subagentId}"`,
+                    },
+                  });
+                  return {
+                    result: {
+                      ok: false as const,
+                      error: {
+                        code: "NOT_FOUND" as const,
+                        message: `Unknown subagent "${subagentId}"`,
+                      },
+                    },
+                  };
+                }
+
+                if (subagentDef.requiresApproval) {
+                  updateToolCallById({ status: "awaiting_approval" });
+                  const approved = await requestApproval(tabId, tcId);
+                  if (!approved) {
+                    const reason = consumeApprovalReason(tabId, tcId);
+                    updateToolCallById({ status: "denied" });
+                    return {
+                      result: {
+                        ok: false as const,
+                        error: {
+                          code: "PERMISSION_DENIED" as const,
+                          message: reason ?? "Subagent call denied by user",
+                        },
+                      },
+                      finalStatus: "denied" as const,
+                    };
+                  }
+                }
+
+                updateToolCallById({ status: "running" });
+                const subagentResult = await runSubagentLoop({
+                  tabId,
+                  signal,
+                  runId,
+                  subagentDef,
+                  message: subagentMessage,
+                  parentModelId: modelId,
+                  providers,
+                  debugEnabled,
+                  logContext: toolLog.context,
+                });
+                return subagentResult.ok
+                  ? {
+                      result: {
+                        ok: true as const,
+                        data: subagentResult.data,
+                      },
+                    }
+                  : {
+                      result: {
+                        ok: false as const,
+                        error: {
+                          code: subagentResult.error.code as ToolErrorCode,
+                          message: subagentResult.error.message,
+                        },
+                      },
+                    };
+              },
+              user_input: async () => {
+                updateToolCallById({ status: "awaiting_approval" });
+                const answer = await requestUserInput(tabId, tcId);
+                if (answer === null) {
+                  updateToolCallById({ status: "denied" });
+                  return {
+                    result: {
+                      ok: false as const,
+                      error: {
+                        code: "PERMISSION_DENIED" as const,
+                        message: "User skipped the question.",
+                      },
+                    },
+                    finalStatus: "denied" as const,
+                  };
+                }
+                return {
+                  result: { ok: true as const, data: { answer } },
+                };
+              },
+              agent_card_add: async (args) => {
+                updateToolCallById({ status: "running" });
+                const preparedCard = prepareConversationCardToolCall(args);
+                if (!preparedCard.ok) {
+                  turnCardAccumulator.markSkipped(tcId);
+                  updateToolCallById({
+                    status: "error",
+                    result: preparedCard.result.error,
+                  });
+                  return { result: preparedCard.result };
+                }
+
+                turnCardAccumulator.markDone(tcId, preparedCard.data.card);
+                return {
+                  result: preparedCard.data.result,
+                };
+              },
+            },
+            mcpExecutor: async (args) => {
+              if (!mcpTool) {
+                return {
+                  result: {
+                    ok: false as const,
+                    error: {
+                      code: "INTERNAL" as const,
+                      message: `MCP executor missing registration for "${tc.function.name}"`,
+                    },
                   },
-                },
-              };
-            }
+                };
+              }
 
-            if (subagentDef.requiresApproval) {
               updateToolCallById({ status: "awaiting_approval" });
               const approved = await requestApproval(tabId, tcId);
               if (!approved) {
                 const reason = consumeApprovalReason(tabId, tcId);
                 updateToolCallById({ status: "denied" });
                 return {
-                  tool_call_id: tcId,
                   result: {
                     ok: false as const,
                     error: {
                       code: "PERMISSION_DENIED" as const,
-                      message: reason ?? "Subagent call denied by user",
+                      message: reason ?? "MCP tool call denied by user",
                     },
                   },
+                  finalStatus: "denied" as const,
                 };
               }
-            }
 
-            updateToolCallById({ status: "running" });
-            const saResult = await runSubagentLoop({
-              tabId,
-              signal,
-              runId,
-              subagentDef,
-              message: subagentMessage,
-              parentModelId: modelId,
-              providers,
-              debugEnabled,
-              logContext: toolLog.context,
-            });
+              updateToolCallById({ status: "running" });
+              try {
+                const rawMcpResult = await callMcpTool(
+                  runId,
+                  mcpTool.serverId,
+                  mcpTool.toolName,
+                  args,
+                  toolLog.context,
+                );
+                const mcpResult = await maybeArtifactizeMcpToolResult(
+                  tabId,
+                  runId,
+                  mcpTool,
+                  rawMcpResult,
+                  artifactizeReturnedFiles,
+                  toolLog.context,
+                );
 
-            updateToolCallById({
-              status: saResult.ok ? "done" : "error",
-              result: saResult.ok ? saResult.data : saResult.error,
-            });
-            return { tool_call_id: tcId, result: saResult };
-          }
+                if (mcpResult.isError) {
+                  return {
+                    result: {
+                      ok: false as const,
+                      error: {
+                        code: "INTERNAL" as const,
+                        message: extractMcpToolErrorMessage(mcpResult),
+                        details: {
+                          mcp: mcpResult,
+                          serverId: mcpTool.serverId,
+                          serverName: mcpTool.serverName,
+                          toolName: mcpTool.toolName,
+                        },
+                      },
+                    },
+                  };
+                }
 
-          if (tc.function.name === "user_input") {
-            updateToolCallById({ status: "awaiting_approval" });
-            const answer = await requestUserInput(tabId, tcId);
-            if (answer === null) {
-              updateToolCallById({ status: "denied" });
-              return {
-                tool_call_id: tcId,
-                result: {
-                  ok: false as const,
-                  error: {
-                    code: "PERMISSION_DENIED" as const,
-                    message: "User skipped the question.",
-                  },
-                },
-              };
-            }
-            updateToolCallById({ status: "done", result: { answer } });
-            return {
-              tool_call_id: tcId,
-              result: { ok: true as const, data: { answer } },
-            };
-          }
-
-          if (tc.function.name === "agent_card_add") {
-            updateToolCallById({ status: "running" });
-            const preparedCard = prepareConversationCardToolCall(
-              parseArgs(tc.function.arguments),
-            );
-            if (!preparedCard.ok) {
-              turnCardAccumulator.markSkipped(tcId);
-              updateToolCallById({
-                status: "error",
-                result: preparedCard.result.error,
-              });
-              return {
-                tool_call_id: tcId,
-                result: preparedCard.result,
-              };
-            }
-
-            updateToolCallById({
-              status: "done",
-              result: preparedCard.data.result.data,
-            });
-            turnCardAccumulator.markDone(tcId, preparedCard.data.card);
-            return {
-              tool_call_id: tcId,
-              result: preparedCard.data.result,
-              card: preparedCard.data.card,
-            };
-          }
-
-          const preArgs = parseArgs(tc.function.arguments);
-          const mcpTool = mcpRuntime.toolsByName[tc.function.name];
-          const artifactizeReturnedFiles =
-            jotaiStore.get(mcpSettingsAtom)?.artifactizeReturnedFiles === true;
-
-          if (mcpTool) {
-            updateToolCallById({ status: "awaiting_approval" });
-            const approved = await requestApproval(tabId, tcId);
-            if (!approved) {
-              const reason = consumeApprovalReason(tabId, tcId);
-              updateToolCallById({ status: "denied" });
-              return {
-                tool_call_id: tcId,
-                result: {
-                  ok: false as const,
-                  error: {
-                    code: "PERMISSION_DENIED" as const,
-                    message: reason ?? "MCP tool call denied by user",
-                  },
-                },
-              };
-            }
-
-            updateToolCallById({ status: "running" });
-            try {
-              const rawMcpResult = await callMcpTool(
-                runId,
-                mcpTool.serverId,
-                mcpTool.toolName,
-                preArgs,
-                toolLog.context,
-              );
-              const mcpResult = await maybeArtifactizeMcpToolResult(
-                tabId,
-                runId,
-                mcpTool,
-                rawMcpResult,
-                artifactizeReturnedFiles,
-                toolLog.context,
-              );
-
-              if (mcpResult.isError) {
-                updateToolCallById({
-                  status: "error",
-                  result: mcpResult,
-                });
                 return {
-                  tool_call_id: tcId,
+                  result: { ok: true as const, data: mcpResult },
+                };
+              } catch (error) {
+                const message = error instanceof Error ? error.message : String(error);
+                return {
                   result: {
                     ok: false as const,
                     error: {
                       code: "INTERNAL" as const,
-                      message: extractMcpToolErrorMessage(mcpResult),
+                      message,
                       details: {
-                        mcp: mcpResult,
                         serverId: mcpTool.serverId,
                         serverName: mcpTool.serverName,
                         toolName: mcpTool.toolName,
@@ -446,50 +484,19 @@ export async function agentLoop(
                   },
                 };
               }
-
-              updateToolCallById({
-                status: "done",
-                result: mcpResult,
-              });
-              return {
-                tool_call_id: tcId,
-                result: { ok: true as const, data: mcpResult },
-              };
-            } catch (error) {
-              const message = error instanceof Error ? error.message : String(error);
-              const toolError = {
-                code: "INTERNAL" as const,
-                message,
-                details: {
-                  serverId: mcpTool.serverId,
-                  serverName: mcpTool.serverName,
-                  toolName: mcpTool.toolName,
-                },
-              };
-              updateToolCallById({
-                status: "error",
-                result: toolError,
-              });
-              return {
-                tool_call_id: tcId,
-                result: {
-                  ok: false as const,
-                  error: toolError,
-                },
-              };
-            }
-          }
-
-          const result = await executeLocalTool({
-            tabId,
-            runId,
-            agentId: "agent_main",
-            toolCallId: tcId,
-            toolName: tc.function.name,
-            preArgs,
-            args: parseArgs(tc.function.arguments),
-            logContext: toolLog.context,
-            updateToolCallById,
+            },
+            localExecutor: async (args) =>
+              executeLocalTool({
+                tabId,
+                runId,
+                agentId: "agent_main",
+                toolCallId: tcId,
+                toolName: tc.function.name,
+                preArgs: args,
+                args,
+                logContext: toolLog.context,
+                updateToolCallById,
+              }),
           });
 
           return { tool_call_id: tcId, result };

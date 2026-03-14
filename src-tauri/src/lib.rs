@@ -7,6 +7,7 @@ pub mod logging;
 pub mod mcp;
 pub mod pty;
 pub mod shell_env;
+pub mod tool_artifacts;
 pub mod utils;
 pub mod whisper;
 
@@ -54,6 +55,10 @@ pub fn run() {
             exec::exec_run,
             exec::exec_abort,
             exec::exec_stop,
+            tool_artifacts::tool_artifact_create,
+            tool_artifacts::tool_artifact_get,
+            tool_artifacts::tool_artifact_search,
+            tool_artifacts::tool_artifact_delete,
             external_tools::open_in_editor,
             external_tools::open_shell,
             pty::spawn_pty,

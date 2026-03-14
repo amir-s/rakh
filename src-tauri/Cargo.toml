@@ -36,6 +36,7 @@ vte = "0.15.0"
 chrono = { version = "0.4", default-features = false, features = ["clock", "serde", "std"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["fmt", "json"] }
+regex = "1"
 
 [profile.release]
 panic = "abort"

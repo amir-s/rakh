@@ -12,6 +12,9 @@
 import { useAtom, useAtomValue } from "jotai";
 import { useCallback } from "react";
 import { logFrontendSoon } from "@/logging/client";
+import {
+  estimateContextUsage,
+} from "./contextUsage";
 
 import {
   agentAtomFamily,
@@ -45,54 +48,12 @@ import {
   stopAgent as _stopAgent,
   stopRunningExecToolCall as _stopRunningExecToolCall,
 } from "./runner";
-import type {
-  AgentConfig,
-  ApiMessage,
-  AttachedImage,
-  AutoApproveCommandsMode,
-} from "./types";
-
-interface ContextUsageEstimate {
-  estimatedTokens: number;
-  estimatedBytes: number;
-}
+import type { AgentConfig, AttachedImage, AutoApproveCommandsMode } from "./types";
 
 export interface ContextWindowKbUsage {
   currentKb: number;
   /** null when the model's max context size is not known */
   maxKb: number | null;
-}
-
-function estimateContextUsage(apiMessages: ApiMessage[]): ContextUsageEstimate | null {
-  if (!apiMessages.length) return null;
-
-  const totalChars = apiMessages.reduce((sum, m) => {
-    if (m.role === "system" || m.role === "user" || m.role === "tool") {
-      return sum + (m.content?.length ?? 0);
-    }
-    if (m.role === "assistant") {
-      const textLen = m.content?.length ?? 0;
-      const tcLen = m.tool_calls
-        ? m.tool_calls.reduce(
-            (s, tc) =>
-              s +
-              tc.function.name.length +
-              (typeof tc.function.arguments === "string"
-                ? tc.function.arguments.length
-                : 0),
-            0,
-          )
-        : 0;
-      return sum + textLen + tcLen;
-    }
-    return sum;
-  }, 0);
-
-  const estimatedTokens = Math.ceil(totalChars / 4);
-  return {
-    estimatedTokens,
-    estimatedBytes: estimatedTokens * 4,
-  };
 }
 
 /* ── Full atom for a tab (use when you need to write to it) ──────────────── */

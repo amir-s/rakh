@@ -23,6 +23,7 @@ type MockAgentState = {
   config: {
     cwd: string;
     model: string;
+    contextLength?: number;
     advancedOptions?: Record<string, unknown>;
     worktreePath?: string;
     worktreeBranch?: string;
@@ -69,6 +70,9 @@ const {
   callMcpToolMock,
   shutdownMcpRunMock,
   artifactCreateMock,
+  toolArtifactCreateMock,
+  toolArtifactGetMock,
+  toolArtifactSearchMock,
   switchToGitBranchMock,
   logFrontendSoonMock,
 } = vi.hoisted(() => ({
@@ -100,6 +104,9 @@ const {
   callMcpToolMock: vi.fn(),
   shutdownMcpRunMock: vi.fn(),
   artifactCreateMock: vi.fn(),
+  toolArtifactCreateMock: vi.fn(),
+  toolArtifactGetMock: vi.fn(),
+  toolArtifactSearchMock: vi.fn(),
   logFrontendSoonMock: vi.fn(),
 }));
 
@@ -158,6 +165,8 @@ vi.mock("./tools/git", () => ({
 
 vi.mock("ai", () => ({
   streamText: (...args: unknown[]) => streamTextMock(...args),
+  stepCountIs: (count: number) => count,
+  tool: (input: unknown) => input,
 }));
 
 vi.mock("@ai-sdk/openai", () => ({
@@ -266,6 +275,12 @@ vi.mock("./tools/artifacts", async () => {
     artifactCreate: (...args: unknown[]) => artifactCreateMock(...args),
   };
 });
+
+vi.mock("./tools/toolArtifacts", () => ({
+  createToolArtifact: (...args: unknown[]) => toolArtifactCreateMock(...args),
+  getToolArtifact: (...args: unknown[]) => toolArtifactGetMock(...args),
+  searchToolArtifact: (...args: unknown[]) => toolArtifactSearchMock(...args),
+}));
 
 vi.mock("@/logging/client", async () => {
   const actual = await vi.importActual<typeof import("@/logging/client")>(
@@ -416,6 +431,9 @@ describe("runner", () => {
     callMcpToolMock.mockReset();
     shutdownMcpRunMock.mockReset();
     artifactCreateMock.mockReset();
+    toolArtifactCreateMock.mockReset();
+    toolArtifactGetMock.mockReset();
+    toolArtifactSearchMock.mockReset();
     switchToGitBranchMock.mockReset();
     logFrontendSoonMock.mockReset();
     jotaiStoreMock.get.mockReset();
@@ -481,6 +499,37 @@ describe("runner", () => {
       ok: true,
       data: { artifact: makeArtifact() },
     });
+    toolArtifactCreateMock.mockResolvedValue({
+      ok: true,
+      data: {
+        artifactId: "toolart_1",
+        createdAtMs: 123,
+        sizeBytes: 0,
+        originalFormat: "json",
+        lineCount: 0,
+      },
+    });
+    toolArtifactGetMock.mockResolvedValue({
+      ok: true,
+      data: {
+        artifactId: "toolart_1",
+        originalFormat: "json",
+        content: "{}",
+        sizeBytes: 2,
+        truncated: false,
+        createdAtMs: 123,
+      },
+    });
+    toolArtifactSearchMock.mockResolvedValue({
+      ok: true,
+      data: {
+        artifactId: "toolart_1",
+        matches: [],
+        truncated: false,
+        matchCount: 0,
+        lineCount: 0,
+      },
+    });
 
     streamTextMock.mockImplementation(() => {
       const turn = turns.shift() ?? { deltas: [], toolCalls: [] };
@@ -530,6 +579,7 @@ describe("runner", () => {
       return {
         textStream,
         fullStream,
+        text: Promise.resolve(turnText),
         toolCalls: turn.toolCallsError
           ? Promise.reject(turn.toolCallsError)
           : Promise.resolve(turnToolCalls),
@@ -1315,6 +1365,168 @@ describe("runner", () => {
     expect(toolCalls[0]).toMatchObject({
       id: "tc-glob",
       tool: "workspace_glob",
+    });
+  });
+
+  it("artifactizes oversized tool results returned by local tools", async () => {
+    const tabId = "tab-huge-output";
+    setState(tabId, {
+      config: {
+        cwd: "",
+        model: "openai/gpt-5.2",
+        contextLength: 128_000,
+      },
+    });
+
+    turns.push(
+      {
+        deltas: [],
+        toolCalls: [
+          {
+            id: "tc-huge",
+            name: "workspace_search",
+            arguments: {
+              pattern: "error",
+            },
+          },
+        ],
+      },
+      { deltas: ["done"], toolCalls: [] },
+    );
+
+    dispatchToolMock.mockResolvedValue({
+      ok: true,
+      data: {
+        matches: [],
+        truncated: false,
+        searchedFiles: 1,
+        matchCount: 0,
+        blob: "x".repeat(70 * 1024),
+      },
+    });
+    toolArtifactCreateMock.mockResolvedValue({
+      ok: true,
+      data: {
+        artifactId: "toolart_large",
+        createdAtMs: 123,
+        sizeBytes: 70 * 1024,
+        originalFormat: "json",
+        lineCount: 1,
+      },
+    });
+
+    await runAgent(tabId, "find failures");
+
+    expect(dispatchToolMock).toHaveBeenCalledWith(
+      tabId,
+      "",
+      "workspace_search",
+      { pattern: "error" },
+      "tc-huge",
+      undefined,
+      expect.any(Object),
+    );
+    expect(toolArtifactCreateMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        toolCallId: "tc-huge",
+        toolName: "workspace_search",
+      }),
+      expect.any(Object),
+    );
+
+    expect(parseToolMessageResult(tabId, "tc-huge")).toEqual({
+      ok: true,
+      data: {
+        __rakhToolGateway: expect.objectContaining({
+          kind: "artifact-ref",
+          artifactId: "toolart_large",
+          originalTool: "workspace_search",
+          sizeBytes: 70 * 1024,
+          appliedPolicies: ["huge-output"],
+        }),
+      },
+    });
+  });
+
+  it("adds a summary to artifactized tool results using the parent model by default", async () => {
+    const tabId = "tab-huge-summary";
+    setState(tabId, {
+      config: {
+        cwd: "",
+        model: "openai/gpt-5.2",
+        contextLength: 128_000,
+      },
+    });
+
+    turns.push(
+      {
+        deltas: [],
+        toolCalls: [
+          {
+            id: "tc-summary",
+            name: "exec_run",
+            arguments: {
+              command: "npm",
+              args: ["test"],
+              intention: "Summarize only the failing suites",
+            },
+          },
+        ],
+      },
+      { deltas: ["Failing suites in api and auth."], toolCalls: [] },
+      { deltas: ["done"], toolCalls: [] },
+    );
+
+    dispatchToolMock.mockResolvedValue({
+      ok: true,
+      data: {
+        command: "npm",
+        args: ["test"],
+        cwd: "/repo",
+        exitCode: 1,
+        durationMs: 1000,
+        stdout: "x".repeat(80 * 1024),
+        stderr: "",
+        truncatedStdout: false,
+        truncatedStderr: false,
+      },
+    });
+    toolArtifactCreateMock.mockResolvedValue({
+      ok: true,
+      data: {
+        artifactId: "toolart_summary",
+        createdAtMs: 123,
+        sizeBytes: 80 * 1024,
+        originalFormat: "json",
+        lineCount: 1,
+      },
+    });
+
+    await runAgent(tabId, "run tests");
+
+    expect(streamTextMock).toHaveBeenCalledTimes(3);
+    const summaryCall = streamTextMock.mock.calls.find(
+      ([input]) =>
+        typeof input === "object" &&
+        input !== null &&
+        "tools" in input &&
+        typeof input.tools === "object" &&
+        input.tools !== null &&
+        "agent_tool_artifact_get" in input.tools,
+    );
+    expect(summaryCall?.[0]).toMatchObject({
+      model: { provider: "openai", modelId: "gpt-5.2" },
+    });
+    expect(parseToolMessageResult(tabId, "tc-summary")).toEqual({
+      ok: true,
+      data: {
+        __rakhToolGateway: expect.objectContaining({
+          kind: "artifact-ref",
+          artifactId: "toolart_summary",
+          appliedPolicies: ["huge-output", "summary"],
+          summary: "Failing suites in api and auth.",
+        }),
+      },
     });
   });
 

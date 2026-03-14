@@ -64,6 +64,7 @@ import {
   RunAbortedError,
   serializeToolResultForModel,
 } from "./utils";
+import { executeThroughToolGateway } from "./toolGateway";
 
 type ToolFailureResult = Extract<ToolResult<unknown>, { ok: false }>;
 
@@ -653,103 +654,109 @@ export async function runSubagentLoop(
           }));
         }
 
-        if (tc.function.name === "user_input") {
-          updateToolCallById({ status: "awaiting_approval" });
-          const answer = await requestUserInput(tabId, tcId);
-          if (answer === null) {
-            updateToolCallById({ status: "denied" });
-            return {
-              tool_call_id: tcId,
-              result: {
-                ok: false as const,
-                error: {
-                  code: "PERMISSION_DENIED" as const,
-                  message: "User skipped the question.",
-                },
-              },
-            };
-          }
-          updateToolCallById({ status: "done", result: { answer } });
-          return {
-            tool_call_id: tcId,
-            result: { ok: true as const, data: { answer } },
-          };
-        }
-
-        if (tc.function.name === "agent_card_add") {
-          updateToolCallById({ status: "running" });
-          const preparedCard = prepareConversationCardToolCall(
-            parseArgs(tc.function.arguments),
-          );
-          if (!preparedCard.ok) {
-            turnCardAccumulator.markSkipped(tcId);
-            updateToolCallById({
-              status: "error",
-              result: preparedCard.result.error,
-            });
-            return {
-              tool_call_id: tcId,
-              result: preparedCard.result,
-            };
-          }
-
-          updateToolCallById({
-            status: "done",
-            result: preparedCard.data.result.data,
-          });
-          turnCardAccumulator.markDone(tcId, preparedCard.data.card);
-          return {
-            tool_call_id: tcId,
-            result: preparedCard.data.result,
-            card: preparedCard.data.card,
-          };
-        }
-
-        const preArgs = parseArgs(tc.function.arguments);
-        const preparedArtifactCall = await prepareSubagentArtifactToolCall(
-          tc.function.name,
-          preArgs,
-        );
-        if (!preparedArtifactCall.ok) {
-          updateToolCallById({
-            status: "error",
-            result: preparedArtifactCall.result.error,
-          });
-          return { tool_call_id: tcId, result: preparedArtifactCall.result };
-        }
-
-        const toolResult = await executeLocalTool({
+        const rawArgs = parseArgs(tc.function.arguments);
+        const toolResult = await executeThroughToolGateway({
           tabId,
           runId,
           agentId: `agent_${subagentDef.id}`,
           toolCallId: tcId,
           toolName: tc.function.name,
-          preArgs,
-          args: preparedArtifactCall.data.args,
+          rawArgs,
+          currentModelId: modelId,
+          contextLength: getAgentState(tabId).config.contextLength,
+          apiMessages: localApiMessages,
+          providers,
           logContext: toolLog.context,
           updateToolCallById,
-          logEventPrefix: "runner.subagent.tool",
-          logMessageName: `${subagentDef.name} ${tc.function.name}`,
-        });
+          advancedOptions: getAgentState(tabId).config.advancedOptions,
+          syntheticExecutors: {
+            user_input: async () => {
+              updateToolCallById({ status: "awaiting_approval" });
+              const answer = await requestUserInput(tabId, tcId);
+              if (answer === null) {
+                updateToolCallById({ status: "denied" });
+                return {
+                  result: {
+                    ok: false as const,
+                    error: {
+                      code: "PERMISSION_DENIED" as const,
+                      message: "User skipped the question.",
+                    },
+                  },
+                  finalStatus: "denied" as const,
+                };
+              }
+              return {
+                result: { ok: true as const, data: { answer } },
+              };
+            },
+            agent_card_add: async (args) => {
+              updateToolCallById({ status: "running" });
+              const preparedCard = prepareConversationCardToolCall(args);
+              if (!preparedCard.ok) {
+                turnCardAccumulator.markSkipped(tcId);
+                updateToolCallById({
+                  status: "error",
+                  result: preparedCard.result.error,
+                });
+                return { result: preparedCard.result };
+              }
 
-        if (
-          toolResult.ok &&
-          preparedArtifactCall.data.spec &&
-          (tc.function.name === "agent_artifact_create" ||
-            tc.function.name === "agent_artifact_version")
-        ) {
-          const d = toolResult.data as Record<string, unknown>;
-          if (d.artifact && typeof d.artifact === "object") {
-            const artifact = d.artifact as ArtifactManifest;
-            collectedArtifacts.push(artifact);
-            if (preparedArtifactCall.data.validation) {
-              artifactValidations.push({
-                ...preparedArtifactCall.data.validation,
-                artifactId: artifact.artifactId,
+              turnCardAccumulator.markDone(tcId, preparedCard.data.card);
+              return {
+                result: preparedCard.data.result,
+              };
+            },
+          },
+          localExecutor: async (args) => {
+            const preparedArtifactCall = await prepareSubagentArtifactToolCall(
+              tc.function.name,
+              args,
+            );
+            if (!preparedArtifactCall.ok) {
+              updateToolCallById({
+                status: "error",
+                result: preparedArtifactCall.result.error,
               });
+              return { result: preparedArtifactCall.result };
             }
-          }
-        }
+
+            const executed = await executeLocalTool({
+              tabId,
+              runId,
+              agentId: `agent_${subagentDef.id}`,
+              toolCallId: tcId,
+              toolName: tc.function.name,
+              preArgs: args,
+              args: preparedArtifactCall.data.args,
+              logContext: toolLog.context,
+              updateToolCallById,
+              logEventPrefix: "runner.subagent.tool",
+              logMessageName: `${subagentDef.name} ${tc.function.name}`,
+            });
+
+            if (
+              executed.result.ok &&
+              preparedArtifactCall.data.spec &&
+              (tc.function.name === "agent_artifact_create" ||
+                tc.function.name === "agent_artifact_version")
+            ) {
+              const data = executed.result.data as Record<string, unknown>;
+              if (data.artifact && typeof data.artifact === "object") {
+                const artifact = data.artifact as ArtifactManifest;
+                collectedArtifacts.push(artifact);
+                if (preparedArtifactCall.data.validation) {
+                  artifactValidations.push({
+                    ...preparedArtifactCall.data.validation,
+                    artifactId: artifact.artifactId,
+                  });
+                }
+              }
+            }
+
+            return executed;
+          },
+        });
 
         return { tool_call_id: tcId, result: toolResult };
       }),

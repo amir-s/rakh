@@ -1,5 +1,6 @@
 import type { ModelMessage } from "ai";
 
+import { getToolGatewayArtifactRefFromToolResult } from "../toolGateway";
 import type { ApiMessage, ApiToolCall } from "../types";
 import type { SearchFilesOutput } from "@/agent/tools/workspace";
 
@@ -252,6 +253,10 @@ export function serializeToolResultForModel(
   toolCalls: ApiToolCall[],
   result: unknown,
 ): string {
+  if (getToolGatewayArtifactRefFromToolResult(result)) {
+    return JSON.stringify(result);
+  }
+
   const tc = toolCalls.find((t) => t.id === toolCallId);
   const toolName = tc?.function.name;
 

@@ -4,6 +4,7 @@ import {
   agentAtomFamily,
   agentSessionPersistenceAtomFamily,
 } from "@/agent/atoms";
+import { estimateContextWindowPct } from "@/agent/contextUsage";
 import { getModelCatalogEntry } from "@/agent/modelCatalog";
 import { getAllSubagents } from "@/agent/subagents";
 import { buildSessionPersistenceSignature } from "@/agent/persistence";
@@ -21,42 +22,6 @@ const INLINE_IMAGE_DATA_MAX_CHARS = 256;
 const LONG_MESSAGE_MAX_CHARS = 6000;
 const LONG_MESSAGE_HEAD_CHARS = 2500;
 const LONG_MESSAGE_TAIL_CHARS = 1200;
-
-function estimateContextWindowPct(
-  apiMessages: ApiMessage[],
-  contextLength?: number,
-): number | null {
-  if (!apiMessages.length || !contextLength) return null;
-
-  const totalChars = apiMessages.reduce((sum, message) => {
-    if (
-      message.role === "system" ||
-      message.role === "user" ||
-      message.role === "tool"
-    ) {
-      return sum + (message.content?.length ?? 0);
-    }
-    if (message.role === "assistant") {
-      const textLength = message.content?.length ?? 0;
-      const toolCallLength = message.tool_calls
-        ? message.tool_calls.reduce(
-            (acc, toolCall) =>
-              acc +
-              toolCall.function.name.length +
-              (typeof toolCall.function.arguments === "string"
-                ? toolCall.function.arguments.length
-                : 0),
-            0,
-          )
-        : 0;
-      return sum + textLength + toolCallLength;
-    }
-    return sum;
-  }, 0);
-
-  const estimatedTokens = Math.ceil(totalChars / 4);
-  return Math.min(100, (estimatedTokens / contextLength) * 100);
-}
 
 function formatSavedAt(ms: number | null): string | null {
   if (ms == null) return null;
