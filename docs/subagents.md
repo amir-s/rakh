@@ -248,6 +248,8 @@ bubble in the parent tab.
 - Produces one required markdown artifact
 - `artifactType: "plan"`
 - No schema validator
+- Does not receive any `agent_todo_*` tools
+- The main agent owns todo creation, note capture, and todo state transitions
 
 ### Reviewer
 

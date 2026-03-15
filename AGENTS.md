@@ -1,11 +1,13 @@
 Rakh is a Tauri desktop application that embeds a React/Vite frontend and a
 Rust backend. The agent runtime uses the Vercel AI SDK, per-tab Jotai state,
-and a Tauri command layer for filesystem, shell, git, terminal, voice, and
-SQLite-backed persistence.
+and a Tauri command layer for filesystem, shell, git, terminal, voice,
+SQLite-backed session/artifact persistence, and JSON-backed todo storage.
 
 ## Canonical docs
 
+- `docs/architecture.md` - system overview, runtime flow, and code map
 - `docs/artifacts.md` - durable artifact model and validation flow
+- `docs/context-gateway.md` - ContextGateway policies, todo normalization, and API compaction
 - `docs/subagents.md` - subagent registry, contracts, and execution model
 - `src/DESIGN_SYSTEM.md` - UI primitives and token rules
 - `src/THEMING.md` - theme/token implementation notes
@@ -55,12 +57,14 @@ cd src-tauri && cargo test
 ### Agent runtime
 
 - `src/agent/atoms.ts` - shared Jotai store and per-tab atom families
+- `src/agent/contextGateway.ts` - gateway config defaults and policy contracts for pre-turn context handling
+- `src/agent/mutationPolicy.ts` - tracked-mutation metadata validation and todo linkage rules
 - `src/agent/useAgents.ts` - React hooks over per-tab agent state and actions
 - `src/agent/runner.ts` - public runner facade: queue/run lifecycle,
   retry/stop helpers, and compatibility exports
 - `src/agent/runner/*` - extracted runner internals: main/subagent loops,
   shared streaming/tool execution helpers, prompts, logging, MCP/worktree
-  helpers, and leaf unit tests
+  helpers, ContextGateway/ToolGateway policies, and leaf unit tests
 - `src/agent/types.ts` - shared API/tool/state types
 - `src/agent/persistence.ts` - frontend session snapshotting and restore helpers
 - `src/agent/subagents/*` - built-in subagents and artifact contracts
@@ -73,7 +77,8 @@ cd src-tauri && cargo test
   worktrees through the backend `git_worktree_add` command
 - `src/agent/tools/artifacts.ts` - durable artifact wrappers plus artifact
   change event subscription helpers
-- `src/agent/tools/agentControl.ts` - title and todo tools
+- `src/agent/tools/agentControl.ts` - title and agent control tools
+- `src/agent/tools/todos.ts` - JSON-backed todo store wrappers and context-enrichment helpers
 - `src/agent/tools/definitions.ts` - tool schemas exposed to the model
 - `src/agent/tools/index.ts` - central dispatch for non-intercepted tools
 
@@ -101,6 +106,7 @@ the backend modules:
 - `src-tauri/src/exec.rs` - non-interactive command execution plus abort/stop
 - `src-tauri/src/pty.rs` - PTY lifecycle for the integrated terminal
 - `src-tauri/src/git.rs` - worktree creation
+- `src-tauri/src/todos.rs` - JSON-backed session todo store, mutation tracking, and ContextGateway enrichment
 - `src-tauri/src/whisper.rs` - Whisper model prep and WAV transcription
 - `src-tauri/src/shell_env.rs` / `src-tauri/src/utils.rs` - shared helpers
 
@@ -111,13 +117,23 @@ Important persisted fields include config, chat/API history, plan, todos,
 review edits, tab title, worktree metadata, advanced model options, and debug
 state.
 
+`chatMessages` and `apiMessages` now serve different purposes:
+
+- `chatMessages` are the durable visible transcript shown in the workspace UI
+- `apiMessages` are the live model-facing history and may be compacted or
+  replaced by ContextGateway policies when context pressure is high
+
 Storage locations:
 
 - providers: IndexedDB (`rakh-providers`)
 - sessions and artifact manifests: `~/.rakh/sessions/sessions.db`
+- session todos: `~/.rakh/sessions/todos/<sessionId>.json`
 - artifact blobs: `~/.rakh/artifacts/blobs/sha256`
 - agent-created worktrees: `~/.rakh/worktrees/<owner>/<repo>/<branch>`
 - UI preferences such as theme and selected model: localStorage
+
+The session DB still carries a legacy `todos` field for compatibility, but the
+JSON file is the source of truth for todos.
 
 `App.tsx` restores non-archived sessions on startup. `AutoSaveManager` persists
 workspace tabs when they settle (`idle`, `done`, `error`) and archives closed
