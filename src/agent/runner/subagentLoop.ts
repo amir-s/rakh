@@ -581,9 +581,15 @@ export async function runSubagentLoop(
     if (signal.aborted) break;
     turns++;
 
-    const activeTodo = getAgentState(tabId).todos.find((todo) => todo.state === "doing");
+    const stateBeforeTurn = getAgentState(tabId);
+    const activeTodo = stateBeforeTurn.todos.find((todo) => todo.state === "doing");
     const contextGateway = await executeThroughContextGateway({
       messages: localApiMessages,
+      plan: stateBeforeTurn.plan,
+      todos: stateBeforeTurn.todos,
+      providers,
+      advancedOptions: stateBeforeTurn.config.advancedOptions,
+      logContext: subagentContext,
       stateSnapshot: {
         tabId,
         runId,
@@ -591,9 +597,19 @@ export async function runSubagentLoop(
         modelId,
         currentTurn,
         messageCount: localApiMessages.length,
+        ...(stateBeforeTurn.config.contextLength
+          ? { contextLength: stateBeforeTurn.config.contextLength }
+          : {}),
         ...(activeTodo ? { activeTodoId: activeTodo.id } : {}),
       },
     });
+    if (contextGateway.replacementApiMessages) {
+      localApiMessages.splice(
+        0,
+        localApiMessages.length,
+        ...contextGateway.replacementApiMessages,
+      );
+    }
 
     const streamed = await streamTurn({
       tabId,

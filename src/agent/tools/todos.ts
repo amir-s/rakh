@@ -62,6 +62,21 @@ export interface TodoMutationTrackingInput {
   paths: string[];
 }
 
+export interface TodoContextEnrichmentTodoUpdateInput {
+  todoId: string;
+  verifyThingsLearnedNoteIds?: string[];
+  verifyCriticalInfoNoteIds?: string[];
+  appendThingsLearned?: string[];
+  appendCriticalInfo?: string[];
+  removeDuplicateThingsLearnedNoteIds?: string[];
+  removeDuplicateCriticalInfoNoteIds?: string[];
+}
+
+export interface TodoContextEnrichmentInput {
+  turn: number;
+  updates: TodoContextEnrichmentTodoUpdateInput[];
+}
+
 function isTauriRuntime(): boolean {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 }
@@ -272,4 +287,20 @@ export async function recordTodoMutation(
 
 export function resolveTodoOwner(agentId: string): TodoOwner {
   return ownerFromAgentId(agentId);
+}
+
+export async function applyTodoContextEnrichment(
+  tabId: string,
+  input: TodoContextEnrichmentInput,
+): Promise<ToolResult<{ items: TodoItem[] }>> {
+  try {
+    const response = await invoke<TodoMutationResponse>("todo_store_context_enrich", {
+      sessionId: tabId,
+      input,
+    });
+    syncTodos(tabId, response.items);
+    return { ok: true, data: { items: response.items } };
+  } catch (err) {
+    return { ok: false, error: parseInvokeError(err) };
+  }
 }

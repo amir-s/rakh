@@ -7,8 +7,8 @@ pub mod logging;
 pub mod mcp;
 pub mod pty;
 pub mod shell_env;
-pub mod tool_artifacts;
 pub mod todos;
+pub mod tool_artifacts;
 pub mod utils;
 pub mod whisper;
 
@@ -67,6 +67,7 @@ pub fn run() {
             todos::todo_store_remove,
             todos::todo_store_note_add,
             todos::todo_store_record_mutation,
+            todos::todo_store_context_enrich,
             todos::todo_store_get_path,
             external_tools::open_in_editor,
             external_tools::open_shell,

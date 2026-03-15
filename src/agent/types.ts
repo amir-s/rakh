@@ -97,7 +97,7 @@ export interface AgentPlan {
 
 export type TodoStatus = "todo" | "doing" | "done" | "blocked";
 export type TodoOwner = "main" | string;
-export type TodoNoteSource = "agent";
+export type TodoNoteSource = "agent" | "context_gateway";
 export type MutationIntent =
   | "exploration"
   | "implementation"

@@ -12,6 +12,7 @@ use uuid::Uuid;
 
 const TODO_STATES: [&str; 4] = ["todo", "doing", "blocked", "done"];
 const TODO_NOTE_KINDS: [&str; 2] = ["learned", "critical"];
+const TODO_NOTE_SOURCES: [&str; 2] = ["agent", "context_gateway"];
 const MUTATION_INTENTS: [&str; 10] = [
     "exploration",
     "implementation",
@@ -137,6 +138,32 @@ pub struct TodoRecordMutationInput {
     pub paths: Vec<String>,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TodoContextEnrichmentTodoUpdateInput {
+    pub todo_id: String,
+    #[serde(default)]
+    pub verify_things_learned_note_ids: Vec<String>,
+    #[serde(default)]
+    pub verify_critical_info_note_ids: Vec<String>,
+    #[serde(default)]
+    pub append_things_learned: Vec<String>,
+    #[serde(default)]
+    pub append_critical_info: Vec<String>,
+    #[serde(default)]
+    pub remove_duplicate_things_learned_note_ids: Vec<String>,
+    #[serde(default)]
+    pub remove_duplicate_critical_info_note_ids: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TodoContextEnrichmentInput {
+    pub turn: i64,
+    #[serde(default)]
+    pub updates: Vec<TodoContextEnrichmentTodoUpdateInput>,
+}
+
 fn todo_store_root() -> Result<PathBuf, String> {
     Ok(app_store_root()?.join("sessions").join("todos"))
 }
@@ -172,7 +199,10 @@ fn new_short_id() -> String {
 fn normalize_required_text(value: &str, field_name: &str) -> Result<String, String> {
     let normalized = value.trim();
     if normalized.is_empty() {
-        return Err(format!("INVALID_ARGUMENT: {} must not be empty", field_name));
+        return Err(format!(
+            "INVALID_ARGUMENT: {} must not be empty",
+            field_name
+        ));
     }
     Ok(normalized.to_string())
 }
@@ -220,6 +250,108 @@ fn normalize_paths(paths: &[String]) -> Result<Vec<String>, String> {
     Ok(out)
 }
 
+fn normalize_note_match_key(text: &str) -> String {
+    let collapsed = text.trim().split_whitespace().collect::<Vec<_>>().join(" ");
+    collapsed
+        .to_lowercase()
+        .trim_end_matches(|c| matches!(c, '.' | '!' | '?'))
+        .to_string()
+}
+
+fn notes_are_duplicates(left: &str, right: &str) -> bool {
+    left == right || normalize_note_match_key(left) == normalize_note_match_key(right)
+}
+
+fn dedupe_string_ids(ids: &[String], field_name: &str) -> Result<Vec<String>, String> {
+    let mut seen = HashSet::new();
+    let mut out = Vec::new();
+    for id in ids {
+        let normalized = normalize_required_text(id, field_name)?;
+        if seen.insert(normalized.clone()) {
+            out.push(normalized);
+        }
+    }
+    Ok(out)
+}
+
+fn apply_note_enrichment(
+    notes: &mut Vec<TodoNoteItem>,
+    verify_ids: &[String],
+    append_texts: &[String],
+    remove_duplicate_ids: &[String],
+    note_bucket: &str,
+    turn: i64,
+) -> Result<bool, String> {
+    let verify_ids = dedupe_string_ids(verify_ids, &format!("{}.verifyIds", note_bucket))?;
+    let remove_duplicate_ids = dedupe_string_ids(
+        remove_duplicate_ids,
+        &format!("{}.removeDuplicateIds", note_bucket),
+    )?;
+
+    let mut changed = false;
+
+    for note_id in &verify_ids {
+        let index = notes
+            .iter()
+            .position(|note| note.id == *note_id)
+            .ok_or_else(|| format!("NOT_FOUND: Note {} not found in {}", note_id, note_bucket))?;
+        if !notes[index].verified {
+            notes[index].verified = true;
+            changed = true;
+        }
+    }
+
+    let mut removal_indexes = Vec::new();
+    for note_id in &remove_duplicate_ids {
+        let index = notes
+            .iter()
+            .position(|note| note.id == *note_id)
+            .ok_or_else(|| format!("NOT_FOUND: Note {} not found in {}", note_id, note_bucket))?;
+        let note_text = notes[index].text.clone();
+        let has_earlier_duplicate = notes
+            .iter()
+            .take(index)
+            .any(|existing| notes_are_duplicates(existing.text.as_str(), note_text.as_str()));
+        if !has_earlier_duplicate {
+            return Err(format!(
+                "INVALID_ARGUMENT: Note {} in {} is not a later exact/near-exact duplicate",
+                note_id, note_bucket
+            ));
+        }
+        removal_indexes.push(index);
+    }
+
+    removal_indexes.sort_unstable();
+    removal_indexes.dedup();
+    for index in removal_indexes.into_iter().rev() {
+        notes.remove(index);
+        changed = true;
+    }
+
+    for text in append_texts {
+        let normalized_text =
+            normalize_required_text(text, &format!("{}.appendText", note_bucket))?;
+        if notes
+            .iter()
+            .any(|existing| notes_are_duplicates(existing.text.as_str(), normalized_text.as_str()))
+        {
+            continue;
+        }
+        let source = validate_choice("context_gateway", &TODO_NOTE_SOURCES, "source")?;
+        notes.push(TodoNoteItem {
+            id: new_short_id(),
+            text: normalized_text,
+            added_turn: turn,
+            author: "context_gateway".to_string(),
+            source,
+            verified: true,
+        });
+        changed = true;
+    }
+
+    Ok(changed)
+}
+
 fn load_todos_from_disk(path: &Path) -> Vec<TodoItem> {
     let Ok(raw) = fs::read_to_string(path) else {
         return Vec::new();
@@ -265,7 +397,11 @@ fn active_todo_index(items: &[TodoItem]) -> Result<usize, String> {
     }
 }
 
-fn enforce_single_doing(items: &[TodoItem], candidate_id: &str, next_state: &str) -> Result<(), String> {
+fn enforce_single_doing(
+    items: &[TodoItem],
+    candidate_id: &str,
+    next_state: &str,
+) -> Result<(), String> {
     if next_state != "doing" {
         return Ok(());
     }
@@ -284,7 +420,8 @@ fn emit_todo_changed(app_handle: &AppHandle, payload: &TodoChangeEvent) {
 
 fn session_lock(state: &State<'_, AppState>, session_id: &str) -> Arc<Mutex<()>> {
     let mut locks = state.todo_locks.lock().unwrap();
-    locks.entry(session_id.to_string())
+    locks
+        .entry(session_id.to_string())
         .or_insert_with(|| Arc::new(Mutex::new(())))
         .clone()
 }
@@ -303,7 +440,11 @@ fn mutate_todos<R>(
     Ok(result)
 }
 
-fn build_response(items: &[TodoItem], item: Option<&TodoItem>, removed: bool) -> TodoMutationResponse {
+fn build_response(
+    items: &[TodoItem],
+    item: Option<&TodoItem>,
+    removed: bool,
+) -> TodoMutationResponse {
     TodoMutationResponse {
         items: items.to_vec(),
         item: item.cloned(),
@@ -312,9 +453,16 @@ fn build_response(items: &[TodoItem], item: Option<&TodoItem>, removed: bool) ->
 }
 
 #[tauri::command]
-pub fn todo_store_load(session_id: String, state: State<'_, AppState>) -> Result<Vec<TodoItem>, String> {
+pub fn todo_store_load(
+    session_id: String,
+    state: State<'_, AppState>,
+) -> Result<Vec<TodoItem>, String> {
     let start = Instant::now();
-    tool_log("todo_store_load", "start", json!({ "sessionId": session_id }));
+    tool_log(
+        "todo_store_load",
+        "start",
+        json!({ "sessionId": session_id }),
+    );
     let result = (|| {
         let lock = session_lock(&state, &session_id);
         let _guard = lock.lock().unwrap();
@@ -337,7 +485,10 @@ pub fn todo_store_load(session_id: String, state: State<'_, AppState>) -> Result
 }
 
 #[tauri::command]
-pub fn todo_store_get_path(session_id: String, state: State<'_, AppState>) -> Result<String, String> {
+pub fn todo_store_get_path(
+    session_id: String,
+    state: State<'_, AppState>,
+) -> Result<String, String> {
     let lock = session_lock(&state, &session_id);
     let _guard = lock.lock().unwrap();
     let path = todo_file_path(&session_id)?;
@@ -355,7 +506,11 @@ pub fn todo_store_add(
     state: State<'_, AppState>,
 ) -> Result<TodoMutationResponse, String> {
     let start = Instant::now();
-    tool_log("todo_store_add", "start", json!({ "sessionId": session_id }));
+    tool_log(
+        "todo_store_add",
+        "start",
+        json!({ "sessionId": session_id }),
+    );
     let result = mutate_todos(&session_id, &state, |items| {
         let title = normalize_required_text(&input.title, "title")?;
         let owner = normalize_required_text(&input.owner, "owner")?;
@@ -410,7 +565,11 @@ pub fn todo_store_update(
     state: State<'_, AppState>,
 ) -> Result<TodoMutationResponse, String> {
     let start = Instant::now();
-    tool_log("todo_store_update", "start", json!({ "sessionId": session_id, "todoId": input.id }));
+    tool_log(
+        "todo_store_update",
+        "start",
+        json!({ "sessionId": session_id, "todoId": input.id }),
+    );
     let result = mutate_todos(&session_id, &state, |items| {
         normalize_required_text(&input.owner, "owner")?;
         let index = items
@@ -440,8 +599,7 @@ pub fn todo_store_update(
 
         if transitioning_to_done && completion_note.is_none() {
             return Err(
-                "INVALID_ARGUMENT: completionNote is required when marking a todo done"
-                    .to_string(),
+                "INVALID_ARGUMENT: completionNote is required when marking a todo done".to_string(),
             );
         }
 
@@ -529,7 +687,8 @@ pub fn todo_store_note_add(
         let text = normalize_required_text(&input.text, "text")?;
         let author = normalize_required_text(&input.author, "author")?;
         let index = if let Some(todo_id) = input.todo_id.as_deref() {
-            items.iter()
+            items
+                .iter()
                 .position(|item| item.id == todo_id)
                 .ok_or_else(|| format!("NOT_FOUND: Todo {} not found", todo_id))?
         } else {
@@ -617,6 +776,97 @@ pub fn todo_store_record_mutation(
     result
 }
 
+#[tauri::command]
+pub fn todo_store_context_enrich(
+    session_id: String,
+    input: TodoContextEnrichmentInput,
+    app_handle: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<TodoMutationResponse, String> {
+    let start = Instant::now();
+    tool_log(
+        "todo_store_context_enrich",
+        "start",
+        json!({ "sessionId": session_id, "updateCount": input.updates.len() }),
+    );
+    let result = mutate_todos(&session_id, &state, |items| {
+        let mut seen_todo_ids = HashSet::new();
+        let mut touched_ids = HashSet::new();
+
+        for update in &input.updates {
+            let todo_id = normalize_required_text(&update.todo_id, "todoId")?;
+            if !seen_todo_ids.insert(todo_id.clone()) {
+                return Err(format!(
+                    "INVALID_ARGUMENT: duplicate todoId {} in context enrichment",
+                    todo_id
+                ));
+            }
+
+            let index = items
+                .iter()
+                .position(|item| item.id == todo_id)
+                .ok_or_else(|| format!("NOT_FOUND: Todo {} not found", todo_id))?;
+            let item = items.get_mut(index).unwrap();
+
+            let learned_changed = apply_note_enrichment(
+                &mut item.things_learned,
+                &update.verify_things_learned_note_ids,
+                &update.append_things_learned,
+                &update.remove_duplicate_things_learned_note_ids,
+                "thingsLearned",
+                input.turn,
+            )?;
+            let critical_changed = apply_note_enrichment(
+                &mut item.critical_info,
+                &update.verify_critical_info_note_ids,
+                &update.append_critical_info,
+                &update.remove_duplicate_critical_info_note_ids,
+                "criticalInfo",
+                input.turn,
+            )?;
+
+            if learned_changed || critical_changed {
+                item.last_touched_turn = input.turn;
+                touched_ids.insert(item.id.clone());
+            }
+        }
+
+        Ok(build_response(items, None, !touched_ids.is_empty()))
+    });
+
+    match &result {
+        Ok(response) => {
+            if response.removed {
+                emit_todo_changed(
+                    &app_handle,
+                    &TodoChangeEvent {
+                        session_id: session_id.clone(),
+                        todo_id: None,
+                        change: "context_enriched".to_string(),
+                        changed_at: now_ms(),
+                    },
+                );
+            }
+            tool_log(
+                "todo_store_context_enrich",
+                "ok",
+                json!({
+                    "sessionId": session_id,
+                    "changed": response.removed,
+                    "durationMs": start.elapsed().as_millis() as u64
+                }),
+            );
+        }
+        Err(error) => tool_log(
+            "todo_store_context_enrich",
+            "err",
+            json!({ "sessionId": session_id, "error": error, "durationMs": start.elapsed().as_millis() as u64 }),
+        ),
+    }
+
+    result
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -635,6 +885,17 @@ mod tests {
             critical_info: Vec::new(),
             mutation_log: Vec::new(),
             completion_note: None,
+        }
+    }
+
+    fn make_note(id: &str, text: &str, verified: bool) -> TodoNoteItem {
+        TodoNoteItem {
+            id: id.to_string(),
+            text: text.to_string(),
+            added_turn: 1,
+            author: "main".to_string(),
+            source: "agent".to_string(),
+            verified,
         }
     }
 
@@ -708,5 +969,57 @@ mod tests {
                 "src/agent/runner.ts".to_string()
             ]
         );
+    }
+
+    #[test]
+    fn test_apply_note_enrichment_verifies_appends_and_dedupes_near_exact_duplicates() {
+        let mut notes = vec![
+            make_note("note-1", "Preserve the leading system prompt.", false),
+            make_note("note-2", "  preserve   the leading system prompt! ", false),
+        ];
+
+        let changed = apply_note_enrichment(
+            &mut notes,
+            &vec!["note-1".to_string()],
+            &vec![
+                "The compactor replaces apiMessages but keeps chatMessages.".to_string(),
+                "the compactor replaces apiMessages but keeps chatMessages!".to_string(),
+            ],
+            &vec!["note-2".to_string()],
+            "thingsLearned",
+            7,
+        )
+        .unwrap();
+
+        assert!(changed);
+        assert_eq!(notes.len(), 2);
+        assert!(notes[0].verified);
+        assert_eq!(notes[1].source, "context_gateway".to_string());
+        assert!(notes[1].verified);
+        assert_eq!(
+            notes[1].text,
+            "The compactor replaces apiMessages but keeps chatMessages."
+        );
+    }
+
+    #[test]
+    fn test_apply_note_enrichment_rejects_non_duplicate_removal() {
+        let mut notes = vec![
+            make_note("note-1", "First fact", false),
+            make_note("note-2", "Second fact", false),
+        ];
+
+        let error = apply_note_enrichment(
+            &mut notes,
+            &Vec::new(),
+            &Vec::new(),
+            &vec!["note-2".to_string()],
+            "criticalInfo",
+            7,
+        )
+        .unwrap_err();
+
+        assert!(error.contains("not a later exact/near-exact duplicate"));
+        assert_eq!(notes.len(), 2);
     }
 }
