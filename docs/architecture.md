@@ -4,6 +4,7 @@
 
 - [`docs/architecture.md`](./architecture.md): system overview, runtime flow, and code map
 - [`docs/artifacts.md`](./artifacts.md): durable artifact model and validation flow
+- [`docs/context-gateway.md`](./context-gateway.md): pre-turn context policies, todo normalization, and API compaction
 - [`docs/logging.md`](./logging.md): structured log schema, storage, and query/export APIs
 - [`docs/subagents.md`](./subagents.md): subagent registry, contracts, and execution model
 
@@ -15,7 +16,9 @@ Jotai state, its own chat history, and its own agent run loop.
 
 The agent runtime uses the Vercel AI SDK for streaming model output, tool
 calling, subagent delegation, MCP-backed dynamic tool registration, and
-approval-driven execution against the local workspace.
+approval-driven execution against the local workspace. Session/artifact
+persistence stays in SQLite, while session todos now live in a separate
+JSON-backed store so ContextGateway can treat them as durable working memory.
 
 ```mermaid
 graph TB
@@ -82,13 +85,19 @@ between React and the non-React runner. The important pattern is
 - status and error state
 - config (`cwd`, model, worktree metadata, advanced options)
 - rendered chat messages
-- full API message history
+- live API message history used for the next model call
 - plan and todos
 - review diff snapshots
 - debug and auto-approval flags
 
 The shared `jotaiStore` lets the runner mutate atom state outside React while
 components subscribe with fine-grained derived atoms from `useAgents.ts`.
+
+`chatMessages` and `apiMessages` intentionally diverge:
+
+- `chatMessages` remain the durable user-visible transcript
+- `apiMessages` are runtime working memory and may be compacted or replaced by
+  ContextGateway policies without rewriting the visible conversation
 
 ## Agent runtime
 
@@ -237,6 +246,39 @@ settings yet.
   flight, the affected tool call shows its own spinner and hover hint instead
   of changing the entire tab status.
 
+### ContextGateway, todo normalization, and API compaction
+
+ContextGateway is the pre-turn boundary that decides what API message history
+the next model call should see. The entrypoints are:
+
+- [`src/agent/contextGateway.ts`](../src/agent/contextGateway.ts)
+- [`src/agent/runner/contextGateway.ts`](../src/agent/runner/contextGateway.ts)
+
+Current behavior:
+
+- every main-agent and subagent turn passes through the gateway before
+  `streamTurn()`
+- the v1 policy foundation introduced JSON-backed todos with tracked mutation
+  history
+- the v2 `todoNormalization` policy triggers only for the main agent when
+  estimated context usage crosses the configured threshold
+- on success, the gateway enriches todo notes, preserves the leading system
+  prompt, replaces only `apiMessages`, and leaves `chatMessages` untouched
+
+Todo state is now persisted outside the session DB in
+`~/.rakh/sessions/todos/<sessionId>.json` (or `~/.rakh-dev/...` in debug
+builds). The session row still carries a legacy `todos` field for compatibility
+only.
+
+Todo normalization is intentionally constrained. The policy may:
+
+- append `thingsLearned` or `criticalInfo` notes
+- mark notes verified
+- remove exact or near-exact duplicate notes
+
+It may not rewrite todo identity or lifecycle fields. Full policy details live
+in [`docs/context-gateway.md`](./context-gateway.md).
+
 ### Subagents and artifacts
 
 Subagents are registered in
@@ -268,6 +310,8 @@ Current backend modules:
 - [`src-tauri/src/pty.rs`](../src-tauri/src/pty.rs): interactive terminal PTY
   lifecycle used by the xterm.js terminal
 - [`src-tauri/src/git.rs`](../src-tauri/src/git.rs): worktree creation command
+- [`src-tauri/src/todos.rs`](../src-tauri/src/todos.rs): JSON-backed todo
+  store, tracked mutation history, and ContextGateway enrichment helpers
 - [`src-tauri/src/logging.rs`](../src-tauri/src/logging.rs): JSONL log store,
   rotation, query/export/clear commands, and `log_entry` event emission
 - [`src-tauri/src/mcp.rs`](../src-tauri/src/mcp.rs): global MCP config
@@ -297,6 +341,8 @@ Rakh persists data in multiple places by design:
   or `~/.rakh-dev/config/mcp_servers.json`
 - release sessions and artifact manifests: `~/.rakh/sessions/sessions.db`
 - debug/dev sessions and artifact manifests: `~/.rakh-dev/sessions/sessions.db`
+- release todo files: `~/.rakh/sessions/todos/<sessionId>.json`
+- debug/dev todo files: `~/.rakh-dev/sessions/todos/<sessionId>.json`
 - release artifact content blobs: `~/.rakh/artifacts/blobs/sha256`
 - debug/dev artifact content blobs: `~/.rakh-dev/artifacts/blobs/sha256`
 - release git worktrees created by the agent: `~/.rakh/worktrees/<owner>/<repo>/<branch>`
@@ -312,6 +358,14 @@ Session persistence is front-to-back:
   [`src-tauri/src/db.rs`](../src-tauri/src/db.rs)
 - `App.tsx` restores it on startup and rehydrates the matching Jotai atoms
 
+Todo persistence is a parallel path:
+
+- the backend todo store in [`src-tauri/src/todos.rs`](../src-tauri/src/todos.rs)
+  is the source of truth
+- the frontend hydrates todo state from that JSON store during session restore
+- the SQLite session row keeps a legacy serialized `todos` field only for
+  compatibility
+
 Closed workspace tabs are archived, not deleted, unless the session is still
 empty.
 
@@ -324,7 +378,7 @@ Top-level folders worth knowing:
 - `src/agent/`: runner, atoms, persistence, providers, models, tools, subagents
 - `src/styles/`: tokens, themes, layout, and component styles
 - `src-tauri/src/`: Rust commands and platform integration
-- `docs/`: architecture, artifact, and subagent documentation
+- `docs/`: architecture, artifact, context-gateway, logging, and subagent documentation
 
 ## Testing map
 
