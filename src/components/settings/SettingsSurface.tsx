@@ -2814,40 +2814,10 @@ function DeveloperSection({
 }: {
   controller: SettingsControllerValue;
 }) {
-  const [gatewayPolicyDraft, setGatewayPolicyDraft] = useState(() =>
-    JSON.stringify(controller.gatewayPolicySettings, null, 2),
-  );
-  const [gatewayPolicyError, setGatewayPolicyError] = useState<string | null>(
-    null,
-  );
-
-  useEffect(() => {
-    setGatewayPolicyDraft(
-      JSON.stringify(controller.gatewayPolicySettings, null, 2),
-    );
-    setGatewayPolicyError(null);
-  }, [controller.gatewayPolicySettings]);
-
   const savedGatewayPolicyDraft = useMemo(
     () => JSON.stringify(controller.gatewayPolicySettings, null, 2),
     [controller.gatewayPolicySettings],
   );
-  const gatewayPolicyDirty =
-    gatewayPolicyDraft.trim() !== savedGatewayPolicyDraft.trim();
-
-  const handleSaveGatewayPolicies = async () => {
-    try {
-      const parsed = JSON.parse(gatewayPolicyDraft) as Partial<GatewayPolicySettings>;
-      const normalized = normalizeGatewayPolicySettings(parsed);
-      await controller.saveGatewayPolicySettings(normalized);
-      setGatewayPolicyDraft(JSON.stringify(normalized, null, 2));
-      setGatewayPolicyError(null);
-    } catch (error) {
-      setGatewayPolicyError(
-        error instanceof Error ? error.message : String(error ?? "Invalid JSON"),
-      );
-    }
-  };
 
   return (
     <div className="settings-page__section-stack">
@@ -2872,73 +2842,113 @@ function DeveloperSection({
         </div>
       </SectionCard>
 
-      <SectionCard
-        title="Gateway Policies"
-        description="Configure ToolGateway output compaction and ContextGateway API compaction. Saved to ~/.rakh/config/gateway_policies.json."
-        actions={
-          <div className="flex items-center gap-2">
-            <IconButton
-              type="button"
-              className="settings-gateway-policy-action"
-              aria-label="Reset defaults"
-              title="Reset defaults"
-              onClick={() => {
-                setGatewayPolicyDraft(
-                  JSON.stringify(DEFAULT_GATEWAY_POLICY_SETTINGS, null, 2),
-                );
-                setGatewayPolicyError(null);
-              }}
-            >
-              <span
-                aria-hidden="true"
-                className="material-symbols-outlined text-base"
-              >
-                restart_alt
-              </span>
-            </IconButton>
-            <IconButton
-              type="button"
-              className="settings-gateway-policy-action settings-gateway-policy-action--save"
-              aria-label="Save config"
-              title="Save config"
-              onClick={() => {
-                void handleSaveGatewayPolicies();
-              }}
-              disabled={!gatewayPolicyDirty}
-            >
-              <span
-                aria-hidden="true"
-                className="material-symbols-outlined text-base"
-              >
-                save
-              </span>
-            </IconButton>
-          </div>
-        }
-      >
-        <div className="settings-row settings-row--top-aligned">
-          <div className="settings-row-info">
-            <span className="settings-row-label">Gateway policy JSON</span>
-            <span className="settings-row-desc">
-              Edit the persisted ToolGateway and ContextGateway policy config in
-              one place. This includes huge-output thresholds, internal summary
-              settings, and main-agent context compaction rules.
-            </span>
-          </div>
-        </div>
-        <JsonCodeEditor
-          value={gatewayPolicyDraft}
-          onChange={setGatewayPolicyDraft}
-          themeMode={controller.themeMode}
-          aria-label="Gateway policy JSON"
-        />
-        {gatewayPolicyError ? (
-          <div className="mt-2 text-xxs text-error whitespace-pre-wrap break-words">
-            {gatewayPolicyError}
-          </div>
-        ) : null}
-      </SectionCard>
+      <GatewayPoliciesSection
+        key={savedGatewayPolicyDraft}
+        controller={controller}
+        initialDraft={savedGatewayPolicyDraft}
+      />
     </div>
+  );
+}
+
+function GatewayPoliciesSection({
+  controller,
+  initialDraft,
+}: {
+  controller: SettingsControllerValue;
+  initialDraft: string;
+}) {
+  const [gatewayPolicyDraft, setGatewayPolicyDraft] = useState(() =>
+    initialDraft,
+  );
+  const [gatewayPolicyError, setGatewayPolicyError] = useState<string | null>(
+    null,
+  );
+
+  const gatewayPolicyDirty =
+    gatewayPolicyDraft.trim() !== initialDraft.trim();
+
+  const handleSaveGatewayPolicies = async () => {
+    try {
+      const parsed = JSON.parse(gatewayPolicyDraft) as Partial<GatewayPolicySettings>;
+      const normalized = normalizeGatewayPolicySettings(parsed);
+      await controller.saveGatewayPolicySettings(normalized);
+      setGatewayPolicyDraft(JSON.stringify(normalized, null, 2));
+      setGatewayPolicyError(null);
+    } catch (error) {
+      setGatewayPolicyError(
+        error instanceof Error ? error.message : String(error ?? "Invalid JSON"),
+      );
+    }
+  };
+
+  return (
+    <SectionCard
+      title="Gateway Policies"
+      description="Configure ToolGateway output compaction and ContextGateway API compaction. Saved to ~/.rakh/config/gateway_policies.json."
+      actions={
+        <div className="flex items-center gap-2">
+          <IconButton
+            type="button"
+            className="settings-gateway-policy-action"
+            aria-label="Reset defaults"
+            title="Reset defaults"
+            onClick={() => {
+              setGatewayPolicyDraft(
+                JSON.stringify(DEFAULT_GATEWAY_POLICY_SETTINGS, null, 2),
+              );
+              setGatewayPolicyError(null);
+            }}
+          >
+            <span
+              aria-hidden="true"
+              className="material-symbols-outlined text-base"
+            >
+              restart_alt
+            </span>
+          </IconButton>
+          <IconButton
+            type="button"
+            className="settings-gateway-policy-action settings-gateway-policy-action--save"
+            aria-label="Save config"
+            title="Save config"
+            onClick={() => {
+              void handleSaveGatewayPolicies();
+            }}
+            disabled={!gatewayPolicyDirty}
+          >
+            <span
+              aria-hidden="true"
+              className="material-symbols-outlined text-base"
+            >
+              save
+            </span>
+          </IconButton>
+        </div>
+      }
+    >
+      <div className="settings-row settings-row--top-aligned">
+        <div className="settings-row-info">
+          <span className="settings-row-label">Gateway policy JSON</span>
+          <span className="settings-row-desc">
+            Edit the persisted ToolGateway and ContextGateway policy config in
+            one place. This includes huge-output thresholds, internal summary
+            settings, and main-agent context compaction rules.
+          </span>
+        </div>
+      </div>
+      <JsonCodeEditor
+        value={gatewayPolicyDraft}
+        onChange={setGatewayPolicyDraft}
+        themeMode={controller.themeMode}
+        aria-label="Gateway policy JSON"
+      />
+      {gatewayPolicyError ? (
+        <div className="mt-2 text-xxs text-error whitespace-pre-wrap break-words">
+          {gatewayPolicyError}
+        </div>
+      ) : null}
+    </SectionCard>
   );
 }
 
