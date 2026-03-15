@@ -159,7 +159,7 @@ export function hydratePersistedSession(
     },
     chatMessages: JSON.parse(session.chatMessages),
     apiMessages: JSON.parse(session.apiMessages),
-    todos: options.todos ?? JSON.parse(session.todos ?? "[]"),
+    todos: options.todos ?? [],
     reviewEdits: JSON.parse(session.reviewEdits ?? "[]"),
     queuedMessages,
     queueState,

@@ -52,8 +52,8 @@ Todo storage:
 - release builds: `~/.rakh/sessions/todos/<sessionId>.json`
 - debug/dev builds: `~/.rakh-dev/sessions/todos/<sessionId>.json`
 
-The session SQLite row keeps a legacy `todos` field for compatibility, but the
-real source of truth is the JSON file plus the in-memory Jotai cache.
+The JSON file plus the in-memory Jotai cache are the source of truth for todo
+state. Session SQLite rows do not persist todo state.
 
 Current todo shape:
 

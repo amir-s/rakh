@@ -109,7 +109,6 @@ function makeSession(id: string, label: string): PersistedSession {
     planUpdatedAt: 0,
     chatMessages: "[]",
     apiMessages: "[]",
-    todos: "[]",
     reviewEdits: "[]",
     queuedMessages: "[]",
     queueState: "idle",

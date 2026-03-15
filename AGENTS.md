@@ -132,8 +132,8 @@ Storage locations:
 - agent-created worktrees: `~/.rakh/worktrees/<owner>/<repo>/<branch>`
 - UI preferences such as theme and selected model: localStorage
 
-The session DB still carries a legacy `todos` field for compatibility, but the
-JSON file is the source of truth for todos.
+Session rows no longer persist todo state. The JSON file is the source of truth
+for todos.
 
 `App.tsx` restores non-archived sessions on startup. `AutoSaveManager` persists
 workspace tabs when they settle (`idle`, `done`, `error`) and archives closed

@@ -55,7 +55,6 @@ function makeSession(
     planUpdatedAt: 100,
     chatMessages: JSON.stringify([{ role: "user", content: "hello" }]),
     apiMessages: JSON.stringify([{ role: "assistant", content: "world" }]),
-    todos: "[]",
     reviewEdits: JSON.stringify([{ filePath: "src/App.tsx" }]),
     queuedMessages: JSON.stringify([
       { id: "queue-1", content: "follow up after restart", createdAtMs: 123 },

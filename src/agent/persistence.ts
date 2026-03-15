@@ -12,7 +12,7 @@
  *   3. The restore call in App.tsx SessionRestorer (read it back into
  *      patchAgentState so the atom is hydrated on startup)
  * On the Rust side also update:
- *   4. PersistedSession struct in src-tauri/src/lib.rs
+ *   4. PersistedSession struct in src-tauri/src/db.rs
  *   5. The sessions table schema in init_db() (add the column)
  *   6. The SELECT column list in db_load_sessions
  *   7. The INSERT column list and ON CONFLICT SET in db_upsert_session
@@ -53,8 +53,6 @@ export interface PersistedSession {
   chatMessages: string;
   /** JSON string — ApiMessage[] */
   apiMessages: string;
-  /** JSON string — TodoItem[] */
-  todos: string;
   /** JSON string — ReviewEdit[] */
   reviewEdits: string;
   /** JSON string — QueuedUserMessage[] */
@@ -185,7 +183,6 @@ function getPersistedSessionComparableValue(session: PersistedSession) {
     planUpdatedAt: session.planUpdatedAt,
     chatMessages: session.chatMessages,
     apiMessages: session.apiMessages,
-    todos: session.todos,
     reviewEdits: session.reviewEdits,
     queuedMessages: session.queuedMessages,
     queueState: session.queueState,
@@ -265,7 +262,6 @@ export function buildPersistedSession(
     planUpdatedAt: state.plan.updatedAtMs,
     chatMessages: JSON.stringify(state.chatMessages),
     apiMessages: JSON.stringify(state.apiMessages),
-    todos: "[]",
     reviewEdits: JSON.stringify(state.reviewEdits),
     queuedMessages: JSON.stringify(state.queuedMessages),
     queueState: state.queueState,

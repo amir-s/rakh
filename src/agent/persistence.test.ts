@@ -131,7 +131,6 @@ describe("persistence", () => {
     expect(session.model).toBe(defaultModel);
     expect(session.chatMessages).toBe(JSON.stringify(state.chatMessages));
     expect(session.apiMessages).toBe(JSON.stringify(state.apiMessages));
-    expect(session.todos).toBe("[]");
     expect(session.reviewEdits).toBe(JSON.stringify(state.reviewEdits));
     expect(session.queuedMessages).toBe(JSON.stringify(state.queuedMessages));
     expect(session.queueState).toBe("paused");
@@ -383,7 +382,6 @@ describe("persistence", () => {
       planUpdatedAt: 0,
       chatMessages: "[]",
       apiMessages: "[]",
-      todos: "[]",
       reviewEdits: "[]",
       queuedMessages: "[]",
       queueState: "idle",

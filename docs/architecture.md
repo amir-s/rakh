@@ -267,8 +267,7 @@ Current behavior:
 
 Todo state is now persisted outside the session DB in
 `~/.rakh/sessions/todos/<sessionId>.json` (or `~/.rakh-dev/...` in debug
-builds). The session row still carries a legacy `todos` field for compatibility
-only.
+builds).
 
 Todo normalization is intentionally constrained. The policy may:
 
@@ -363,8 +362,7 @@ Todo persistence is a parallel path:
 - the backend todo store in [`src-tauri/src/todos.rs`](../src-tauri/src/todos.rs)
   is the source of truth
 - the frontend hydrates todo state from that JSON store during session restore
-- the SQLite session row keeps a legacy serialized `todos` field only for
-  compatibility
+- SQLite session rows do not persist todo state
 
 Closed workspace tabs are archived, not deleted, unless the session is still
 empty.
