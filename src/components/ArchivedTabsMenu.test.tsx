@@ -133,7 +133,6 @@ function makeSession(
     planUpdatedAt: 0,
     chatMessages: "[]",
     apiMessages: "[]",
-    todos: "[]",
     reviewEdits: "[]",
     queuedMessages: "[]",
     queueState: "idle",
