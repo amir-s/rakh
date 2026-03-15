@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.14.0](https://github.com/amir-s/rakh/compare/rakh-v0.13.0...rakh-v0.14.0) (2026-03-15)
+
+
+### Features
+
+* add session usage stats ([6c92920](https://github.com/amir-s/rakh/commit/6c92920dcdb4ce4f39ae6097bca2383af10de261))
+* **logging:** add logs window search ([9f31651](https://github.com/amir-s/rakh/commit/9f31651d1bbafc78644f0139be559d1f08fbd16f))
+* **tool-gateway:** artifactize and summarize oversized tool outputs ([9a2a580](https://github.com/amir-s/rakh/commit/9a2a58002ab009e9d0cd9cc29ab24537e30de578))
+* **tool-gateway:** show per-tool compaction progress ([cb4214f](https://github.com/amir-s/rakh/commit/cb4214fba8dba31333eb06a110651591f778a05d))
+
+
+### Bug Fixes
+
+* handle missing usage ledger in persistence ([9c8f62c](https://github.com/amir-s/rakh/commit/9c8f62cbe66bb2c336b7d1e3ad1f4c4a1bcd9d05))
+
 ## [0.13.0](https://github.com/amir-s/rakh/compare/rakh-v0.12.0...rakh-v0.13.0) (2026-03-14)
 
 
