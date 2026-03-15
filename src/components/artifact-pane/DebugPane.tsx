@@ -4,8 +4,11 @@ import {
   agentAtomFamily,
   agentSessionPersistenceAtomFamily,
 } from "@/agent/atoms";
-import { estimateContextWindowPct } from "@/agent/contextUsage";
 import { getModelCatalogEntry } from "@/agent/modelCatalog";
+import {
+  estimateCurrentContextStats,
+  summarizeSessionUsage,
+} from "@/agent/sessionStats";
 import { getAllSubagents } from "@/agent/subagents";
 import { buildSessionPersistenceSignature } from "@/agent/persistence";
 import CycleOptionSwitch from "@/components/CycleOptionSwitch";
@@ -22,6 +25,46 @@ const INLINE_IMAGE_DATA_MAX_CHARS = 256;
 const LONG_MESSAGE_MAX_CHARS = 6000;
 const LONG_MESSAGE_HEAD_CHARS = 2500;
 const LONG_MESSAGE_TAIL_CHARS = 1200;
+const TEXT_ENCODER = new TextEncoder();
+
+interface DebugChatMessageMetadata {
+  index: number;
+  id: string;
+  role: "user" | "assistant";
+  timestamp: number;
+  traceId?: string;
+  agentName?: string;
+  contentChars: number;
+  reasoningChars: number;
+  attachmentCount: number;
+  attachmentPreviewChars: number;
+  toolCallCount: number;
+  toolNames: string[];
+  cardCount: number;
+  estimatedDisplayTokens: number;
+  originalSerializedChars: number;
+  originalSerializedBytes: number;
+  copiedSerializedChars: number;
+  copiedSerializedBytes: number;
+  wasModifiedForCopy: boolean;
+}
+
+interface DebugApiMessageMetadata {
+  index: number;
+  role: ApiMessage["role"];
+  toolCallId?: string;
+  contentChars: number;
+  attachmentCount: number;
+  attachmentPreviewChars: number;
+  toolCallCount: number;
+  toolNames: string[];
+  estimatedContextTokens: number;
+  originalSerializedChars: number;
+  originalSerializedBytes: number;
+  copiedSerializedChars: number;
+  copiedSerializedBytes: number;
+  wasModifiedForCopy: boolean;
+}
 
 function formatSavedAt(ms: number | null): string | null {
   if (ms == null) return null;
@@ -79,6 +122,129 @@ function safeJsonStringify(value: unknown): string {
   } catch {
     return String(value);
   }
+}
+
+function measureSerializedValue(value: unknown): {
+  chars: number;
+  bytes: number;
+  text: string;
+} {
+  const text = safeJsonStringify(value);
+  return {
+    chars: text.length,
+    bytes: TEXT_ENCODER.encode(text).length,
+    text,
+  };
+}
+
+function estimateTokenCountFromChars(chars: number): number {
+  return chars > 0 ? Math.ceil(chars / 4) : 0;
+}
+
+function getAttachmentPreviewChars(attachments?: AttachedImage[]): number {
+  return attachments?.reduce((sum, attachment) => sum + attachment.previewUrl.length, 0) ?? 0;
+}
+
+function getChatToolNames(message: ChatMessage): string[] {
+  return message.toolCalls?.map((toolCall) => toolCall.tool) ?? [];
+}
+
+function getApiToolNames(message: ApiMessage): string[] {
+  return message.role === "assistant"
+    ? message.tool_calls?.map((toolCall) => toolCall.function.name) ?? []
+    : [];
+}
+
+function getApiContentChars(message: ApiMessage): number {
+  if (message.role === "assistant") {
+    const contentChars = message.content?.length ?? 0;
+    const toolCallChars =
+      message.tool_calls?.reduce(
+        (total, toolCall) =>
+          total +
+          toolCall.function.name.length +
+          (toolCall.function.arguments?.length ?? 0),
+        0,
+      ) ?? 0;
+    return contentChars + toolCallChars;
+  }
+
+  return message.content?.length ?? 0;
+}
+
+function getChatDisplayChars(message: ChatMessage): number {
+  const reasoningChars = typeof message.reasoning === "string" ? message.reasoning.length : 0;
+  const toolCallChars =
+    message.toolCalls?.reduce((total, toolCall) => {
+      const argsChars = measureSerializedValue(toolCall.args).chars;
+      const resultChars =
+        toolCall.result === undefined ? 0 : measureSerializedValue(toolCall.result).chars;
+      return total + toolCall.tool.length + argsChars + resultChars;
+    }, 0) ?? 0;
+
+  return message.content.length + reasoningChars + toolCallChars;
+}
+
+function buildChatMessageMetadata(
+  originalMessages: ChatMessage[],
+  copiedMessages: ChatMessage[],
+): DebugChatMessageMetadata[] {
+  return copiedMessages.map((message, index) => {
+    const originalMessage = originalMessages[index] ?? message;
+    const originalSerialized = measureSerializedValue(originalMessage);
+    const copiedSerialized = measureSerializedValue(message);
+
+    return {
+      index,
+      id: message.id,
+      role: message.role,
+      timestamp: message.timestamp,
+      ...(message.traceId ? { traceId: message.traceId } : {}),
+      ...(message.agentName ? { agentName: message.agentName } : {}),
+      contentChars: message.content.length,
+      reasoningChars: typeof message.reasoning === "string" ? message.reasoning.length : 0,
+      attachmentCount: message.attachments?.length ?? 0,
+      attachmentPreviewChars: getAttachmentPreviewChars(message.attachments),
+      toolCallCount: message.toolCalls?.length ?? 0,
+      toolNames: getChatToolNames(message),
+      cardCount: message.cards?.length ?? 0,
+      estimatedDisplayTokens: estimateTokenCountFromChars(getChatDisplayChars(message)),
+      originalSerializedChars: originalSerialized.chars,
+      originalSerializedBytes: originalSerialized.bytes,
+      copiedSerializedChars: copiedSerialized.chars,
+      copiedSerializedBytes: copiedSerialized.bytes,
+      wasModifiedForCopy: originalSerialized.text !== copiedSerialized.text,
+    };
+  });
+}
+
+function buildApiMessageMetadata(
+  originalMessages: ApiMessage[],
+  copiedMessages: ApiMessage[],
+): DebugApiMessageMetadata[] {
+  return copiedMessages.map((message, index) => {
+    const originalMessage = originalMessages[index] ?? message;
+    const originalSerialized = measureSerializedValue(originalMessage);
+    const copiedSerialized = measureSerializedValue(message);
+
+    return {
+      index,
+      role: message.role,
+      ...(message.role === "tool" ? { toolCallId: message.tool_call_id } : {}),
+      contentChars: getApiContentChars(message),
+      attachmentCount: message.role === "user" ? message.attachments?.length ?? 0 : 0,
+      attachmentPreviewChars:
+        message.role === "user" ? getAttachmentPreviewChars(message.attachments) : 0,
+      toolCallCount: message.role === "assistant" ? message.tool_calls?.length ?? 0 : 0,
+      toolNames: getApiToolNames(message),
+      estimatedContextTokens: estimateTokenCountFromChars(getApiContentChars(message)),
+      originalSerializedChars: originalSerialized.chars,
+      originalSerializedBytes: originalSerialized.bytes,
+      copiedSerializedChars: copiedSerialized.chars,
+      copiedSerializedBytes: copiedSerialized.bytes,
+      wasModifiedForCopy: originalSerialized.text !== copiedSerialized.text,
+    };
+  });
 }
 
 function shrinkDebugMessageText(value: string): string {
@@ -229,10 +395,15 @@ export default function DebugPane({
     [state.config.model],
   );
 
-  const contextUsagePct = useMemo(
+  const currentContextStats = useMemo(
     () =>
-      estimateContextWindowPct(state.apiMessages, state.config.contextLength),
+      estimateCurrentContextStats(state.apiMessages, state.config.contextLength),
     [state.apiMessages, state.config.contextLength],
+  );
+  const contextUsagePct = currentContextStats?.pct ?? null;
+  const sessionUsageSummary = useMemo(
+    () => summarizeSessionUsage(state.llmUsageLedger),
+    [state.llmUsageLedger],
   );
 
   const isTauri =
@@ -310,10 +481,18 @@ export default function DebugPane({
       shrinkLongMessages && typeof state.streamingContent === "string"
         ? shrinkDebugMessageText(state.streamingContent)
         : state.streamingContent;
+    const chatMessageMetadata = buildChatMessageMetadata(
+      state.chatMessages,
+      copiedChatMessages,
+    );
+    const apiMessageMetadata = buildApiMessageMetadata(
+      state.apiMessages,
+      copiedApiMessages,
+    );
 
     const debugBundle = {
       kind: "rakh_debug_bundle",
-      version: 2,
+      version: 3,
       generatedAt: new Date().toISOString(),
       copyOptions: {
         shrinkLongMessages,
@@ -350,6 +529,7 @@ export default function DebugPane({
         errorDetails: state.errorDetails,
         modelCatalogEntry: modelEntry,
         estimatedContextWindowPct: contextUsagePct,
+        currentContextStats,
         sessionPersistence: {
           phase: persistenceState.phase,
           lastSavedAtMs: persistenceState.lastSavedAtMs,
@@ -359,8 +539,12 @@ export default function DebugPane({
         plan: state.plan,
         todos: state.todos,
         reviewEdits: state.reviewEdits,
+        llmUsageLedger: state.llmUsageLedger,
+        sessionUsageSummary,
         chatMessages: copiedChatMessages,
+        chatMessageMetadata,
         apiMessages: copiedApiMessages,
+        apiMessageMetadata,
       },
     };
 

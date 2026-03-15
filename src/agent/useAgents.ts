@@ -13,8 +13,11 @@ import { useAtom, useAtomValue } from "jotai";
 import { useCallback } from "react";
 import { logFrontendSoon } from "@/logging/client";
 import {
-  estimateContextUsage,
-} from "./contextUsage";
+  estimateCurrentContextStats,
+  summarizeSessionUsage,
+  type CurrentContextStats,
+  type SessionUsageSummary,
+} from "./sessionStats";
 
 import {
   agentAtomFamily,
@@ -55,6 +58,8 @@ export interface ContextWindowKbUsage {
   /** null when the model's max context size is not known */
   maxKb: number | null;
 }
+
+export type { CurrentContextStats, SessionUsageSummary };
 
 /* ── Full atom for a tab (use when you need to write to it) ──────────────── */
 
@@ -256,6 +261,7 @@ export function useResetAgent() {
       groupInlineToolCallsOverride: null,
       queuedMessages: [],
       queueState: "idle",
+      llmUsageLedger: [],
       showDebug: prev.showDebug ?? false,
       lastRunTraceId: undefined,
     }));
@@ -272,28 +278,30 @@ export function useResetAgent() {
 export function useContextWindowPct(tabId: string): number | null {
   const config = useAgentConfig(tabId);
   const apiMessages = useAtomValue(agentAtomFamily(tabId)).apiMessages;
-
-  if (!config.contextLength) return null;
-
-  const usage = estimateContextUsage(apiMessages);
-  if (!usage) return null;
-
-  return Math.min(100, (usage.estimatedTokens / config.contextLength) * 100);
+  return estimateCurrentContextStats(apiMessages, config.contextLength)?.pct ?? null;
 }
 
 /** Estimates current and maximum context size in KB from token budgets. */
 export function useContextWindowKb(tabId: string): ContextWindowKbUsage | null {
   const config = useAgentConfig(tabId);
   const apiMessages = useAtomValue(agentAtomFamily(tabId)).apiMessages;
-
-  const usage = estimateContextUsage(apiMessages);
-  if (!usage) return null;
-
-  const maxKb = config.contextLength ? (config.contextLength * 4) / 1024 : null;
+  const stats = estimateCurrentContextStats(apiMessages, config.contextLength);
+  if (!stats) return null;
   return {
-    currentKb: usage.estimatedBytes / 1024,
-    maxKb,
+    currentKb: stats.currentKb,
+    maxKb: stats.maxKb,
   };
+}
+
+export function useCurrentContextStats(tabId: string): CurrentContextStats | null {
+  const config = useAgentConfig(tabId);
+  const apiMessages = useAtomValue(agentAtomFamily(tabId)).apiMessages;
+  return estimateCurrentContextStats(apiMessages, config.contextLength);
+}
+
+export function useSessionUsageSummary(tabId: string): SessionUsageSummary | null {
+  const llmUsageLedger = useAtomValue(agentAtomFamily(tabId)).llmUsageLedger;
+  return summarizeSessionUsage(llmUsageLedger);
 }
 
 /* ── Convenience: everything for one tab in a single hook ────────────────── */
@@ -326,8 +334,10 @@ export function useAgent(tabId: string) {
   const setConfig = useSetAgentConfig();
   const resetAgent = useResetAgent();
   const retryAgent = useRetryAgent();
+  const currentContextStats = useCurrentContextStats(tabId);
   const contextWindowPct = useContextWindowPct(tabId);
   const contextWindowKb = useContextWindowKb(tabId);
+  const sessionUsageSummary = useSessionUsageSummary(tabId);
 
   return {
     status,
@@ -340,8 +350,10 @@ export function useAgent(tabId: string) {
     errorAction,
     errorDetails,
     tabTitle,
+    currentContextStats,
     contextWindowPct,
     contextWindowKb,
+    sessionUsageSummary,
     autoApproveEdits,
     autoApproveCommands,
     groupInlineToolCalls,

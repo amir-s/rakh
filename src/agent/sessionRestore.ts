@@ -15,6 +15,7 @@ import {
 import type {
   AdvancedModelOptions,
   AgentQueueState,
+  LlmUsageRecord,
   QueuedUserMessage,
 } from "./types";
 
@@ -94,6 +95,17 @@ function parseQueuedMessages(queuedMessages: string): QueuedUserMessage[] {
   }
 }
 
+function parseLlmUsageLedger(llmUsageLedger: string): LlmUsageRecord[] {
+  try {
+    const parsed = llmUsageLedger
+      ? (JSON.parse(llmUsageLedger) as LlmUsageRecord[])
+      : [];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
 function parseQueueState(
   queueState: string,
   queuedMessages: QueuedUserMessage[],
@@ -114,6 +126,7 @@ export function hydratePersistedSession(
   const restoreError = options.restoreError ?? null;
   const queuedMessages = parseQueuedMessages(session.queuedMessages);
   const queueState = parseQueueState(session.queueState, queuedMessages);
+  const llmUsageLedger = parseLlmUsageLedger(session.llmUsageLedger);
   const communicationProfile = resolveCommunicationProfileId(
     session.communicationProfile,
     jotaiStore.get(profilesAtom),
@@ -145,6 +158,7 @@ export function hydratePersistedSession(
     reviewEdits: JSON.parse(session.reviewEdits ?? "[]"),
     queuedMessages,
     queueState,
+    llmUsageLedger,
     streamingContent: null,
     error: restoreError,
     showDebug: session.showDebug ?? false,

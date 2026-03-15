@@ -1583,8 +1583,11 @@ export default function WorkspacePage() {
                 agent.setAutoApproveCommands(value);
               }}
               contextWindowPct={contextWindowPct}
+              contextCurrentTokens={agent.currentContextStats?.estimatedTokens ?? null}
               contextCurrentKb={contextWindowKb?.currentKb ?? null}
               contextMaxKb={contextWindowKb?.maxKb ?? null}
+              sessionUsageSummary={agent.sessionUsageSummary ?? null}
+              onOpenProvidersSettings={() => openSettingsTab("providers")}
             />
             <VoiceInputStateProvider value={voiceInput}>
               <div className="chat-input-shell">

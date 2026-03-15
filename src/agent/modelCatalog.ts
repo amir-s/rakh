@@ -10,8 +10,10 @@ export interface ModelCatalogEntry {
   tags: string[];
   context_length?: number;
   pricing?: {
-    prompt: number;
-    completion: number;
+    prompt?: number;
+    completion?: number;
+    cacheRead?: number;
+    cacheWrite?: number;
   };
   /**
    * Provider-native model identifier used when constructing the SDK model.
@@ -28,6 +30,8 @@ interface ModelCatalogSourceProvider {
 interface ModelCatalogSourceCost {
   input?: unknown;
   output?: unknown;
+  cache_read?: unknown;
+  cache_write?: unknown;
 }
 
 interface ModelCatalogSourceLimit {
@@ -90,14 +94,23 @@ function normalizePrice(
   const cost = pricing as ModelCatalogSourceCost;
   const prompt = getFiniteNumber(cost.input);
   const completion = getFiniteNumber(cost.output);
+  const cacheRead = getFiniteNumber(cost.cache_read);
+  const cacheWrite = getFiniteNumber(cost.cache_write);
 
-  if (prompt === undefined && completion === undefined) {
+  if (
+    prompt === undefined &&
+    completion === undefined &&
+    cacheRead === undefined &&
+    cacheWrite === undefined
+  ) {
     return undefined;
   }
 
   return {
-    prompt: prompt ?? 0,
-    completion: completion ?? 0,
+    ...(prompt !== undefined ? { prompt } : {}),
+    ...(completion !== undefined ? { completion } : {}),
+    ...(cacheRead !== undefined ? { cacheRead } : {}),
+    ...(cacheWrite !== undefined ? { cacheWrite } : {}),
   };
 }
 

@@ -24,6 +24,7 @@ import {
   toApiToolCall,
   type JsonValue,
 } from "./utils";
+import type { RecordLlmUsageInput } from "../sessionStats";
 
 type StreamTextInput = Parameters<typeof streamText>[0];
 
@@ -40,6 +41,7 @@ export interface StreamTurnResult {
 interface StreamTurnOptions {
   tabId: string;
   signal: AbortSignal;
+  modelId: string;
   model: StreamTextInput["model"];
   messages: ApiMessage[];
   tools: StreamTextInput["tools"];
@@ -49,6 +51,8 @@ interface StreamTurnOptions {
   agentName?: string;
   statusWhileStreaming?: "thinking";
   toPendingToolCalls: (toolCalls: ApiToolCall[]) => ToolCallDisplay[] | undefined;
+  usageMetadata?: Omit<RecordLlmUsageInput, "usage" | "modelId">;
+  onRecordUsage?: (input: RecordLlmUsageInput) => void;
 }
 
 export async function streamTurn(
@@ -57,6 +61,7 @@ export async function streamTurn(
   const {
     tabId,
     signal,
+    modelId,
     model,
     messages,
     tools,
@@ -66,6 +71,8 @@ export async function streamTurn(
     agentName,
     statusWhileStreaming,
     toPendingToolCalls,
+    usageMetadata,
+    onRecordUsage,
   } = opts;
 
   let usedFullStream = false;
@@ -245,6 +252,21 @@ export async function streamTurn(
     throw attachStreamErrors(err, streamErrors);
   }
   await logStreamFinishDebug(debugEnabled, result, logContext);
+  if (usageMetadata && onRecordUsage) {
+    try {
+      const usage = await result.totalUsage;
+      if (usage) {
+        onRecordUsage({
+          ...usageMetadata,
+          modelId,
+          usage,
+        });
+        logStreamDebug(debugEnabled, "stream:usage", logContext, usage);
+      }
+    } catch (error) {
+      logStreamDebug(debugEnabled, "stream:usage:error", logContext, error);
+    }
+  }
 
   if (reasoningStartedAtMs !== null && reasoningDurationMs === null) {
     reasoningDurationMs = Math.max(0, Date.now() - reasoningStartedAtMs);

@@ -37,6 +37,7 @@ import {
   type MainAgentMcpRuntime,
   prepareMainAgentMcpRuntime,
 } from "./mcpRuntime";
+import { recordLlmUsage } from "../sessionStats";
 import { buildProviderOptions, resolveLanguageModel } from "./providerOptions";
 import { streamTurn } from "./streamTurn";
 import { runSubagentLoop } from "./subagentLoop";
@@ -168,6 +169,7 @@ export async function agentLoop(
       const streamed = await streamTurn({
         tabId,
         signal,
+        modelId,
         model: languageModel,
         messages: currentApiMessages,
         tools: toolDefinitions,
@@ -186,6 +188,13 @@ export async function agentLoop(
                 ),
               )
             : undefined,
+        usageMetadata: {
+          actorKind: "main",
+          actorId: "main",
+          actorLabel: "Rakh",
+          operation: "assistant turn",
+        },
+        onRecordUsage: (input) => recordLlmUsage(tabId, input),
       });
 
       const turnDurationMs = Math.max(0, Date.now() - turnStartedAtMs);
@@ -284,6 +293,7 @@ export async function agentLoop(
             advancedOptions: advancedOpts,
             logContext: toolLog.context,
             updateToolCallById,
+            recordLlmUsage: (input) => recordLlmUsage(tabId, input),
             mcpTool,
             syntheticExecutors: {
               agent_subagent_call: async (args) => {

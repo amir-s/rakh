@@ -67,6 +67,7 @@ function makeSession(
     }),
     communicationProfile: "pragmatic",
     ...overrides,
+    llmUsageLedger: overrides.llmUsageLedger ?? "[]",
   };
 }
 

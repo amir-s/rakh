@@ -1,5 +1,6 @@
 import type { FC, ReactNode } from "react";
 import type { AutoApproveCommandsMode } from "@/agent/types";
+import type { SessionUsageSummary } from "@/agent/sessionStats";
 import CycleOptionSwitch from "@/components/CycleOptionSwitch";
 
 export interface ChatControlsProps {
@@ -9,8 +10,11 @@ export interface ChatControlsProps {
   onChangeAutoApproveCommands: (value: AutoApproveCommandsMode) => void;
   /** 0–100, or null if unknown */
   contextWindowPct: number | null;
+  contextCurrentTokens: number | null;
   contextCurrentKb: number | null;
   contextMaxKb: number | null;
+  sessionUsageSummary: SessionUsageSummary | null;
+  onOpenProvidersSettings?: () => void;
 }
 
 function formatKb(kb: number): string {
@@ -18,13 +22,35 @@ function formatKb(kb: number): string {
   return `${rounded} KB`;
 }
 
+function formatTokens(tokens: number): string {
+  if (tokens >= 1_000_000) {
+    const value = tokens / 1_000_000;
+    return `${value >= 10 ? value.toFixed(0) : value.toFixed(1)}M`;
+  }
+  if (tokens >= 1_000) {
+    const value = tokens / 1_000;
+    return `${value >= 100 ? value.toFixed(0) : value.toFixed(1)}K`;
+  }
+  return tokens.toLocaleString();
+}
+
+function formatUsd(usd: number): string {
+  if (usd >= 100) return `$${usd.toFixed(0)}`;
+  if (usd >= 1) return `$${usd.toFixed(2)}`;
+  if (usd >= 0.01) return `$${usd.toFixed(3)}`;
+  return `$${usd.toFixed(4)}`;
+}
+
 /** Small (i) icon that reveals a popover on hover. */
-const InfoPopover: FC<{ children: ReactNode }> = ({ children }) => (
+const InfoPopover: FC<{ children: ReactNode; className?: string }> = ({
+  children,
+  className,
+}) => (
   <span className="chat-ctrl-info">
     <span className="material-symbols-outlined chat-ctrl-info-icon text-sm">
       info
     </span>
-    <span className="chat-ctrl-popover">{children}</span>
+    <span className={`chat-ctrl-popover ${className ?? ""}`.trim()}>{children}</span>
   </span>
 );
 
@@ -34,8 +60,11 @@ const ChatControls: FC<ChatControlsProps> = ({
   onChangeAutoApproveEdits,
   onChangeAutoApproveCommands,
   contextWindowPct,
+  contextCurrentTokens,
   contextCurrentKb,
   contextMaxKb,
+  sessionUsageSummary,
+  onOpenProvidersSettings,
 }) => {
   const ctxColor =
     contextWindowPct == null
@@ -82,6 +111,108 @@ const ChatControls: FC<ChatControlsProps> = ({
 
       {/* ── Right: git branch + context window ───────────────────────── */}
       <div className="chat-controls-right">
+        {sessionUsageSummary ? (
+          <button
+            type="button"
+            className="chat-ctrl-session"
+            style={{
+              color:
+                sessionUsageSummary.costStatus === "complete"
+                  ? "var(--color-primary)"
+                  : "var(--color-warning)",
+            }}
+            onClick={() => {
+              if (
+                sessionUsageSummary.costStatus !== "complete" &&
+                onOpenProvidersSettings
+              ) {
+                onOpenProvidersSettings();
+              }
+            }}
+            title={
+              sessionUsageSummary.costStatus === "complete"
+                ? "Session token usage and cost"
+                : "Session token usage and incomplete cost metadata"
+            }
+          >
+            <span className="material-symbols-outlined text-sm">
+              {sessionUsageSummary.costStatus === "complete"
+                ? "price_check"
+                : "warning"}
+            </span>
+            <span className="chat-ctrl-session-label">
+              {sessionUsageSummary.costStatus === "missing" ? (
+                <>cost?</>
+              ) : (
+                <>
+                  {sessionUsageSummary.costStatus === "partial" ? "~" : ""}
+                  {formatUsd(sessionUsageSummary.knownCostUsd)}
+                </>
+              )}
+            </span>
+            <InfoPopover className="chat-ctrl-popover--wide">
+              <div className="chat-ctrl-popover-section">
+                <div className="chat-ctrl-popover-heading">Session usage</div>
+                <div className="chat-ctrl-popover-row">
+                  <span>Input</span>
+                  <strong>{formatTokens(sessionUsageSummary.usage.inputTokens)} tok</strong>
+                </div>
+                <div className="chat-ctrl-popover-row">
+                  <span>Output</span>
+                  <strong>{formatTokens(sessionUsageSummary.usage.outputTokens)} tok</strong>
+                </div>
+                <div className="chat-ctrl-popover-row">
+                  <span>Total</span>
+                  <strong>{formatTokens(sessionUsageSummary.usage.totalTokens)} tok</strong>
+                </div>
+                <div className="chat-ctrl-popover-row">
+                  <span>
+                    {sessionUsageSummary.costStatus === "partial"
+                      ? "Known subtotal"
+                      : "Cost"}
+                  </span>
+                  <strong>
+                    {sessionUsageSummary.costStatus === "missing"
+                      ? "Unavailable"
+                      : formatUsd(sessionUsageSummary.knownCostUsd)}
+                  </strong>
+                </div>
+              </div>
+              {sessionUsageSummary.breakdown.length > 0 ? (
+                <div className="chat-ctrl-popover-section">
+                  <div className="chat-ctrl-popover-heading">Breakdown</div>
+                  {sessionUsageSummary.breakdown.map((entry) => (
+                    <div
+                      key={`${entry.actorKind}:${entry.actorId}`}
+                      className="chat-ctrl-popover-row"
+                    >
+                      <span>{entry.actorLabel}</span>
+                      <strong>
+                        {entry.costStatus === "missing"
+                          ? `${formatTokens(entry.usage.totalTokens)} tok`
+                          : `${entry.costStatus === "partial" ? "~" : ""}${formatUsd(entry.knownCostUsd)} · ${formatTokens(entry.usage.totalTokens)} tok`}
+                      </strong>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+              {sessionUsageSummary.missingPricingModels.length > 0 ? (
+                <div className="chat-ctrl-popover-section">
+                  <div className="chat-ctrl-popover-heading">Missing pricing</div>
+                  <div>
+                    Update AI Providers metadata for{" "}
+                    <strong>
+                      {sessionUsageSummary.missingPricingModels
+                        .map((model) => model.label)
+                        .join(", ")}
+                    </strong>
+                    .
+                  </div>
+                </div>
+              ) : null}
+            </InfoPopover>
+          </button>
+        ) : null}
         {(contextWindowPct != null || contextCurrentKb != null) && (
           <span className="chat-ctrl-ctx" style={{ color: ctxColor }}>
             <span className="material-symbols-outlined text-sm">
@@ -115,6 +246,13 @@ const ChatControls: FC<ChatControlsProps> = ({
                   model's context window is used. When this approaches{" "}
                   <strong>100%</strong>, older messages will be truncated or
                   the request may fail.
+                  {contextCurrentTokens != null && (
+                    <>
+                      <br />
+                      Est. current tokens:{" "}
+                      <strong>{formatTokens(contextCurrentTokens)}</strong>.
+                    </>
+                  )}
                   {contextCurrentKb != null && contextMaxKb != null && (
                     <>
                       <br />
@@ -130,6 +268,13 @@ const ChatControls: FC<ChatControlsProps> = ({
                   <strong>
                     {contextCurrentKb != null ? formatKb(contextCurrentKb) : "unknown"}
                   </strong>.
+                  {contextCurrentTokens != null && (
+                    <>
+                      <br />
+                      Est. current tokens:{" "}
+                      <strong>{formatTokens(contextCurrentTokens)}</strong>.
+                    </>
+                  )}
                   <br />
                   The maximum context size for this model is not known.
                 </>

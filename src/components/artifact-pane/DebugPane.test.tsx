@@ -155,6 +155,40 @@ function buildFixture() {
     groupInlineToolCallsOverride: null,
     queuedMessages: [],
     queueState: "idle",
+    llmUsageLedger: [
+      {
+        id: "usage-main",
+        timestamp: 3,
+        modelId: "openai/gpt-5.2",
+        actorKind: "main",
+        actorId: "main",
+        actorLabel: "Rakh",
+        operation: "assistant turn",
+        inputTokens: 2000,
+        noCacheInputTokens: 2000,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        outputTokens: 500,
+        reasoningTokens: 100,
+        totalTokens: 2500,
+      },
+      {
+        id: "usage-summary",
+        timestamp: 4,
+        modelId: "openai/gpt-5.2",
+        actorKind: "internal",
+        actorId: "context-compaction-summary",
+        actorLabel: "Context compaction",
+        operation: "artifact summary",
+        inputTokens: 400,
+        noCacheInputTokens: 400,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        outputTokens: 80,
+        reasoningTokens: 0,
+        totalTokens: 480,
+      },
+    ],
     showDebug: true,
   };
 
@@ -232,10 +266,31 @@ describe("DebugPane copy bundle", () => {
       expect(clipboardMock.writeText).toHaveBeenCalledTimes(1),
     );
     const bundle = JSON.parse(clipboardMock.writeText.mock.calls[0][0]) as {
+      version: number;
       copyOptions: { shrinkLongMessages: boolean };
-      agent: AgentState;
+      agent: AgentState & {
+        currentContextStats: { estimatedTokens: number; pct: number | null } | null;
+        sessionUsageSummary: {
+          usage: { totalTokens: number };
+          costStatus: string;
+        } | null;
+        chatMessageMetadata: Array<{
+          contentChars: number;
+          toolCallCount: number;
+          attachmentCount: number;
+          wasModifiedForCopy: boolean;
+        }>;
+        apiMessageMetadata: Array<{
+          contentChars: number;
+          toolCallCount: number;
+          attachmentCount: number;
+          estimatedContextTokens: number;
+          wasModifiedForCopy: boolean;
+        }>;
+      };
     };
 
+    expect(bundle.version).toBe(3);
     expect(bundle.copyOptions.shrinkLongMessages).toBe(true);
     const systemMessage = bundle.agent.apiMessages[0];
     if (systemMessage.role !== "system") {
@@ -294,6 +349,35 @@ describe("DebugPane copy bundle", () => {
     expect(apiUserMsg.attachments?.[0]?.previewUrl).not.toContain("base64");
     expect(apiUserMsg.attachments?.[0]?.previewUrl).toContain("redacted");
     expect(apiUserMsg.attachments?.[0]?.name).toBe("screenshot.png");
+
+    expect(bundle.agent.llmUsageLedger).toEqual(state.llmUsageLedger);
+    expect(bundle.agent.sessionUsageSummary?.usage.totalTokens).toBe(2980);
+    expect(bundle.agent.chatMessageMetadata).toHaveLength(
+      bundle.agent.chatMessages.length,
+    );
+    expect(bundle.agent.apiMessageMetadata).toHaveLength(
+      bundle.agent.apiMessages.length,
+    );
+    expect(bundle.agent.currentContextStats?.estimatedTokens).toBeGreaterThan(0);
+    expect(bundle.agent.chatMessageMetadata[0]).toMatchObject({
+      attachmentCount: 1,
+      wasModifiedForCopy: true,
+    });
+    expect(bundle.agent.chatMessageMetadata[1]).toMatchObject({
+      toolCallCount: 1,
+      wasModifiedForCopy: false,
+    });
+    expect(bundle.agent.apiMessageMetadata[1]).toMatchObject({
+      attachmentCount: 1,
+      wasModifiedForCopy: true,
+    });
+    expect(bundle.agent.apiMessageMetadata[2]).toMatchObject({
+      toolCallCount: 1,
+      wasModifiedForCopy: false,
+    });
+    expect(bundle.agent.apiMessageMetadata[2]?.estimatedContextTokens).toBeGreaterThan(
+      0,
+    );
   });
 
   it("copies the full bundle when shrinking is disabled", async () => {
@@ -314,13 +398,26 @@ describe("DebugPane copy bundle", () => {
     );
     const bundle = JSON.parse(clipboardMock.writeText.mock.calls[0][0]) as {
       copyOptions: { shrinkLongMessages: boolean };
-      agent: AgentState;
+      agent: AgentState & {
+        chatMessageMetadata: Array<{ wasModifiedForCopy: boolean }>;
+        apiMessageMetadata: Array<{ wasModifiedForCopy: boolean }>;
+        sessionUsageSummary: {
+          usage: { totalTokens: number };
+        } | null;
+      };
     };
 
     expect(bundle.copyOptions.shrinkLongMessages).toBe(false);
     expect(bundle.agent.apiMessages).toEqual(state.apiMessages);
     expect(bundle.agent.chatMessages).toEqual(state.chatMessages);
     expect(bundle.agent.streamingContent).toBe(state.streamingContent);
+    expect(bundle.agent.sessionUsageSummary?.usage.totalTokens).toBe(2980);
+    expect(
+      bundle.agent.chatMessageMetadata.every((meta) => !meta.wasModifiedForCopy),
+    ).toBe(true);
+    expect(
+      bundle.agent.apiMessageMetadata.every((meta) => !meta.wasModifiedForCopy),
+    ).toBe(true);
 
     // Attachments preserved verbatim when shrinking is off
     expect(bundle.agent.chatMessages[0].attachments?.[0]?.previewUrl).toBe(

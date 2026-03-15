@@ -147,6 +147,7 @@ function makeSession(
     advancedOptions: "{}",
     communicationProfile: "pragmatic",
     ...overrides,
+    llmUsageLedger: overrides.llmUsageLedger ?? "[]",
   };
 }
 

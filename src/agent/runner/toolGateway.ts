@@ -32,6 +32,7 @@ import {
   resolveLanguageModel,
 } from "./providerOptions";
 import { mapApiMessagesToModelMessages, type JsonValue } from "./utils";
+import type { RecordLlmUsageInput } from "../sessionStats";
 
 const TOOL_GATEWAY_ARTIFACT_NOTE =
   "Raw tool output stored as a temporary tool artifact. Use agent_tool_artifact_get or agent_tool_artifact_search to inspect it.";
@@ -60,6 +61,7 @@ export interface ExecuteThroughToolGatewayOptions {
   advancedOptions?: Parameters<typeof buildProviderOptions>[1];
   logContext: LogContext;
   updateToolCallById: (patch: Partial<ToolCallDisplay>) => void;
+  recordLlmUsage?: (input: RecordLlmUsageInput) => void;
   localExecutor: ToolGatewayExecutor;
   syntheticExecutors?: Partial<Record<string, ToolGatewayExecutor>>;
   mcpExecutor?: ToolGatewayExecutor;
@@ -312,7 +314,18 @@ async function summarizeArtifactReference(
       ...(providerOptions ? { providerOptions } : {}),
     });
 
-    const text = trimSummaryText(await result.text, config.maxSummaryChars);
+    const [usage, summaryText] = await Promise.all([result.totalUsage, result.text]);
+    const text = trimSummaryText(summaryText, config.maxSummaryChars);
+    if (usage) {
+      options.recordLlmUsage?.({
+        modelId: summaryModelId,
+        actorKind: "internal",
+        actorId: "context-compaction-summary",
+        actorLabel: "Context compaction",
+        operation: "artifact summary",
+        usage,
+      });
+    }
     if (!text) {
       return null;
     }
