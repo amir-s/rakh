@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.14.0](https://github.com/amir-s/rakh/compare/rakh-v0.13.0...rakh-v0.14.0) (2026-03-15)
+
+
+### Features
+
+* add session usage stats ([6c92920](https://github.com/amir-s/rakh/commit/6c92920dcdb4ce4f39ae6097bca2383af10de261))
+* **context-gateway:** add debug compaction snapshots ([8722f2e](https://github.com/amir-s/rakh/commit/8722f2e54c90ba5bbbb62fad0f694f9d573dfbe0))
+* **context-gateway:** add todo policy foundation ([845ec2c](https://github.com/amir-s/rakh/commit/845ec2c4fa3326e66a6f71d7bc5433f253741c32))
+* **context-gateway:** compact api history and normalize todo notes ([6f89fc9](https://github.com/amir-s/rakh/commit/6f89fc9c20148df6e23e26809eaa4ac1c43ab391))
+* **logging:** add logs window search ([9f31651](https://github.com/amir-s/rakh/commit/9f31651d1bbafc78644f0139be559d1f08fbd16f))
+* **settings:** persist gateway policy config ([b5f490c](https://github.com/amir-s/rakh/commit/b5f490c22b47729e54771b1b2be6b84b9ce74fe8))
+* **settings:** use icon actions for gateway policies ([db1ed6f](https://github.com/amir-s/rakh/commit/db1ed6fed94c2e2f0a893ce926b6967a828a9f9f))
+* **tool-gateway:** artifactize and summarize oversized tool outputs ([9a2a580](https://github.com/amir-s/rakh/commit/9a2a58002ab009e9d0cd9cc29ab24537e30de578))
+* **tool-gateway:** show per-tool compaction progress ([cb4214f](https://github.com/amir-s/rakh/commit/cb4214fba8dba31333eb06a110651591f778a05d))
+
+
+### Bug Fixes
+
+* handle missing usage ledger in persistence ([9c8f62c](https://github.com/amir-s/rakh/commit/9c8f62cbe66bb2c336b7d1e3ad1f4c4a1bcd9d05))
+* **settings:** avoid effect-driven gateway policy resets ([97ceecf](https://github.com/amir-s/rakh/commit/97ceecf5647ed4f52a6ee3af3bc23157dbe590ff))
+* **tests:** align rebased session schema and queue drain timing ([a18c754](https://github.com/amir-s/rakh/commit/a18c7546200fa09be9ac6dbccc02dc19b4631f7e))
+
 ## [0.13.0](https://github.com/amir-s/rakh/compare/rakh-v0.12.0...rakh-v0.13.0) (2026-03-14)
 
 
