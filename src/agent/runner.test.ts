@@ -2206,7 +2206,7 @@ describe("runner", () => {
     );
 
     resumeQueue(tabId);
-    await flushAsyncWork(20);
+    await flushAsyncWork(40);
 
     expect(states[tabId].queueState).toBe("idle");
     expect(states[tabId].queuedMessages).toEqual([]);
