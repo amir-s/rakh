@@ -1,5 +1,7 @@
 import { useEffect, useReducer, useRef } from "react";
 import { useAgentReviewEdits, useAgentTodos } from "@/agent/useAgents";
+import { patchAgentState } from "@/agent/atoms";
+import { listenForTodoChanges, loadSessionTodos } from "@/agent/tools/todos";
 import type { ArtifactTab } from "./types";
 import { buildTodoSnapshot } from "./model";
 import { useSessionArtifactInventory } from "./useSessionArtifacts";
@@ -130,6 +132,34 @@ export function useArtifactUpdates(
       dispatch({ type: "mark-unseen", tab: "TODO" });
     }
   }, [activeTab, enabled, isCollapsed, todos]);
+
+  useEffect(() => {
+    if (!enabled) return;
+    let cancelled = false;
+    let unlisten: (() => void) | null = null;
+
+    const refreshTodos = async () => {
+      const items = await loadSessionTodos(activeTabId);
+      if (cancelled) return;
+      patchAgentState(activeTabId, { todos: items });
+    };
+
+    void refreshTodos();
+    void listenForTodoChanges(activeTabId, () => {
+      void refreshTodos();
+    }).then((nextUnlisten) => {
+      if (cancelled) {
+        nextUnlisten?.();
+        return;
+      }
+      unlisten = nextUnlisten;
+    });
+
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, [activeTabId, enabled]);
 
   useEffect(() => {
     if (!enabled) return;

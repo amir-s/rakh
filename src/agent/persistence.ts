@@ -45,6 +45,7 @@ export interface PersistedSession {
   projectPath: string;
   setupCommand: string;
   model: string;
+  turnCount: number;
   planMarkdown: string;
   planVersion: number;
   planUpdatedAt: number;
@@ -178,6 +179,7 @@ function getPersistedSessionComparableValue(session: PersistedSession) {
     projectPath: session.projectPath,
     setupCommand: session.setupCommand,
     model: session.model,
+    turnCount: session.turnCount,
     planMarkdown: session.planMarkdown,
     planVersion: session.planVersion,
     planUpdatedAt: session.planUpdatedAt,
@@ -257,12 +259,13 @@ export function buildPersistedSession(
     projectPath: state.config.projectPath ?? "",
     setupCommand: state.config.setupCommand ?? "",
     model: state.config.model || DEFAULT_MODEL,
+    turnCount: state.turnCount,
     planMarkdown: state.plan.markdown,
     planVersion: state.plan.version,
     planUpdatedAt: state.plan.updatedAtMs,
     chatMessages: JSON.stringify(state.chatMessages),
     apiMessages: JSON.stringify(state.apiMessages),
-    todos: JSON.stringify(state.todos),
+    todos: "[]",
     reviewEdits: JSON.stringify(state.reviewEdits),
     queuedMessages: JSON.stringify(state.queuedMessages),
     queueState: state.queueState,

@@ -103,6 +103,7 @@ function makeSession(id: string, label: string): PersistedSession {
     tabTitle: "",
     cwd: "",
     model: "",
+    turnCount: 0,
     planMarkdown: "",
     planVersion: 0,
     planUpdatedAt: 0,

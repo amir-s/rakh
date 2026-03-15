@@ -9,7 +9,7 @@ export const plannerSubagent: SubagentDefinition = {
     light: "#3f55d8",
   },
   description:
-    "Analyses a task, explores the codebase, and writes a structured plan with todos.",
+    "Analyses a task, explores the codebase, and writes a structured plan artifact.",
   triggerCommand: "/plan",
   triggerCommandDisplay: "/plan <task>",
   triggerCommandTakesArguments: true,
@@ -36,10 +36,6 @@ export const plannerSubagent: SubagentDefinition = {
     "agent_artifact_get",
     "agent_artifact_list",
     "agent_card_add",
-    "agent_todo_add",
-    "agent_todo_update",
-    "agent_todo_list",
-    "agent_todo_remove",
   ],
   output: {
     finalMessageInstructions:
@@ -72,16 +68,16 @@ PROCESS
    - summary: one-line description of what the plan covers
    - content: the full structured plan in markdown
 
-6. Break the plan into discrete, concrete steps using agent_todo_add.
-7. If you make refinements while adding todos, call agent_artifact_version with the updated plan content.
-8. Call agent_card_add with kind: "summary" and a concise Markdown summary of what was planned, key assumptions, and any risks or unknowns worth flagging.
-9. After saving the artifact, you may also call agent_card_add with kind: "artifact" to reference the saved plan artifact.
+6. If you refine the plan after creating it, call agent_artifact_version with the updated plan content.
+7. Call agent_card_add with kind: "summary" and a concise Markdown summary of what was planned, key assumptions, and any risks or unknowns worth flagging.
+8. After saving the artifact, you may also call agent_card_add with kind: "artifact" to reference the saved plan artifact.
 
 RULES
 - Always read before you plan — gather context first, do not guess at structure.
 - Do not assume any particular structure — discover it first. Look for relevant files, read their content, and gather as much context as needed before planning.
 - Keep plan steps concrete, achievable, and ordered by dependency.
 - Do NOT write or modify any code or files; your role is planning only.
+- Do NOT call any agent_todo_* tools. The main agent owns todo creation and todo state.
 - Do NOT ask clarifying questions unless you truly cannot determine the intent.
 - Keep your conversational responses concise; the plan artifact is the primary output.
 - The summary card body is Markdown.

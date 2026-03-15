@@ -66,6 +66,7 @@ import {
   serializeToolResultForModel,
 } from "./utils";
 import { executeThroughToolGateway } from "./toolGateway";
+import { executeThroughContextGateway } from "./contextGateway";
 
 type ToolFailureResult = Extract<ToolResult<unknown>, { ok: false }>;
 
@@ -188,6 +189,7 @@ interface SubagentLoopOptions {
   tabId: string;
   signal: AbortSignal;
   runId: string;
+  currentTurn: number;
   subagentDef: SubagentDefinition;
   message: string;
   parentModelId: string;
@@ -206,6 +208,7 @@ export async function runSubagentLoop(
     tabId,
     signal,
     runId,
+    currentTurn,
     subagentDef,
     message,
     parentModelId,
@@ -578,12 +581,26 @@ export async function runSubagentLoop(
     if (signal.aborted) break;
     turns++;
 
+    const activeTodo = getAgentState(tabId).todos.find((todo) => todo.state === "doing");
+    const contextGateway = await executeThroughContextGateway({
+      messages: localApiMessages,
+      stateSnapshot: {
+        tabId,
+        runId,
+        agentId: `agent_${subagentDef.id}`,
+        modelId,
+        currentTurn,
+        messageCount: localApiMessages.length,
+        ...(activeTodo ? { activeTodoId: activeTodo.id } : {}),
+      },
+    });
+
     const streamed = await streamTurn({
       tabId,
       signal,
       modelId,
       model: languageModel,
-      messages: localApiMessages,
+      messages: contextGateway.messages,
       tools: toolDefs,
       debugEnabled,
       logContext: subagentContext,
@@ -735,6 +752,7 @@ export async function runSubagentLoop(
               tabId,
               runId,
               agentId: `agent_${subagentDef.id}`,
+              currentTurn,
               toolCallId: tcId,
               toolName: tc.function.name,
               preArgs: args,

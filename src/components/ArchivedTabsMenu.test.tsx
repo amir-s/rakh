@@ -127,6 +127,7 @@ function makeSession(
     projectPath: "/repo/default",
     setupCommand: "",
     model: "openai/gpt-5.2",
+    turnCount: 0,
     planMarkdown: "",
     planVersion: 0,
     planUpdatedAt: 0,

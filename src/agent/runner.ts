@@ -446,6 +446,7 @@ async function runAgentTurn(
 ): Promise<void> {
   const controller = new AbortController();
   const runId = nextRunId(tabId);
+  const currentTurn = getAgentState(tabId).turnCount + 1;
   const {
     runStartId,
     rootContext: runRootLogContext,
@@ -453,6 +454,7 @@ async function runAgentTurn(
   } = createMainRunLogContext(tabId, runId);
   patchAgentState(tabId, {
     lastRunTraceId: runRootLogContext.traceId,
+    turnCount: currentTurn,
   });
   const activeRun: ActiveRun = {
     runId,
@@ -509,6 +511,7 @@ async function runAgentTurn(
         tabId,
         signal: controller.signal,
         runId,
+        currentTurn,
         subagentDef: triggerSubagent,
         message: subMessage,
         parentModelId: triggerState.config.model,
@@ -755,6 +758,7 @@ async function runAgentTurn(
       providers,
       debugEnabled,
       runId,
+      currentTurn,
       runLogContext,
     );
     completedCleanly = !controller.signal.aborted;

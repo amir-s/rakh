@@ -246,6 +246,7 @@ export function useResetAgent() {
     patchAgentState(tabId, (prev) => ({
       ...prev,
       status: "idle",
+      turnCount: 0,
       chatMessages: [],
       apiMessages: [],
       streamingContent: null,

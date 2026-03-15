@@ -18,13 +18,16 @@ import { execRun } from "./exec";
 import { gitWorktreeInit } from "./git";
 import {
   cardAdd,
+  titleSet,
+  titleGet,
+} from "./agentControl";
+import {
   todoAdd,
   todoUpdate,
   todoList,
   todoRemove,
-  titleSet,
-  titleGet,
-} from "./agentControl";
+  todoNoteAdd,
+} from "./todos";
 import {
   artifactCreate,
   artifactVersion,
@@ -116,6 +119,7 @@ export interface DispatchCallbacks {
 }
 
 export interface DispatchRuntimeContext extends ArtifactRuntimeContext {
+  currentTurn?: number;
   logContext?: LogContext;
 }
 
@@ -227,10 +231,22 @@ export async function dispatchTool(
 
     /* ── agent.todo ─────────────────────────────────────────────────────────── */
     case "agent_todo_add":
-      return todoAdd(tabId, a);
+      return todoAdd(tabId, {
+        currentTurn: runtime?.currentTurn ?? 0,
+        agentId: runtime?.agentId ?? "agent_main",
+      }, a);
 
     case "agent_todo_update":
-      return todoUpdate(tabId, a);
+      return todoUpdate(tabId, {
+        currentTurn: runtime?.currentTurn ?? 0,
+        agentId: runtime?.agentId ?? "agent_main",
+      }, a);
+
+    case "agent_todo_note_add":
+      return todoNoteAdd(tabId, {
+        currentTurn: runtime?.currentTurn ?? 0,
+        agentId: runtime?.agentId ?? "agent_main",
+      }, a);
 
     case "agent_todo_list":
       return todoList(tabId, a);

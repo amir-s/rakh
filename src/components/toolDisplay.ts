@@ -18,6 +18,7 @@ const TOOL_ICON: Record<string, string> = {
   agent_artifact_list: "lists",
   agent_todo_add: "checklist",
   agent_todo_update: "checklist",
+  agent_todo_note_add: "checklist",
   agent_todo_list: "checklist",
   agent_todo_remove: "checklist",
 };
@@ -40,6 +41,7 @@ const TOOL_LABEL: Record<string, string> = {
   agent_artifact_list: "LIST ARTIFACTS",
   agent_todo_add: "ADD TODO",
   agent_todo_update: "UPDATE TODO",
+  agent_todo_note_add: "ADD TODO NOTE",
   agent_todo_list: "LIST TODOS",
   agent_todo_remove: "REMOVE TODO",
 };

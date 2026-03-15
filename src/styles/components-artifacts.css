@@ -69,6 +69,34 @@
   background: color-mix(in srgb, var(--color-accent) 10%, transparent);
 }
 
+.artifact-pane-open-json-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 26px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid var(--color-border-subtle);
+  background: color-mix(in srgb, var(--color-surface) 70%, transparent);
+  color: var(--color-text-secondary);
+  font-size: var(--text-xxs);
+  font-weight: 600;
+  transition:
+    border-color var(--t-fast),
+    color var(--t-fast),
+    background var(--t-fast);
+}
+
+.artifact-pane-open-json-btn:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--color-accent) 35%, var(--color-border-subtle));
+  color: var(--color-accent);
+  background: color-mix(in srgb, var(--color-accent) 10%, transparent);
+}
+
+.artifact-pane-open-json-btn:disabled {
+  opacity: 0.6;
+}
+
 .sk {
   color: var(--color-syn-keyword);
 }

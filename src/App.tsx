@@ -36,6 +36,7 @@ import {
   type PersistedSession,
 } from "@/agent/persistence";
 import type { AgentStatus } from "@/agent/types";
+import { loadSessionTodos } from "@/agent/tools/todos";
 import { preloadEnvProviderKeys } from "@/agent/useEnvProviderKeys";
 import { logFrontendSoon } from "@/logging/client";
 import LogsWindowApp from "@/logging/LogsWindowApp";
@@ -222,7 +223,7 @@ export default function App() {
       loadCommandList(),
       loadSavedProjects(),
     ]).then(
-      ([
+      async ([
         sessions,
         providers,
         profiles,
@@ -285,7 +286,8 @@ export default function App() {
               }
             }
 
-            hydratePersistedSession(s, { restoreError });
+            const todos = await loadSessionTodos(s.id);
+            hydratePersistedSession(s, { restoreError, todos });
             markSessionAsPersisted(s);
           } catch (e) {
             logFrontendSoon({
