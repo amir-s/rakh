@@ -7,6 +7,10 @@ export interface ContextGatewayStateSnapshot {
   modelId: string;
   currentTurn: number;
   messageCount: number;
+  contextLength?: number;
+  contextUsagePct?: number;
+  estimatedTokens?: number;
+  estimatedBytes?: number;
   activeTodoId?: string;
 }
 
@@ -16,10 +20,20 @@ export interface ContextGatewayInput {
 
 export interface ContextGatewayOutput {
   messages: ApiMessage[];
+  replacementApiMessages?: ApiMessage[];
+}
+
+export interface TodoNormalizationPolicyConfig {
+  enabled: boolean;
+  triggerMinContextUsagePct: number;
+  replaceApiMessagesAfterCompaction: boolean;
+  modelStrategy: "parent" | "override";
+  overrideModelId?: string;
 }
 
 export interface ContextGatewayConfig {
   enabled: boolean;
+  todoNormalization: TodoNormalizationPolicyConfig;
 }
 
 export interface ContextGatewayConfigProvider {
@@ -27,5 +41,14 @@ export interface ContextGatewayConfigProvider {
 }
 
 export const defaultContextGatewayConfigProvider: ContextGatewayConfigProvider = {
-  getConfig: () => ({ enabled: true }),
+  getConfig: () => ({
+    enabled: true,
+    todoNormalization: {
+      enabled: true,
+      triggerMinContextUsagePct: 75,
+      replaceApiMessagesAfterCompaction: true,
+      modelStrategy: "override",
+      overrideModelId: "openai/gpt-5.2-codex",
+    },
+  }),
 };

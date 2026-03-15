@@ -167,9 +167,15 @@ export async function agentLoop(
         apiMessageCount: currentApiMessages.length,
         modelId,
       });
-      const activeTodo = getAgentState(tabId).todos.find((todo) => todo.state === "doing");
+      const stateBeforeTurn = getAgentState(tabId);
+      const activeTodo = stateBeforeTurn.todos.find((todo) => todo.state === "doing");
       const contextGateway = await executeThroughContextGateway({
         messages: currentApiMessages,
+        plan: stateBeforeTurn.plan,
+        todos: stateBeforeTurn.todos,
+        providers,
+        advancedOptions: advancedOpts,
+        logContext: turnContext,
         stateSnapshot: {
           tabId,
           runId,
@@ -177,9 +183,17 @@ export async function agentLoop(
           modelId,
           currentTurn,
           messageCount: currentApiMessages.length,
+          ...(stateBeforeTurn.config.contextLength
+            ? { contextLength: stateBeforeTurn.config.contextLength }
+            : {}),
           ...(activeTodo ? { activeTodoId: activeTodo.id } : {}),
         },
       });
+      if (contextGateway.replacementApiMessages) {
+        patchAgentState(tabId, {
+          apiMessages: contextGateway.replacementApiMessages,
+        });
+      }
 
       const streamed = await streamTurn({
         tabId,

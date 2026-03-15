@@ -71,6 +71,7 @@ const {
   consumeApprovalReasonMock,
   turns,
   streamTextMock,
+  generateObjectMock,
   createOpenAIMock,
   createAnthropicMock,
   createOpenAICompatibleMock,
@@ -85,6 +86,7 @@ const {
   toolArtifactSearchMock,
   switchToGitBranchMock,
   logFrontendSoonMock,
+  applyTodoContextEnrichmentMock,
 } = vi.hoisted(() => ({
   states: {} as Record<string, MockAgentState>,
   providersAtomMock: { kind: "providers-atom" },
@@ -104,6 +106,7 @@ const {
   consumeApprovalReasonMock: vi.fn(),
   turns: [] as MockTurn[],
   streamTextMock: vi.fn(),
+  generateObjectMock: vi.fn(),
   createOpenAIMock: vi.fn(),
   createAnthropicMock: vi.fn(),
   execAbortMock: vi.fn(),
@@ -118,6 +121,7 @@ const {
   toolArtifactGetMock: vi.fn(),
   toolArtifactSearchMock: vi.fn(),
   logFrontendSoonMock: vi.fn(),
+  applyTodoContextEnrichmentMock: vi.fn(),
 }));
 
 vi.mock("./atoms", () => ({
@@ -175,6 +179,7 @@ vi.mock("./tools/git", () => ({
 
 vi.mock("ai", () => ({
   streamText: (...args: unknown[]) => streamTextMock(...args),
+  generateObject: (...args: unknown[]) => generateObjectMock(...args),
   stepCountIs: (count: number) => count,
   tool: (input: unknown) => input,
 }));
@@ -291,6 +296,17 @@ vi.mock("./tools/toolArtifacts", () => ({
   getToolArtifact: (...args: unknown[]) => toolArtifactGetMock(...args),
   searchToolArtifact: (...args: unknown[]) => toolArtifactSearchMock(...args),
 }));
+
+vi.mock("./tools/todos", async () => {
+  const actual = await vi.importActual<typeof import("./tools/todos")>(
+    "./tools/todos",
+  );
+  return {
+    ...actual,
+    applyTodoContextEnrichment: (...args: unknown[]) =>
+      applyTodoContextEnrichmentMock(...args),
+  };
+});
 
 vi.mock("@/logging/client", async () => {
   const actual = await vi.importActual<typeof import("@/logging/client")>(
@@ -420,6 +436,14 @@ describe("runner", () => {
         tags: [],
         sdk_id: "gpt-5.2",
       },
+      {
+        id: "openai/gpt-5.2-codex",
+        name: "test-gpt-5.2-codex",
+        providerId: "test-openai-id",
+        owned_by: "openai",
+        tags: [],
+        sdk_id: "gpt-5.2-codex",
+      },
     ]);
     for (const key of Object.keys(states)) {
       delete states[key];
@@ -434,6 +458,7 @@ describe("runner", () => {
     cancelAllApprovalsMock.mockReset();
     consumeApprovalReasonMock.mockReset();
     streamTextMock.mockReset();
+    generateObjectMock.mockReset();
     createOpenAIMock.mockReset();
     createAnthropicMock.mockReset();
     execAbortMock.mockReset();
@@ -447,6 +472,7 @@ describe("runner", () => {
     toolArtifactSearchMock.mockReset();
     switchToGitBranchMock.mockReset();
     logFrontendSoonMock.mockReset();
+    applyTodoContextEnrichmentMock.mockReset();
     jotaiStoreMock.get.mockReset();
 
     jotaiStoreMock.get.mockImplementation((atom: unknown) => {
@@ -540,6 +566,16 @@ describe("runner", () => {
         matchCount: 0,
         lineCount: 0,
       },
+    });
+    generateObjectMock.mockResolvedValue({
+      object: {
+        summary: "Compacted context summary.",
+        todoUpdates: [],
+      },
+    });
+    applyTodoContextEnrichmentMock.mockResolvedValue({
+      ok: true,
+      data: { items: [] },
     });
 
     streamTextMock.mockImplementation(() => {
@@ -707,6 +743,136 @@ describe("runner", () => {
       },
     ]);
     expect(dispatchToolMock).not.toHaveBeenCalled();
+  });
+
+  it("replaces apiMessages with compacted context while leaving chat history intact", async () => {
+    const tabId = "tab-context-compaction";
+    setState(tabId, {
+      config: { cwd: "/workspace/app", model: "openai/gpt-5.2", contextLength: 100 },
+      chatMessages: [
+        { id: "chat-1", role: "user", content: "Earlier question", timestamp: 1 },
+        { id: "chat-2", role: "assistant", content: "Earlier answer", timestamp: 2 },
+      ],
+      apiMessages: [
+        { role: "system", content: "system prompt" },
+        { role: "user", content: "A".repeat(320) },
+        { role: "assistant", content: "B".repeat(320) },
+      ],
+      plan: {
+        markdown: "1. Compact the API history\n2. Continue implementation",
+        updatedAtMs: 10,
+        version: 1,
+      },
+      todos: [
+        {
+          id: "todo-ctx",
+          title: "Finish compaction",
+          state: "doing",
+          owner: "main",
+          createdTurn: 1,
+          updatedTurn: 1,
+          lastTouchedTurn: 1,
+          filesTouched: ["src/agent/runner/contextGateway.ts"],
+          thingsLearned: [
+            {
+              id: "note-agent",
+              text: "Preserve the leading system prompt.",
+              addedTurn: 1,
+              author: "main",
+              source: "agent",
+              verified: false,
+            },
+          ],
+          criticalInfo: [],
+          mutationLog: [],
+        },
+      ],
+    });
+    generateObjectMock.mockResolvedValue({
+      object: {
+        summary: "Use the compacted context and continue implementing the gateway.",
+        todoUpdates: [
+          {
+            todoId: "todo-ctx",
+            verifyThingsLearnedNoteIds: ["note-agent"],
+            verifyCriticalInfoNoteIds: [],
+            appendThingsLearned: [
+              "Compaction replaces apiMessages without touching chatMessages.",
+            ],
+            appendCriticalInfo: [],
+            removeDuplicateThingsLearnedNoteIds: [],
+            removeDuplicateCriticalInfoNoteIds: [],
+          },
+        ],
+      },
+    });
+    applyTodoContextEnrichmentMock.mockResolvedValue({
+      ok: true,
+      data: {
+        items: [
+          {
+            id: "todo-ctx",
+            title: "Finish compaction",
+            state: "doing",
+            owner: "main",
+            createdTurn: 1,
+            updatedTurn: 1,
+            lastTouchedTurn: 4,
+            filesTouched: ["src/agent/runner/contextGateway.ts"],
+            thingsLearned: [
+              {
+                id: "note-agent",
+                text: "Preserve the leading system prompt.",
+                addedTurn: 1,
+                author: "main",
+                source: "agent",
+                verified: true,
+              },
+              {
+                id: "note-cg",
+                text: "Compaction replaces apiMessages without touching chatMessages.",
+                addedTurn: 4,
+                author: "context_gateway",
+                source: "context_gateway",
+                verified: true,
+              },
+            ],
+            criticalInfo: [],
+            mutationLog: [],
+          },
+        ],
+      },
+    });
+    turns.push({ deltas: ["After compaction"], toolCalls: [] });
+
+    await runAgent(tabId, "Continue from the compacted context.");
+
+    const state = states[tabId];
+    expect(state.chatMessages).toHaveLength(4);
+    expect(state.chatMessages[0]).toMatchObject({ content: "Earlier question" });
+    expect(state.chatMessages[1]).toMatchObject({ content: "Earlier answer" });
+    expect(state.chatMessages[2]).toMatchObject({
+      role: "user",
+      content: "Continue from the compacted context.",
+    });
+    expect(state.chatMessages[3]).toMatchObject({
+      role: "assistant",
+      content: "After compaction",
+    });
+    expect(state.apiMessages).toHaveLength(4);
+    expect(state.apiMessages[0]).toMatchObject({ role: "system", content: "system prompt" });
+    expect(String(state.apiMessages[1]?.content)).toContain("COMPACTED SESSION CONTEXT");
+    expect(String(state.apiMessages[1]?.content)).toContain(
+      "Compaction replaces apiMessages without touching chatMessages.",
+    );
+    expect(state.apiMessages[2]).toMatchObject({
+      role: "user",
+      content: "Continue from the compacted context.",
+    });
+    expect(state.apiMessages[3]).toMatchObject({
+      role: "assistant",
+      content: "After compaction",
+    });
   });
 
   it("merges discovered MCP tools into the main run and routes them through approval", async () => {

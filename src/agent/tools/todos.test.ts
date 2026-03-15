@@ -17,6 +17,7 @@ vi.mock("../atoms", () => ({
 }));
 
 import {
+  applyTodoContextEnrichment,
   recordTodoMutation,
   todoAdd,
   todoList,
@@ -187,5 +188,52 @@ describe("tools/todos", () => {
         message: "Error: INVALID_ARGUMENT: completionNote is required when marking a todo done",
       },
     });
+  });
+
+  it("forwards context enrichment updates and syncs the returned todos", async () => {
+    const enriched = makeTodo("todo-5", "doing");
+    enriched.thingsLearned = [
+      {
+        id: "note-1",
+        text: "The compactor verified this note.",
+        addedTurn: 9,
+        author: "context_gateway",
+        source: "context_gateway",
+        verified: true,
+      },
+    ];
+    invokeMock.mockResolvedValue({
+      items: [enriched],
+      removed: true,
+    });
+
+    const result = await applyTodoContextEnrichment("tab-5", {
+      turn: 20,
+      updates: [
+        {
+          todoId: "todo-5",
+          verifyThingsLearnedNoteIds: ["note-agent"],
+          appendThingsLearned: ["The compactor verified this note."],
+        },
+      ],
+    });
+
+    expect(invokeMock).toHaveBeenCalledWith("todo_store_context_enrich", {
+      sessionId: "tab-5",
+      input: {
+        turn: 20,
+        updates: [
+          {
+            todoId: "todo-5",
+            verifyThingsLearnedNoteIds: ["note-agent"],
+            appendThingsLearned: ["The compactor verified this note."],
+          },
+        ],
+      },
+    });
+    expect(patchAgentStateMock).toHaveBeenCalledWith("tab-5", {
+      todos: [enriched],
+    });
+    expect(result).toEqual({ ok: true, data: { items: [enriched] } });
   });
 });
