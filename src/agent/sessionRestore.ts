@@ -12,15 +12,18 @@ import {
   restoreSession,
   type PersistedSession,
 } from "./persistence";
+import { loadSessionTodos } from "./tools/todos";
 import type {
   AdvancedModelOptions,
   AgentQueueState,
   LlmUsageRecord,
   QueuedUserMessage,
+  TodoItem,
 } from "./types";
 
 interface HydratePersistedSessionOptions {
   restoreError?: string | null;
+  todos?: TodoItem[];
 }
 
 type AddTabWithId = (tab: Tab) => void;
@@ -69,7 +72,8 @@ async function openPersistedSessionTab(
   }
 
   try {
-    hydratePersistedSession(session);
+    const todos = await loadSessionTodos(session.id);
+    hydratePersistedSession(session, { todos });
   } catch (error) {
     logFrontendSoon({
       level: "error",
@@ -135,6 +139,7 @@ export function hydratePersistedSession(
 
   patchAgentState(session.id, {
     status: restoreError ? "error" : "idle",
+    turnCount: session.turnCount ?? 0,
     tabTitle: session.tabTitle,
     config: {
       cwd: session.cwd,
@@ -154,7 +159,7 @@ export function hydratePersistedSession(
     },
     chatMessages: JSON.parse(session.chatMessages),
     apiMessages: JSON.parse(session.apiMessages),
-    todos: JSON.parse(session.todos),
+    todos: options.todos ?? JSON.parse(session.todos ?? "[]"),
     reviewEdits: JSON.parse(session.reviewEdits ?? "[]"),
     queuedMessages,
     queueState,

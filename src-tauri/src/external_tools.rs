@@ -285,10 +285,10 @@ fn mac_open_app_launch_plan(
 
 fn build_editor_launch_plan(
     env: &LaunchEnv,
-    cwd: &Path,
+    target_path: &Path,
     platform: Platform,
 ) -> Result<LaunchPlan, String> {
-    let cwd_arg = cwd.to_string_lossy().to_string();
+    let target_arg = target_path.to_string_lossy().to_string();
     let path_env = env.path.as_deref();
 
     for preferred in [&env.visual, &env.editor] {
@@ -298,7 +298,7 @@ fn build_editor_launch_plan(
         if let Some((program, mut args)) = split_command(raw) {
             let resolved = resolve_command_from_path(&program, path_env);
             if let Some(bin) = resolved {
-                args.push(cwd_arg.clone());
+                args.push(target_arg.clone());
                 return Ok(LaunchPlan {
                     command: bin.to_string_lossy().to_string(),
                     args,
@@ -307,11 +307,16 @@ fn build_editor_launch_plan(
 
             if platform == Platform::MacOs {
                 if let Some(app_name) = normalize_macos_app_name(&program) {
-                    return Ok(mac_open_app_launch_plan(&app_name, cwd, &args, path_env));
+                    return Ok(mac_open_app_launch_plan(
+                        &app_name,
+                        target_path,
+                        &args,
+                        path_env,
+                    ));
                 }
             }
 
-            args.push(cwd_arg.clone());
+            args.push(target_arg.clone());
             return Ok(LaunchPlan {
                 command: program,
                 args,
@@ -323,7 +328,7 @@ fn build_editor_launch_plan(
         if let Some(bin) = resolve_command_from_path(candidate.cli, path_env) {
             return Ok(LaunchPlan {
                 command: bin.to_string_lossy().to_string(),
-                args: vec![cwd_arg.clone()],
+                args: vec![target_arg.clone()],
             });
         }
     }
@@ -331,7 +336,7 @@ fn build_editor_launch_plan(
     if platform == Platform::MacOs {
         return Ok(mac_open_app_launch_plan(
             preferred_macos_editor_app(),
-            cwd,
+            target_path,
             &[],
             path_env,
         ));
@@ -453,24 +458,37 @@ fn build_shell_launch_plan(
     Err("Could not find a terminal launcher on PATH.".to_string())
 }
 
-fn ensure_valid_cwd(cwd: &str) -> Result<PathBuf, String> {
-    let trimmed = cwd.trim();
+fn ensure_valid_target(target: &str, allow_file: bool) -> Result<PathBuf, String> {
+    let trimmed = target.trim();
     if trimmed.is_empty() {
-        return Err("cwd must not be empty".to_string());
+        return Err("target must not be empty".to_string());
     }
 
     let path = PathBuf::from(trimmed);
     if !path.exists() {
-        return Err(format!("cwd does not exist: {}", trimmed));
+        return Err(format!("target does not exist: {}", trimmed));
     }
-    if !path.is_dir() {
-        return Err(format!("cwd is not a directory: {}", trimmed));
+    if path.is_dir() {
+        return Ok(path);
     }
-
-    Ok(path)
+    if allow_file && path.is_file() {
+        return Ok(path);
+    }
+    Err(format!("target is not a directory: {}", trimmed))
 }
 
-fn spawn_plan(tool_name: &str, plan: &LaunchPlan, cwd: &Path) -> Result<(), String> {
+fn resolve_spawn_cwd(target: &Path) -> Result<PathBuf, String> {
+    if target.is_dir() {
+        return Ok(target.to_path_buf());
+    }
+    target
+        .parent()
+        .map(Path::to_path_buf)
+        .ok_or_else(|| format!("Could not determine parent directory for {}", target.display()))
+}
+
+fn spawn_plan(tool_name: &str, plan: &LaunchPlan, target: &Path) -> Result<(), String> {
+    let spawn_cwd = resolve_spawn_cwd(target)?;
     if Path::new(&plan.command)
         .file_name()
         .and_then(|name| name.to_str())
@@ -478,7 +496,7 @@ fn spawn_plan(tool_name: &str, plan: &LaunchPlan, cwd: &Path) -> Result<(), Stri
     {
         let status = Command::new(&plan.command)
             .args(&plan.args)
-            .current_dir(cwd)
+            .current_dir(&spawn_cwd)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
@@ -492,7 +510,7 @@ fn spawn_plan(tool_name: &str, plan: &LaunchPlan, cwd: &Path) -> Result<(), Stri
 
     Command::new(&plan.command)
         .args(&plan.args)
-        .current_dir(cwd)
+        .current_dir(&spawn_cwd)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -503,24 +521,25 @@ fn spawn_plan(tool_name: &str, plan: &LaunchPlan, cwd: &Path) -> Result<(), Stri
 
 fn launch_external_tool(
     tool_name: &str,
-    cwd: String,
+    target: String,
+    allow_file: bool,
     build_plan: fn(&LaunchEnv, &Path, Platform) -> Result<LaunchPlan, String>,
 ) -> Result<(), String> {
     let start = Instant::now();
-    tool_log(tool_name, "start", json!({ "cwd": cwd }));
+    tool_log(tool_name, "start", json!({ "target": target }));
 
     let result: Result<(), String> = (|| {
-        let validated_cwd = ensure_valid_cwd(&cwd)?;
+        let validated_target = ensure_valid_target(&target, allow_file)?;
         let env = current_launch_env();
-        let plan = build_plan(&env, &validated_cwd, current_platform())?;
+        let plan = build_plan(&env, &validated_target, current_platform())?;
         let plan_command = plan.command.clone();
         let plan_args = plan.args.clone();
-        spawn_plan(tool_name, &plan, &validated_cwd)?;
+        spawn_plan(tool_name, &plan, &validated_target)?;
         tool_log(
             tool_name,
             "ok",
             json!({
-                "cwd": validated_cwd,
+                "target": validated_target,
                 "command": plan_command,
                 "args": plan_args,
                 "durationMs": start.elapsed().as_millis() as u64,
@@ -534,7 +553,7 @@ fn launch_external_tool(
             tool_name,
             "err",
             json!({
-                "cwd": cwd,
+                "target": target,
                 "error": error,
                 "durationMs": start.elapsed().as_millis() as u64,
             }),
@@ -546,12 +565,12 @@ fn launch_external_tool(
 
 #[tauri::command]
 pub fn open_in_editor(cwd: String) -> Result<(), String> {
-    launch_external_tool("open_in_editor", cwd, build_editor_launch_plan)
+    launch_external_tool("open_in_editor", cwd, true, build_editor_launch_plan)
 }
 
 #[tauri::command]
 pub fn open_shell(cwd: String) -> Result<(), String> {
-    launch_external_tool("open_shell", cwd, build_shell_launch_plan)
+    launch_external_tool("open_shell", cwd, false, build_shell_launch_plan)
 }
 
 #[cfg(test)]

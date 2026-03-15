@@ -41,6 +41,7 @@ const NON_EXPANDABLE_TOOLS = new Set([
   "agent_artifact_list",
   "agent_todo_add",
   "agent_todo_update",
+  "agent_todo_note_add",
   "agent_todo_list",
   "agent_todo_remove",
 ]);

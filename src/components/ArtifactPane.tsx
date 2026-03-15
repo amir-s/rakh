@@ -54,7 +54,7 @@ export default function ArtifactPane({
   const reviewEdits = useAgentReviewEdits(activeTabId);
   const showDebug = useAgentShowDebug(activeTabId);
 
-  const todoDone = todos.filter((todo) => todo.status === "done").length;
+  const todoDone = todos.filter((todo) => todo.state === "done").length;
   const visibleTabs: ArtifactTab[] = showDebug
     ? ["PLAN", "TODO", "REVIEW", "ARTIFACTS", "DEBUG"]
     : ["PLAN", "TODO", "REVIEW", "ARTIFACTS"];
@@ -151,7 +151,9 @@ export default function ArtifactPane({
           />
         ) : null}
 
-        {effectiveActiveTab === "TODO" ? <TodoPane todos={todos} /> : null}
+        {effectiveActiveTab === "TODO" ? (
+          <TodoPane sessionId={activeTabId} todos={todos} />
+        ) : null}
 
         {effectiveActiveTab === "REVIEW" ? (
           <ReviewPane tabId={activeTabId} onRefineEdit={onRefineEdit} />

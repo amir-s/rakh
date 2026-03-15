@@ -22,8 +22,50 @@ const gatewayIntentionField = z
   .describe(TOOL_GATEWAY_INTENTION_DESCRIPTION)
   .optional();
 
+const mutationIntentEnum = z.enum([
+  "exploration",
+  "implementation",
+  "refactor",
+  "fix",
+  "test",
+  "build",
+  "docs",
+  "setup",
+  "cleanup",
+  "other",
+]);
+
+const mutationPolicySchema = z.object({
+  mutationIntent: mutationIntentEnum.describe(
+    "Why this mutation is happening, for todo and audit tracking.",
+  ),
+  todoHandling: z.object({
+    mode: z
+      .enum(["track_active", "skip"])
+      .describe(
+        "Use 'track_active' to attach this mutation to the current active todo, or 'skip' to explicitly bypass todo tracking.",
+      ),
+    skipReason: z
+      .string()
+      .optional()
+      .describe(
+        "Required when mode is 'skip'. Explain why this mutation should not be tied to a todo.",
+      ),
+    touchedPaths: z
+      .array(z.string())
+      .optional()
+      .describe(
+        "Optional workspace-relative paths this command mutates. Required for non-file mutation tools when you want file tracking recorded.",
+      ),
+  }),
+});
+
 function withGatewayIntention<T extends z.ZodObject>(schema: T): T {
   return schema.extend({ intention: gatewayIntentionField }) as unknown as T;
+}
+
+function withMutationPolicy<T extends z.ZodObject>(schema: T): T {
+  return schema.extend(mutationPolicySchema.shape) as unknown as T;
 }
 
 const artifactRefSchema = z.object({
@@ -86,8 +128,9 @@ const TOOL_SPECS = [
     description:
       "Create a new file or overwrite an existing file with the given content. " +
       "By default (overwrite: false) fails with CONFLICT if the file already exists. " +
-      "Set overwrite: true to replace an existing file.",
-    inputSchema: z.object({
+      "Set overwrite: true to replace an existing file. " +
+      "You must also provide mutationIntent and todoHandling.",
+    inputSchema: withMutationPolicy(z.object({
       path: z.string().describe("Workspace-relative path for the file"),
       content: z.string().describe("Full file content to write"),
       overwrite: z
@@ -96,7 +139,7 @@ const TOOL_SPECS = [
           "Allow overwriting an existing file (default: false — fails if file exists)",
         )
         .optional(),
-    }),
+    })),
   }),
   tool({
     name: "workspace_editFile",
@@ -104,8 +147,9 @@ const TOOL_SPECS = [
       "Edit an existing file by applying one or more find-and-replace changes in sequence. " +
       "Each change specifies an oldString to find and a newString to replace it with. " +
       "Returns CONFLICT if any oldString is not found, or if it appears more than once and replaceAll is not true. " +
-      "Make oldString long enough to be unique within the file. Set replaceAll: true only when you intentionally want every occurrence replaced.",
-    inputSchema: z.object({
+      "Make oldString long enough to be unique within the file. Set replaceAll: true only when you intentionally want every occurrence replaced. " +
+      "You must also provide mutationIntent and todoHandling.",
+    inputSchema: withMutationPolicy(z.object({
       path: z.string().describe("Workspace-relative path to the file"),
       changes: z
         .array(
@@ -123,7 +167,7 @@ const TOOL_SPECS = [
         .describe(
           "Ordered list of find-and-replace changes to apply to the file",
         ),
-    }),
+    })),
   }),
   tool({
     name: "workspace_glob",
@@ -243,12 +287,13 @@ path/to/other.ts
     description:
       "Run a shell command in the workspace. Returns stdout, stderr, and exit code. " +
       "Always provide a short `reason` (one sentence) explaining why this command needs to run. " +
+      "You must also provide mutationIntent and todoHandling. Use todoHandling.mode='skip' with a skipReason when the command should not be tracked against the active todo. " +
       "The system will automatically prompt the user to approve or deny the command before it runs — " +
       "do NOT use user_input to ask for permission first. " +
       "Use `requireUserApproval: true` for potentially destructive commands or when you want to give the user control over when the command runs. " +
       "IMPORTANT: `args` are passed directly to the process — shell operators (`&&`, `|`, `;`, redirects) are NOT interpreted. " +
       "To chain commands, use `command: 'sh'` with `args: ['-c', 'cmd1 && cmd2']`.",
-    inputSchema: withGatewayIntention(z.object({
+    inputSchema: withGatewayIntention(withMutationPolicy(z.object({
       command: z.string().describe("Executable name (e.g. 'npm', 'git')"),
       args: z.array(z.string()).describe("Command arguments").optional(),
       cwd: z
@@ -276,7 +321,7 @@ path/to/other.ts
           "When true, request approval from user before running this command.",
         )
         .optional(),
-    })),
+    }))),
   }),
 
   /* ── agent.todo ───────────────────────────────────────────────────────────── */
@@ -284,22 +329,32 @@ path/to/other.ts
     name: "agent_todo_add",
     description: "Add a new todo item.",
     inputSchema: z.object({
-      text: z.string().describe("Todo item text"),
+      title: z.string().describe("Short todo title"),
     }),
   }),
   tool({
     name: "agent_todo_update",
     description:
-      "Update status, text, or blockedReason of an existing todo item.",
+      "Update the title, state, or completionNote of an existing todo item.",
     inputSchema: z.object({
       id: z.string().describe("Todo item ID"),
       patch: z
         .object({
-          text: z.string().optional(),
-          status: z.enum(["todo", "doing", "done", "blocked"]).optional(),
-          blockedReason: z.string().optional(),
+          title: z.string().optional(),
+          state: z.enum(["todo", "doing", "done", "blocked"]).optional(),
+          completionNote: z.string().optional(),
         })
         .optional(),
+    }),
+  }),
+  tool({
+    name: "agent_todo_note_add",
+    description:
+      "Attach a learned fact or critical note to a todo. Defaults to the current active todo when todoId is omitted.",
+    inputSchema: z.object({
+      kind: z.enum(["learned", "critical"]),
+      text: z.string().describe("The note to attach"),
+      todoId: z.string().optional().describe("Optional explicit todo ID"),
     }),
   }),
   tool({
@@ -505,14 +560,15 @@ path/to/other.ts
     description:
       "Create an isolated git worktree for this session before modifying any files. " +
       "Call this exactly once per session, before any file writes. " +
+      "You must also provide mutationIntent and todoHandling. " +
       "Returns immediately if a worktree already exists or was previously declined.",
-    inputSchema: z.object({
+    inputSchema: withMutationPolicy(z.object({
       suggestedBranch: z
         .string()
         .describe(
           "Short branch name to suggest to the user (e.g. 'feat/add-dark-mode')",
         ),
-    }),
+    })),
   }),
 
   /* ── subagent ───────────────────────────────────────────────────────── */

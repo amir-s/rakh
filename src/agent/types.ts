@@ -96,14 +96,59 @@ export interface AgentPlan {
 }
 
 export type TodoStatus = "todo" | "doing" | "done" | "blocked";
+export type TodoOwner = "main" | string;
+export type TodoNoteSource = "agent";
+export type MutationIntent =
+  | "exploration"
+  | "implementation"
+  | "refactor"
+  | "fix"
+  | "test"
+  | "build"
+  | "docs"
+  | "setup"
+  | "cleanup"
+  | "other";
+export type TodoHandlingMode = "track_active" | "skip";
+
+export interface TodoNoteItem {
+  id: string;
+  text: string;
+  addedTurn: number;
+  author: TodoOwner;
+  source: TodoNoteSource;
+  verified: boolean;
+}
+
+export interface TodoMutationLogEntry {
+  seq: number;
+  tool: string;
+  turn: number;
+  actor: TodoOwner;
+  paths: string[];
+  mutationIntent: MutationIntent;
+  toolCallId: string;
+}
 
 export interface TodoItem {
   id: string;
-  text: string;
-  status: TodoStatus;
-  createdAtMs: number;
-  updatedAtMs: number;
-  blockedReason?: string;
+  title: string;
+  state: TodoStatus;
+  owner: TodoOwner;
+  createdTurn: number;
+  updatedTurn: number;
+  lastTouchedTurn: number;
+  filesTouched: string[];
+  thingsLearned: TodoNoteItem[];
+  criticalInfo: TodoNoteItem[];
+  mutationLog: TodoMutationLogEntry[];
+  completionNote?: string;
+}
+
+export interface TodoHandlingInput {
+  mode: TodoHandlingMode;
+  skipReason?: string;
+  touchedPaths?: string[];
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
@@ -341,6 +386,8 @@ export type AgentErrorAction = {
 export interface AgentState {
   status: AgentStatus;
   config: AgentConfig;
+  /** Monotonic top-level user turn counter for this session. */
+  turnCount: number;
   /** Messages shown in the chat pane */
   chatMessages: ChatMessage[];
   /** Full message history sent to the model API */

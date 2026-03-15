@@ -131,7 +131,7 @@ describe("persistence", () => {
     expect(session.model).toBe(defaultModel);
     expect(session.chatMessages).toBe(JSON.stringify(state.chatMessages));
     expect(session.apiMessages).toBe(JSON.stringify(state.apiMessages));
-    expect(session.todos).toBe(JSON.stringify(state.todos));
+    expect(session.todos).toBe("[]");
     expect(session.reviewEdits).toBe(JSON.stringify(state.reviewEdits));
     expect(session.queuedMessages).toBe(JSON.stringify(state.queuedMessages));
     expect(session.queueState).toBe("paused");
@@ -377,6 +377,7 @@ describe("persistence", () => {
       tabTitle: "",
       cwd: "",
       model: "",
+      turnCount: 0,
       planMarkdown: "",
       planVersion: 0,
       planUpdatedAt: 0,

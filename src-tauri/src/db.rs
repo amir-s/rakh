@@ -31,6 +31,7 @@ pub struct PersistedSession {
     pub project_path: String,
     pub setup_command: String,
     pub model: String,
+    pub turn_count: i64,
     pub plan_markdown: String,
     pub plan_version: i64,
     pub plan_updated_at: i64,
@@ -532,6 +533,7 @@ pub struct AppState {
     pub pty_writers: Mutex<HashMap<String, Arc<Mutex<Box<dyn Write + Send>>>>>,
     pub pty_masters: Mutex<HashMap<String, Arc<Mutex<Box<dyn MasterPty + Send>>>>>,
     pub db: Mutex<Connection>,
+    pub todo_locks: Mutex<HashMap<String, Arc<Mutex<()>>>>,
 }
 
 fn emit_session_changed(app_handle: &AppHandle, payload: &SessionChangeEvent) {
@@ -704,6 +706,7 @@ pub fn init_db() -> Result<Connection, String> {
             project_path     TEXT    NOT NULL DEFAULT '',
             setup_command    TEXT    NOT NULL DEFAULT '',
             model            TEXT    NOT NULL DEFAULT '',
+            turn_count       INTEGER NOT NULL DEFAULT 0,
             plan_markdown    TEXT    NOT NULL DEFAULT '',
             plan_version     INTEGER NOT NULL DEFAULT 0,
             plan_updated_at  INTEGER NOT NULL DEFAULT 0,
@@ -753,6 +756,8 @@ pub fn init_db() -> Result<Connection, String> {
     let _ = conn.execute_batch(
         "ALTER TABLE sessions ADD COLUMN communication_profile TEXT NOT NULL DEFAULT 'pragmatic';",
     );
+    let _ =
+        conn.execute_batch("ALTER TABLE sessions ADD COLUMN turn_count INTEGER NOT NULL DEFAULT 0;");
     conn.execute_batch(
         "
         CREATE TABLE IF NOT EXISTS artifact_blobs (
@@ -836,7 +841,7 @@ pub fn db_load_sessions(state: State<'_, AppState>) -> Result<Vec<PersistedSessi
         let mut stmt = db
             .prepare(
                 "SELECT id, label, icon, mode, tab_title, cwd, project_path, setup_command, model,
-                plan_markdown, plan_version, plan_updated_at,
+                turn_count, plan_markdown, plan_version, plan_updated_at,
                 chat_messages, api_messages, todos, review_edits,
                 queued_messages, queue_state, llm_usage_ledger,
                 archived, pinned, created_at, updated_at,
@@ -860,27 +865,28 @@ pub fn db_load_sessions(state: State<'_, AppState>) -> Result<Vec<PersistedSessi
                     project_path: row.get(6)?,
                     setup_command: row.get(7)?,
                     model: row.get(8)?,
-                    plan_markdown: row.get(9)?,
-                    plan_version: row.get(10)?,
-                    plan_updated_at: row.get(11)?,
-                    chat_messages: row.get(12)?,
-                    api_messages: row.get(13)?,
-                    todos: row.get(14)?,
-                    review_edits: row.get(15)?,
-                    queued_messages: row.get(16)?,
-                    queue_state: row.get(17)?,
-                    llm_usage_ledger: row.get::<_, String>(18).unwrap_or_default(),
-                    archived: row.get::<_, i64>(19)? != 0,
-                    pinned: row.get::<_, i64>(20)? != 0,
-                    created_at: row.get(21)?,
-                    updated_at: row.get(22)?,
-                    worktree_path: row.get(23)?,
-                    worktree_branch: row.get(24)?,
-                    worktree_declined: row.get::<_, i64>(25)? != 0,
-                    show_debug: row.get::<_, i64>(26)? != 0,
-                    advanced_options: row.get::<_, String>(27).unwrap_or_default(),
+                    turn_count: row.get(9)?,
+                    plan_markdown: row.get(10)?,
+                    plan_version: row.get(11)?,
+                    plan_updated_at: row.get(12)?,
+                    chat_messages: row.get(13)?,
+                    api_messages: row.get(14)?,
+                    todos: row.get(15)?,
+                    review_edits: row.get(16)?,
+                    queued_messages: row.get(17)?,
+                    queue_state: row.get(18)?,
+                    llm_usage_ledger: row.get::<_, String>(19).unwrap_or_default(),
+                    archived: row.get::<_, i64>(20)? != 0,
+                    pinned: row.get::<_, i64>(21)? != 0,
+                    created_at: row.get(22)?,
+                    updated_at: row.get(23)?,
+                    worktree_path: row.get(24)?,
+                    worktree_branch: row.get(25)?,
+                    worktree_declined: row.get::<_, i64>(26)? != 0,
+                    show_debug: row.get::<_, i64>(27)? != 0,
+                    advanced_options: row.get::<_, String>(28).unwrap_or_default(),
                     communication_profile: row
-                        .get::<_, String>(28)
+                        .get::<_, String>(29)
                         .unwrap_or_else(|_| "pragmatic".to_string()),
                 })
             })
@@ -940,7 +946,7 @@ pub fn db_upsert_session(
         db.execute(
             "INSERT INTO sessions (
             id, label, icon, mode, tab_title, cwd, project_path, setup_command, model,
-            plan_markdown, plan_version, plan_updated_at,
+            turn_count, plan_markdown, plan_version, plan_updated_at,
             chat_messages, api_messages, todos, review_edits,
             queued_messages, queue_state, llm_usage_ledger,
             archived, pinned, created_at, updated_at,
@@ -955,6 +961,7 @@ pub fn db_upsert_session(
             project_path      = excluded.project_path,
             setup_command     = excluded.setup_command,
             model             = excluded.model,
+            turn_count        = excluded.turn_count,
             plan_markdown     = excluded.plan_markdown,
             plan_version      = excluded.plan_version,
             plan_updated_at   = excluded.plan_updated_at,
@@ -984,6 +991,7 @@ pub fn db_upsert_session(
                 session.project_path,
                 session.setup_command,
                 session.model,
+                session.turn_count,
                 session.plan_markdown,
                 session.plan_version,
                 session.plan_updated_at,
@@ -1173,7 +1181,7 @@ pub fn db_load_archived_sessions(
         let mut stmt = db
             .prepare(
                 "SELECT id, label, icon, mode, tab_title, cwd, project_path, setup_command, model,
-                plan_markdown, plan_version, plan_updated_at,
+                turn_count, plan_markdown, plan_version, plan_updated_at,
                 chat_messages, api_messages, todos, review_edits,
                 queued_messages, queue_state, llm_usage_ledger,
                 archived, pinned, created_at, updated_at,
@@ -1197,27 +1205,28 @@ pub fn db_load_archived_sessions(
                     project_path: row.get(6)?,
                     setup_command: row.get(7)?,
                     model: row.get(8)?,
-                    plan_markdown: row.get(9)?,
-                    plan_version: row.get(10)?,
-                    plan_updated_at: row.get(11)?,
-                    chat_messages: row.get(12)?,
-                    api_messages: row.get(13)?,
-                    todos: row.get(14)?,
-                    review_edits: row.get(15)?,
-                    queued_messages: row.get(16)?,
-                    queue_state: row.get(17)?,
-                    llm_usage_ledger: row.get::<_, String>(18).unwrap_or_default(),
-                    archived: row.get::<_, i64>(19)? != 0,
-                    pinned: row.get::<_, i64>(20)? != 0,
-                    created_at: row.get(21)?,
-                    updated_at: row.get(22)?,
-                    worktree_path: row.get(23)?,
-                    worktree_branch: row.get(24)?,
-                    worktree_declined: row.get::<_, i64>(25)? != 0,
-                    show_debug: row.get::<_, i64>(26)? != 0,
-                    advanced_options: row.get::<_, String>(27).unwrap_or_default(),
+                    turn_count: row.get(9)?,
+                    plan_markdown: row.get(10)?,
+                    plan_version: row.get(11)?,
+                    plan_updated_at: row.get(12)?,
+                    chat_messages: row.get(13)?,
+                    api_messages: row.get(14)?,
+                    todos: row.get(15)?,
+                    review_edits: row.get(16)?,
+                    queued_messages: row.get(17)?,
+                    queue_state: row.get(18)?,
+                    llm_usage_ledger: row.get::<_, String>(19).unwrap_or_default(),
+                    archived: row.get::<_, i64>(20)? != 0,
+                    pinned: row.get::<_, i64>(21)? != 0,
+                    created_at: row.get(22)?,
+                    updated_at: row.get(23)?,
+                    worktree_path: row.get(24)?,
+                    worktree_branch: row.get(25)?,
+                    worktree_declined: row.get::<_, i64>(26)? != 0,
+                    show_debug: row.get::<_, i64>(27)? != 0,
+                    advanced_options: row.get::<_, String>(28).unwrap_or_default(),
                     communication_profile: row
-                        .get::<_, String>(28)
+                        .get::<_, String>(29)
                         .unwrap_or_else(|_| "pragmatic".to_string()),
                 })
             })
@@ -2462,6 +2471,7 @@ mod tests {
                 project_path     TEXT    NOT NULL DEFAULT '',
                 setup_command    TEXT    NOT NULL DEFAULT '',
                 model            TEXT    NOT NULL DEFAULT '',
+                turn_count       INTEGER NOT NULL DEFAULT 0,
                 plan_markdown    TEXT    NOT NULL DEFAULT '',
                 plan_version     INTEGER NOT NULL DEFAULT 0,
                 plan_updated_at  INTEGER NOT NULL DEFAULT 0,
@@ -2528,6 +2538,7 @@ mod tests {
             pty_writers: Mutex::new(HashMap::new()),
             pty_masters: Mutex::new(HashMap::new()),
             db: Mutex::new(conn),
+            todo_locks: Mutex::new(HashMap::new()),
         };
 
         // We use State<'static, AppState> via tauri::State but since we can't easily construct a
@@ -2545,6 +2556,7 @@ mod tests {
             project_path: "/tmp".to_string(),
             setup_command: "npm install".to_string(),
             model: "test-model".to_string(),
+            turn_count: 0,
             plan_markdown: "".to_string(),
             plan_version: 0,
             plan_updated_at: 0,
@@ -2570,7 +2582,7 @@ mod tests {
         db.execute(
             "INSERT INTO sessions (
                 id, label, icon, mode, tab_title, cwd, project_path, setup_command, model,
-                plan_markdown, plan_version, plan_updated_at,
+                turn_count, plan_markdown, plan_version, plan_updated_at,
                 chat_messages, api_messages, todos, review_edits,
                 queued_messages, queue_state, llm_usage_ledger,
                 archived, pinned, created_at, updated_at,
@@ -2586,6 +2598,7 @@ mod tests {
                 session.project_path,
                 session.setup_command,
                 session.model,
+                session.turn_count,
                 session.plan_markdown,
                 session.plan_version,
                 session.plan_updated_at,

@@ -5,6 +5,10 @@ const persistenceMock = vi.hoisted(() => ({
   restoreSession: vi.fn(),
 }));
 
+const todosMock = vi.hoisted(() => ({
+  loadSessionTodos: vi.fn(),
+}));
+
 vi.mock("./persistence", async () => {
   const actual = await vi.importActual<typeof import("./persistence")>(
     "./persistence",
@@ -18,6 +22,10 @@ vi.mock("./persistence", async () => {
       persistenceMock.restoreSession(...args),
   };
 });
+
+vi.mock("./tools/todos", () => ({
+  loadSessionTodos: (...args: unknown[]) => todosMock.loadSessionTodos(...args),
+}));
 
 import { agentAtomFamily, jotaiStore } from "./atoms";
 import type { PersistedSession } from "./persistence";
@@ -41,12 +49,13 @@ function makeSession(
     projectPath: "/repo",
     setupCommand: "npm install",
     model: "openai/gpt-5.2",
+    turnCount: 0,
     planMarkdown: "plan",
     planVersion: 2,
     planUpdatedAt: 100,
     chatMessages: JSON.stringify([{ role: "user", content: "hello" }]),
     apiMessages: JSON.stringify([{ role: "assistant", content: "world" }]),
-    todos: JSON.stringify([{ id: "todo-1", text: "ship", status: "todo" }]),
+    todos: "[]",
     reviewEdits: JSON.stringify([{ filePath: "src/App.tsx" }]),
     queuedMessages: JSON.stringify([
       { id: "queue-1", content: "follow up after restart", createdAtMs: 123 },
@@ -75,6 +84,7 @@ describe("sessionRestore", () => {
   beforeEach(() => {
     persistenceMock.loadArchivedSessions.mockReset();
     persistenceMock.restoreSession.mockReset();
+    todosMock.loadSessionTodos.mockReset();
   });
 
   it("restores an archived session into agent state and the tab strip", async () => {
@@ -82,6 +92,21 @@ describe("sessionRestore", () => {
     const addTabWithId = vi.fn();
 
     persistenceMock.restoreSession.mockResolvedValue(undefined);
+    todosMock.loadSessionTodos.mockResolvedValue([
+      {
+        id: "todo-1",
+        title: "ship",
+        state: "todo",
+        owner: "main",
+        createdTurn: 1,
+        updatedTurn: 1,
+        lastTouchedTurn: 1,
+        filesTouched: [],
+        thingsLearned: [],
+        criticalInfo: [],
+        mutationLog: [],
+      },
+    ]);
 
     await restoreArchivedTab(session, addTabWithId);
 
@@ -119,7 +144,21 @@ describe("sessionRestore", () => {
     });
     expect(state.chatMessages).toEqual([{ role: "user", content: "hello" }]);
     expect(state.apiMessages).toEqual([{ role: "assistant", content: "world" }]);
-    expect(state.todos).toEqual([{ id: "todo-1", text: "ship", status: "todo" }]);
+    expect(state.todos).toEqual([
+      {
+        id: "todo-1",
+        title: "ship",
+        state: "todo",
+        owner: "main",
+        createdTurn: 1,
+        updatedTurn: 1,
+        lastTouchedTurn: 1,
+        filesTouched: [],
+        thingsLearned: [],
+        criticalInfo: [],
+        mutationLog: [],
+      },
+    ]);
     expect(state.reviewEdits).toEqual([{ filePath: "src/App.tsx" }]);
     expect(state.queuedMessages).toEqual([
       { id: "queue-1", content: "follow up after restart", createdAtMs: 123 },
@@ -135,6 +174,7 @@ describe("sessionRestore", () => {
 
     persistenceMock.loadArchivedSessions.mockResolvedValue([mostRecent, older]);
     persistenceMock.restoreSession.mockResolvedValue(undefined);
+    todosMock.loadSessionTodos.mockResolvedValue([]);
 
     const restored = await restoreMostRecentArchivedTab(addTabWithId);
 
@@ -176,6 +216,7 @@ describe("sessionRestore", () => {
     const session = makeSession("restore-session-5", { archived: false });
     const addTabWithId = vi.fn();
     const setActiveTab = vi.fn();
+    todosMock.loadSessionTodos.mockResolvedValue([]);
 
     const result = await focusOrOpenPersistedSession(session, {
       addTabWithId,

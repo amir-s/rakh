@@ -30,6 +30,7 @@ const INLINE_TOOL_NAMES = [
   "workspace_search",
   "agent_todo_add",
   "agent_todo_update",
+  "agent_todo_note_add",
   "agent_todo_list",
   "agent_todo_remove",
   "agent_card_add",

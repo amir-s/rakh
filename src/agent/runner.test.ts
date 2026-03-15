@@ -1273,7 +1273,14 @@ describe("runner", () => {
           {
             id: "tc-1",
             name: "exec_run",
-            arguments: { command: "pwd" },
+            arguments: {
+              command: "pwd",
+              mutationIntent: "exploration",
+              todoHandling: {
+                mode: "skip",
+                skipReason: "Approval-path test does not need todo tracking",
+              },
+            },
           },
         ],
       },
@@ -1286,9 +1293,20 @@ describe("runner", () => {
 
     await runAgent(tabId, "run command");
 
-    expect(requiresApprovalMock).toHaveBeenCalledWith("exec_run", false, "no", {
-      command: "pwd",
-    }, expect.objectContaining({ allow: [], deny: [] }));
+    expect(requiresApprovalMock).toHaveBeenCalledWith(
+      "exec_run",
+      false,
+      "no",
+      {
+        command: "pwd",
+        mutationIntent: "exploration",
+        todoHandling: {
+          mode: "skip",
+          skipReason: "Approval-path test does not need todo tracking",
+        },
+      },
+      expect.objectContaining({ allow: [], deny: [] }),
+    );
 
     const state = states[tabId];
     expect(dispatchToolMock).not.toHaveBeenCalled();
@@ -1530,6 +1548,11 @@ describe("runner", () => {
               command: "npm",
               args: ["test"],
               intention: "Summarize only the failing suites",
+              mutationIntent: "test",
+              todoHandling: {
+                mode: "skip",
+                skipReason: "Artifact summary test does not need todo tracking",
+              },
             },
           },
         ],
@@ -1832,7 +1855,15 @@ describe("runner", () => {
           {
             id: "tc-exec",
             name: "exec_run",
-            arguments: { command: "npm", args: ["test"] },
+            arguments: {
+              command: "npm",
+              args: ["test"],
+              mutationIntent: "test",
+              todoHandling: {
+                mode: "skip",
+                skipReason: "Streaming output test does not need todo tracking",
+              },
+            },
           },
         ],
       },
@@ -3343,6 +3374,11 @@ describe("runner", () => {
               command: "git",
               args: ["show", "--name-only", "--pretty=format:", "HEAD"],
               reason: "Inspect the last commit scope for a security audit",
+              mutationIntent: "exploration",
+              todoHandling: {
+                mode: "skip",
+                skipReason: "Security approval path test does not need todo tracking",
+              },
             },
           },
         ],

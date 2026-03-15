@@ -49,6 +49,7 @@ import {
   serializeToolResultForModel,
 } from "./utils";
 import { executeThroughToolGateway } from "./toolGateway";
+import { executeThroughContextGateway } from "./contextGateway";
 
 function buildToolCallDisplay(
   toolCallId: string,
@@ -111,6 +112,7 @@ export async function agentLoop(
   providers: ProviderInstance[],
   debugEnabled: boolean,
   runId: string,
+  currentTurn: number,
   runLogContext: LogContext,
 ): Promise<void> {
   const languageModel = resolveLanguageModel(modelId, providers);
@@ -165,13 +167,26 @@ export async function agentLoop(
         apiMessageCount: currentApiMessages.length,
         modelId,
       });
+      const activeTodo = getAgentState(tabId).todos.find((todo) => todo.state === "doing");
+      const contextGateway = await executeThroughContextGateway({
+        messages: currentApiMessages,
+        stateSnapshot: {
+          tabId,
+          runId,
+          agentId: "agent_main",
+          modelId,
+          currentTurn,
+          messageCount: currentApiMessages.length,
+          ...(activeTodo ? { activeTodoId: activeTodo.id } : {}),
+        },
+      });
 
       const streamed = await streamTurn({
         tabId,
         signal,
         modelId,
         model: languageModel,
-        messages: currentApiMessages,
+        messages: contextGateway.messages,
         tools: toolDefinitions,
         debugEnabled,
         logContext: turnContext,
@@ -346,6 +361,7 @@ export async function agentLoop(
                   tabId,
                   signal,
                   runId,
+                  currentTurn,
                   subagentDef,
                   message: subagentMessage,
                   parentModelId: modelId,
@@ -500,6 +516,7 @@ export async function agentLoop(
                 tabId,
                 runId,
                 agentId: "agent_main",
+                currentTurn,
                 toolCallId: tcId,
                 toolName: tc.function.name,
                 preArgs: args,

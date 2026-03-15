@@ -1,17 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-type Todo = {
-  id: string;
-  text: string;
-  status: "todo" | "doing" | "done" | "blocked";
-  createdAtMs: number;
-  updatedAtMs: number;
-  blockedReason?: string;
-};
-
 type MockState = {
   plan: { markdown: string; updatedAtMs: number; version: number };
-  todos: Todo[];
   tabTitle: string;
 };
 
@@ -40,16 +30,11 @@ import {
   planSet,
   titleGet,
   titleSet,
-  todoAdd,
-  todoList,
-  todoRemove,
-  todoUpdate,
 } from "./agentControl";
 
 function setState(tabId: string, state?: Partial<MockState>): void {
   states[tabId] = {
     plan: { markdown: "", updatedAtMs: 0, version: 0 },
-    todos: [],
     tabTitle: "",
     ...state,
   };
@@ -118,116 +103,6 @@ describe("agentControl tools", () => {
       data: { plan: { markdown: "# Updated Plan", version: 2 } },
     });
     expect(states.tab.plan.markdown).toBe("# Updated Plan");
-  });
-
-  it("todoAdd rejects blank text and trims valid input", () => {
-    setState("tab");
-
-    const blank = todoAdd("tab", { text: "   " });
-    expect(blank).toEqual({
-      ok: false,
-      error: { code: "INVALID_ARGUMENT", message: "text must not be empty" },
-    });
-
-    const added = todoAdd("tab", { text: "  write tests  " });
-    expect(added.ok).toBe(true);
-    if (!added.ok) throw new Error("expected add success");
-    expect(added.data.item.text).toBe("write tests");
-    expect(states.tab.todos).toHaveLength(1);
-  });
-
-  it("todoUpdate validates missing ids and blocked reason rules", () => {
-    setState("tab", {
-      todos: [
-        {
-          id: "t1",
-          text: "one",
-          status: "todo",
-          createdAtMs: 1,
-          updatedAtMs: 1,
-        },
-      ],
-    });
-
-    const missing = todoUpdate("tab", { id: "missing", patch: { status: "done" } });
-    expect(missing).toEqual({
-      ok: false,
-      error: { code: "NOT_FOUND", message: "Todo missing not found" },
-    });
-
-    const blockedWithoutReason = todoUpdate("tab", {
-      id: "t1",
-      patch: { status: "blocked" },
-    });
-    expect(blockedWithoutReason).toEqual({
-      ok: false,
-      error: {
-        code: "INVALID_ARGUMENT",
-        message: "blockedReason is required when status is 'blocked'",
-      },
-    });
-  });
-
-  it("todoUpdate updates todo fields and todoList filters/limits", () => {
-    setState("tab", {
-      todos: [
-        {
-          id: "a",
-          text: "A",
-          status: "todo",
-          createdAtMs: 1,
-          updatedAtMs: 1,
-        },
-        {
-          id: "b",
-          text: "B",
-          status: "doing",
-          createdAtMs: 1,
-          updatedAtMs: 1,
-        },
-      ],
-    });
-
-    const updated = todoUpdate("tab", {
-      id: "b",
-      patch: { status: "blocked", blockedReason: "waiting" },
-    });
-    expect(updated.ok).toBe(true);
-    if (!updated.ok) throw new Error("expected success");
-    expect(updated.data.item.status).toBe("blocked");
-    expect(updated.data.item.blockedReason).toBe("waiting");
-
-    const blockedOnly = todoList("tab", { status: "blocked" });
-    expect(blockedOnly).toMatchObject({
-      ok: true,
-      data: { items: [{ id: "b", status: "blocked" }] },
-    });
-
-    const limited = todoList("tab", { status: "any", limit: 1 });
-    expect(limited.ok).toBe(true);
-    if (!limited.ok) throw new Error("expected list success");
-    expect(limited.data.items).toHaveLength(1);
-  });
-
-  it("todoRemove reports removal state", () => {
-    setState("tab", {
-      todos: [
-        {
-          id: "a",
-          text: "A",
-          status: "todo",
-          createdAtMs: 1,
-          updatedAtMs: 1,
-        },
-      ],
-    });
-
-    const removed = todoRemove("tab", { id: "a" });
-    expect(removed).toEqual({ ok: true, data: { removed: true } });
-    expect(states.tab.todos).toHaveLength(0);
-
-    const notRemoved = todoRemove("tab", { id: "missing" });
-    expect(notRemoved).toEqual({ ok: true, data: { removed: false } });
   });
 
   it("titleSet trims title and titleGet returns current value", () => {

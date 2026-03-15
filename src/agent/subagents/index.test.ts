@@ -259,3 +259,18 @@ describe("subagent title ownership", () => {
     }
   });
 });
+
+describe("planner todo ownership", () => {
+  it("keeps todo tools out of the planner allowlist and documents main-agent ownership", () => {
+    const planner = getSubagent("planner");
+    expect(planner).toBeDefined();
+    expect(planner?.tools).not.toContain("agent_todo_add");
+    expect(planner?.tools).not.toContain("agent_todo_update");
+    expect(planner?.tools).not.toContain("agent_todo_note_add");
+    expect(planner?.tools).not.toContain("agent_todo_list");
+    expect(planner?.tools).not.toContain("agent_todo_remove");
+    expect(planner?.systemPrompt).toContain(
+      "The main agent owns todo creation and todo state.",
+    );
+  });
+});
