@@ -59,6 +59,7 @@ const {
   providersAtomMock,
   mcpServersAtomMock,
   mcpSettingsAtomMock,
+  gatewayPolicySettingsAtomMock,
   globalCommunicationProfileAtomMock,
   profilesAtomMock,
   jotaiStoreMock,
@@ -87,11 +88,14 @@ const {
   switchToGitBranchMock,
   logFrontendSoonMock,
   applyTodoContextEnrichmentMock,
+  defaultToolGatewayConfig,
+  defaultContextGatewayConfig,
 } = vi.hoisted(() => ({
   states: {} as Record<string, MockAgentState>,
   providersAtomMock: { kind: "providers-atom" },
   mcpServersAtomMock: { kind: "mcp-servers-atom" },
   mcpSettingsAtomMock: { kind: "mcp-settings-atom" },
+  gatewayPolicySettingsAtomMock: { kind: "gateway-policy-settings-atom" },
   globalCommunicationProfileAtomMock: { kind: "global-communication-profile-atom" },
   profilesAtomMock: { kind: "profiles-atom" },
   jotaiStoreMock: {
@@ -122,6 +126,35 @@ const {
   toolArtifactSearchMock: vi.fn(),
   logFrontendSoonMock: vi.fn(),
   applyTodoContextEnrichmentMock: vi.fn(),
+  defaultToolGatewayConfig: {
+    hugeOutput: {
+      enabled: true,
+      defaultThresholdBytes: 64 * 1024,
+      thresholdBands: [
+        { minContextUsagePct: 90, maxBytes: 16 * 1024 },
+        { minContextUsagePct: 75, maxBytes: 32 * 1024 },
+      ],
+    },
+    summary: {
+      enabled: true,
+      modelStrategy: "parent",
+      maxSummaryChars: 320,
+      maxSteps: 5,
+      toolArtifactGetMaxBytes: 12_000,
+      toolArtifactSearchMaxMatches: 8,
+      toolArtifactSearchContextLines: 1,
+    },
+  },
+  defaultContextGatewayConfig: {
+    enabled: true,
+    todoNormalization: {
+      enabled: true,
+      triggerMinContextUsagePct: 75,
+      replaceApiMessagesAfterCompaction: true,
+      modelStrategy: "override",
+      overrideModelId: "openai/gpt-5.2-codex",
+    },
+  },
 }));
 
 vi.mock("./atoms", () => ({
@@ -142,6 +175,16 @@ vi.mock("./db", () => ({
   providersAtom: providersAtomMock,
   profilesAtom: profilesAtomMock,
   commandListAtom: { kind: "command-list-atom" },
+}));
+
+vi.mock("./gatewayPolicySettings", () => ({
+  gatewayPolicySettingsAtom: gatewayPolicySettingsAtomMock,
+  persistedToolGatewayConfigProvider: {
+    getConfig: () => defaultToolGatewayConfig,
+  },
+  persistedContextGatewayConfigProvider: {
+    getConfig: () => defaultContextGatewayConfig,
+  },
 }));
 
 vi.mock("@ai-sdk/openai-compatible", () => ({

@@ -32,6 +32,10 @@ import {
 } from "../tools/artifacts";
 import { buildConversationCard, type CardAddInput } from "../tools/agentControl";
 import type { ProviderInstance } from "../db";
+import {
+  persistedContextGatewayConfigProvider,
+  persistedToolGatewayConfigProvider,
+} from "../gatewayPolicySettings";
 import type { LogContext } from "@/logging/types";
 
 import {
@@ -603,6 +607,7 @@ export async function runSubagentLoop(
           : {}),
         ...(activeTodo ? { activeTodoId: activeTodo.id } : {}),
       },
+      configProvider: persistedContextGatewayConfigProvider,
     });
     if (contextGateway.replacementApiMessages) {
       localApiMessages.splice(
@@ -713,6 +718,7 @@ export async function runSubagentLoop(
           updateToolCallById,
           recordLlmUsage: (input) => recordLlmUsage(tabId, input),
           advancedOptions: getAgentState(tabId).config.advancedOptions,
+          configProvider: persistedToolGatewayConfigProvider,
           syntheticExecutors: {
             user_input: async () => {
               updateToolCallById({ status: "awaiting_approval" });
