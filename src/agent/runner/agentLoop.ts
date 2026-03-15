@@ -6,6 +6,10 @@ import {
   shutdownMcpRun,
 } from "../mcp";
 import { getModelCatalogEntry } from "../modelCatalog";
+import {
+  persistedContextGatewayConfigProvider,
+  persistedToolGatewayConfigProvider,
+} from "../gatewayPolicySettings";
 import { requestApproval, consumeApprovalReason, requestUserInput } from "../approvals";
 import { getSubagent } from "../subagents";
 import { TOOL_DEFINITIONS } from "../tools";
@@ -189,6 +193,7 @@ export async function agentLoop(
             : {}),
           ...(activeTodo ? { activeTodoId: activeTodo.id } : {}),
         },
+        configProvider: persistedContextGatewayConfigProvider,
       });
       if (contextGateway.replacementApiMessages) {
         patchAgentState(tabId, {
@@ -327,6 +332,7 @@ export async function agentLoop(
             logContext: toolLog.context,
             updateToolCallById,
             recordLlmUsage: (input) => recordLlmUsage(tabId, input),
+            configProvider: persistedToolGatewayConfigProvider,
             mcpTool,
             syntheticExecutors: {
               agent_subagent_call: async (args) => {

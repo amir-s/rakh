@@ -14,6 +14,10 @@ import {
 } from "@/agent/atoms";
 import { providersAtom } from "@/agent/db";
 import { mcpServersAtom, mcpSettingsAtom } from "@/agent/mcp";
+import {
+  gatewayPolicySettingsAtom,
+  DEFAULT_GATEWAY_POLICY_SETTINGS,
+} from "@/agent/gatewayPolicySettings";
 import SettingsPage from "./SettingsPage";
 
 const updaterMocks = vi.hoisted(() => ({
@@ -27,6 +31,10 @@ const mcpMocks = vi.hoisted(() => ({
   saveMcpServersMock: vi.fn<(servers: unknown[]) => Promise<void>>(),
   saveMcpSettingsMock: vi.fn<(settings: unknown) => Promise<void>>(),
   testMcpServerMock: vi.fn<(server: unknown) => Promise<unknown>>(),
+}));
+
+const gatewayPolicyMocks = vi.hoisted(() => ({
+  saveGatewayPolicySettingsMock: vi.fn<(settings: unknown) => Promise<void>>(),
 }));
 
 const dbMocks = vi.hoisted(() => ({
@@ -115,6 +123,18 @@ vi.mock("@/agent/mcp", async () => {
   };
 });
 
+vi.mock("@/agent/gatewayPolicySettings", async () => {
+  const actual =
+    await vi.importActual<typeof import("@/agent/gatewayPolicySettings")>(
+      "@/agent/gatewayPolicySettings",
+    );
+  return {
+    ...actual,
+    saveGatewayPolicySettings: (...args: unknown[]) =>
+      gatewayPolicyMocks.saveGatewayPolicySettingsMock(args[0]),
+  };
+});
+
 vi.mock("@/components/ui/JsonCodeEditor", () => ({
   default: ({
     value,
@@ -176,6 +196,10 @@ describe("SettingsPage", () => {
     jotaiStore.set(providersAtom, []);
     jotaiStore.set(mcpServersAtom, []);
     jotaiStore.set(mcpSettingsAtom, { artifactizeReturnedFiles: false });
+    jotaiStore.set(
+      gatewayPolicySettingsAtom,
+      DEFAULT_GATEWAY_POLICY_SETTINGS,
+    );
     jotaiStore.set(debugModeEnabledAtom, false);
     jotaiStore.set(groupInlineToolCallsAtom, true);
     jotaiStore.set(appUpdaterStateAtom, {
@@ -197,6 +221,7 @@ describe("SettingsPage", () => {
     mcpMocks.saveMcpServersMock.mockReset();
     mcpMocks.saveMcpSettingsMock.mockReset();
     mcpMocks.testMcpServerMock.mockReset();
+    gatewayPolicyMocks.saveGatewayPolicySettingsMock.mockReset();
     mcpMocks.saveMcpServersMock.mockResolvedValue(undefined);
     mcpMocks.saveMcpSettingsMock.mockResolvedValue(undefined);
     mcpMocks.testMcpServerMock.mockResolvedValue({
@@ -220,6 +245,9 @@ describe("SettingsPage", () => {
       ],
       toolCount: 2,
     });
+    gatewayPolicyMocks.saveGatewayPolicySettingsMock.mockResolvedValue(
+      undefined,
+    );
     vi.stubGlobal("fetch", vi.fn());
   });
 
@@ -299,6 +327,50 @@ describe("SettingsPage", () => {
       expect(screen.getByTitle("Debug mode")).not.toBeNull();
     });
     expect(jotaiStore.get(debugModeEnabledAtom)).toBe(true);
+  });
+
+  it("saves gateway policy settings from the developer section", async () => {
+    renderSettingsPage("developer");
+
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: "Developer" })).not.toBeNull();
+    });
+
+    const editor = screen.getByRole("textbox", { name: "Gateway policy JSON" });
+    const nextSettings = {
+      ...DEFAULT_GATEWAY_POLICY_SETTINGS,
+      contextGateway: {
+        ...DEFAULT_GATEWAY_POLICY_SETTINGS.contextGateway,
+        todoNormalization: {
+          ...DEFAULT_GATEWAY_POLICY_SETTINGS.contextGateway.todoNormalization,
+          triggerMinContextUsagePct: 82,
+        },
+      },
+    };
+
+    fireEvent.change(editor, {
+      target: { value: JSON.stringify(nextSettings, null, 2) },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Save config/i }));
+
+    await waitFor(() => {
+      expect(gatewayPolicyMocks.saveGatewayPolicySettingsMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          contextGateway: expect.objectContaining({
+            todoNormalization: expect.objectContaining({
+              triggerMinContextUsagePct: 82,
+            }),
+          }),
+        }),
+      );
+    });
+    expect(jotaiStore.get(gatewayPolicySettingsAtom)).toMatchObject({
+      contextGateway: {
+        todoNormalization: {
+          triggerMinContextUsagePct: 82,
+        },
+      },
+    });
   });
 
   it("renders the MCP settings section under AI and saves a tested server", async () => {

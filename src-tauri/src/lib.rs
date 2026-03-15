@@ -2,6 +2,7 @@ pub mod db;
 pub mod exec;
 pub mod external_tools;
 pub mod fs_ops;
+pub mod gateway_policies;
 pub mod git;
 pub mod logging;
 pub mod mcp;
@@ -96,6 +97,8 @@ pub fn run() {
             logging::logs_query,
             logging::logs_export,
             logging::logs_clear,
+            gateway_policies::gateway_policy_settings_load,
+            gateway_policies::gateway_policy_settings_save,
             mcp::mcp_servers_load,
             mcp::mcp_settings_load,
             mcp::mcp_servers_save,

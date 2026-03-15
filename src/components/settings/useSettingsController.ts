@@ -30,6 +30,11 @@ import {
   type McpServerConfig,
   type McpSettings,
 } from "@/agent/mcp";
+import {
+  gatewayPolicySettingsAtom,
+  saveGatewayPolicySettings,
+  type GatewayPolicySettings,
+} from "@/agent/gatewayPolicySettings";
 import { ensureNotificationPermission } from "@/notifications";
 import { upsertWorkspaceSessions } from "@/agent/persistence";
 import {
@@ -70,6 +75,9 @@ export interface SettingsControllerValue {
   setMcpServers: (servers: McpServerConfig[]) => void;
   mcpSettings: McpSettings;
   setMcpSettings: (settings: McpSettings) => void;
+  gatewayPolicySettings: GatewayPolicySettings;
+  setGatewayPolicySettings: (settings: GatewayPolicySettings) => void;
+  saveGatewayPolicySettings: (settings: GatewayPolicySettings) => Promise<void>;
   envKeysAvailable: EnvKeyEntry[];
   debugModeEnabled: boolean;
   setDebugModeEnabled: (enabled: boolean) => void;
@@ -111,6 +119,9 @@ export function useSettingsController(): SettingsControllerValue {
   const [providers, setProviders] = useAtom(providersAtom);
   const [mcpServers, setMcpServers] = useAtom(mcpServersAtom);
   const [mcpSettings, setMcpSettings] = useAtom(mcpSettingsAtom);
+  const [gatewayPolicySettings, setGatewayPolicySettings] = useAtom(
+    gatewayPolicySettingsAtom,
+  );
   const [debugModeEnabled, setDebugModeEnabled] = useAtom(debugModeEnabledAtom);
   const [themeMode, setThemeMode] = useAtom(themeModeAtom);
   const [themeName, setThemeName] = useAtom(themeNameAtom);
@@ -240,6 +251,15 @@ export function useSettingsController(): SettingsControllerValue {
 
   const envKeysAvailable = useEnvProviderKeys();
 
+  const handleSaveGatewayPolicySettings = useCallback(
+    async (settings: GatewayPolicySettings) => {
+      const normalized = settings;
+      await saveGatewayPolicySettings(normalized);
+      setGatewayPolicySettings(normalized);
+    },
+    [setGatewayPolicySettings],
+  );
+
   const effectiveVoiceDownloadStatus: VoiceDownloadStatus =
     voiceDownloadStatus === "downloading" || voiceDownloadStatus === "error"
       ? voiceDownloadStatus
@@ -336,6 +356,9 @@ export function useSettingsController(): SettingsControllerValue {
     setMcpServers,
     mcpSettings,
     setMcpSettings,
+    gatewayPolicySettings,
+    setGatewayPolicySettings,
+    saveGatewayPolicySettings: handleSaveGatewayPolicySettings,
     envKeysAvailable,
     debugModeEnabled,
     setDebugModeEnabled,
