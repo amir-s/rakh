@@ -1,4 +1,6 @@
+import { useState } from "react";
 import type { TodoItem } from "@/agent/types";
+import { getSessionTodoPath } from "@/agent/tools/todos";
 import { cn } from "@/utils/cn";
 import PaneEmptyState from "./PaneEmptyState";
 
@@ -17,25 +19,70 @@ const CHECK_ICON = (
   </svg>
 );
 
-export default function TodoPane({ todos }: { todos: TodoItem[] }) {
-  const doneCount = todos.filter((todo) => todo.status === "done").length;
+export default function TodoPane({
+  sessionId,
+  todos,
+}: {
+  sessionId: string;
+  todos: TodoItem[];
+}) {
+  const [openingJson, setOpeningJson] = useState(false);
+  const doneCount = todos.filter((todo) => todo.state === "done").length;
+
+  const handleOpenJson = async () => {
+    if (openingJson) return;
+    setOpeningJson(true);
+    try {
+      const path = await getSessionTodoPath(sessionId);
+      if (!path) return;
+      const { invoke } = await import("@tauri-apps/api/core");
+      await invoke("open_in_editor", { cwd: path });
+    } finally {
+      setOpeningJson(false);
+    }
+  };
 
   if (todos.length === 0) {
     return (
-      <PaneEmptyState message="No todos yet — the agent will add them as it plans work." />
+      <div className="artifact-tab-content todo-content">
+        <div className="flex items-center justify-between gap-3">
+          <div className="plan-section-label">TODO</div>
+          <button
+            className="artifact-pane-open-json-btn"
+            onClick={() => {
+              void handleOpenJson();
+            }}
+            disabled={openingJson}
+          >
+            {openingJson ? "Opening..." : "Open JSON"}
+          </button>
+        </div>
+        <PaneEmptyState message="No todos yet — the agent will add them as it plans work." />
+      </div>
     );
   }
 
   return (
     <div className="artifact-tab-content todo-content">
-      <div className="plan-section-label">
-        TODO · {doneCount} of {todos.length} complete
+      <div className="flex items-center justify-between gap-3">
+        <div className="plan-section-label">
+          TODO · {doneCount} of {todos.length} complete
+        </div>
+        <button
+          className="artifact-pane-open-json-btn"
+          onClick={() => {
+            void handleOpenJson();
+          }}
+          disabled={openingJson}
+        >
+          {openingJson ? "Opening..." : "Open JSON"}
+        </button>
       </div>
       <ul className="todo-list">
         {todos.map((item) => {
-          const isDone = item.status === "done";
-          const isDoing = item.status === "doing";
-          const isBlocked = item.status === "blocked";
+          const isDone = item.state === "done";
+          const isDoing = item.state === "doing";
+          const isBlocked = item.state === "blocked";
 
           return (
             <li
@@ -61,13 +108,13 @@ export default function TodoPane({ todos }: { todos: TodoItem[] }) {
               </div>
 
               <div>
-                <span>{item.text}</span>
+                <span>{item.title}</span>
                 {isDoing && (
                   <div className="text-xxs text-primary mt-0.5">In progress</div>
                 )}
-                {isBlocked && item.blockedReason && (
+                {isBlocked && item.criticalInfo.length > 0 && (
                   <div className="text-xxs text-error mt-0.5">
-                    Blocked: {item.blockedReason}
+                    Blocked
                   </div>
                 )}
               </div>

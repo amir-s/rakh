@@ -1,6 +1,11 @@
 import { jotaiStore, getAgentState } from "../atoms";
 import { commandListAtom } from "../db";
 import {
+  listDoingTodos,
+  parseToolMutationPolicy,
+  stripToolMutationPolicyFields,
+} from "../mutationPolicy";
+import {
   dispatchTool,
   validateTool,
   type DispatchCallbacks,
@@ -28,6 +33,7 @@ import {
 } from "./worktreeLease";
 import { stripToolGatewayInputFields } from "../toolGateway";
 import type { ToolGatewayExecutorResult } from "./toolGateway";
+import { recordTodoMutation, resolveTodoOwner } from "../tools/todos";
 
 function shouldStreamToolOutput(toolName: string): boolean {
   return toolName === "exec_run" || toolName === "git_worktree_init";
@@ -37,6 +43,7 @@ interface ExecuteLocalToolOptions {
   tabId: string;
   runId: string;
   agentId: string;
+  currentTurn: number;
   toolCallId: string;
   toolName: string;
   preArgs: Record<string, unknown>;
@@ -54,6 +61,7 @@ export async function executeLocalTool(
     tabId,
     runId,
     agentId,
+    currentTurn,
     toolCallId,
     toolName,
     preArgs,
@@ -63,6 +71,36 @@ export async function executeLocalTool(
   } = opts;
 
   const preCwd = getAgentState(tabId).config.cwd;
+  const mutationPolicy = parseToolMutationPolicy(toolName, preArgs);
+
+  if (mutationPolicy && !mutationPolicy.ok) {
+    updateToolCallById({
+      status: "error",
+      result: mutationPolicy.error,
+    });
+    return { result: mutationPolicy };
+  }
+
+  if (mutationPolicy?.data.todoHandling.mode === "track_active") {
+    const doingTodos = listDoingTodos(getAgentState(tabId).todos);
+    if (doingTodos.length !== 1) {
+      const result = {
+        ok: false as const,
+        error: {
+          code: "CONFLICT" as const,
+          message:
+            doingTodos.length === 0
+              ? "Exactly one active todo is required before tracked mutations can run."
+              : "Tracked mutations are blocked because multiple active todos were found.",
+        },
+      };
+      updateToolCallById({
+        status: "error",
+        result: result.error,
+      });
+      return { result };
+    }
+  }
 
   updateToolCallById({ status: "running" });
 
@@ -158,6 +196,7 @@ export async function executeLocalTool(
   }
 
   const currentCwd = getAgentState(tabId).config.cwd;
+  const executionArgs = stripToolMutationPolicyFields(args);
   let streamBuf = "";
   const callbacks: DispatchCallbacks | undefined = shouldStreamToolOutput(toolName)
     ? {
@@ -172,15 +211,32 @@ export async function executeLocalTool(
     tabId,
     currentCwd,
     toolName,
-    args,
+    executionArgs,
     toolCallId,
     callbacks,
     {
       runId,
       agentId,
+      currentTurn,
       logContext,
     },
   );
+
+  if (result.ok && mutationPolicy?.data.todoHandling.mode === "track_active") {
+    const trackedPaths =
+      toolName === "workspace_writeFile" || toolName === "workspace_editFile"
+        ? (typeof preArgs.path === "string" ? [preArgs.path] : [])
+        : (mutationPolicy.data.todoHandling.touchedPaths ?? []);
+
+    await recordTodoMutation(tabId, {
+      actor: resolveTodoOwner(agentId),
+      turn: currentTurn,
+      tool: toolName,
+      toolCallId,
+      mutationIntent: mutationPolicy.data.mutationIntent,
+      paths: trackedPaths,
+    });
+  }
 
   return { result };
 }

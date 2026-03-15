@@ -95,4 +95,22 @@ describe("buildSystemPrompt", () => {
       "Read them, but do not recreate the same cards with agent_card_add.",
     );
   });
+
+  it("keeps todo ownership with the main agent when using planner", () => {
+    const systemPrompt = buildSystemPrompt(
+      "/workspace",
+      false,
+      false,
+      false,
+      runtimeContext,
+      undefined,
+    );
+
+    expect(systemPrompt).toContain(
+      "If you use the planner subagent, it should only return plan artifacts/cards.",
+    );
+    expect(systemPrompt).toContain(
+      "You must create and manage todos yourself after reviewing the planner output.",
+    );
+  });
 });

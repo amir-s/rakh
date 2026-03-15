@@ -26,6 +26,7 @@ const {
   todoUpdateMock,
   todoListMock,
   todoRemoveMock,
+  todoNoteAddMock,
   cardAddMock,
   titleSetMock,
   titleGetMock,
@@ -54,6 +55,7 @@ const {
   todoUpdateMock: vi.fn(),
   todoListMock: vi.fn(),
   todoRemoveMock: vi.fn(),
+  todoNoteAddMock: vi.fn(),
   cardAddMock: vi.fn(),
   titleSetMock: vi.fn(),
   titleGetMock: vi.fn(),
@@ -89,13 +91,17 @@ vi.mock("./agentControl", () => ({
   planSet: (...args: unknown[]) => planSetMock(...args),
   planEdit: (...args: unknown[]) => planEditMock(...args),
   planGet: (...args: unknown[]) => planGetMock(...args),
+  cardAdd: (...args: unknown[]) => cardAddMock(...args),
+  titleSet: (...args: unknown[]) => titleSetMock(...args),
+  titleGet: (...args: unknown[]) => titleGetMock(...args),
+}));
+
+vi.mock("./todos", () => ({
   todoAdd: (...args: unknown[]) => todoAddMock(...args),
   todoUpdate: (...args: unknown[]) => todoUpdateMock(...args),
   todoList: (...args: unknown[]) => todoListMock(...args),
   todoRemove: (...args: unknown[]) => todoRemoveMock(...args),
-  cardAdd: (...args: unknown[]) => cardAddMock(...args),
-  titleSet: (...args: unknown[]) => titleSetMock(...args),
-  titleGet: (...args: unknown[]) => titleGetMock(...args),
+  todoNoteAdd: (...args: unknown[]) => todoNoteAddMock(...args),
 }));
 
 vi.mock("./artifacts", () => ({
@@ -141,6 +147,7 @@ describe("tools/index dispatchTool", () => {
     todoUpdateMock.mockReset();
     todoListMock.mockReset();
     todoRemoveMock.mockReset();
+    todoNoteAddMock.mockReset();
     cardAddMock.mockReset();
     titleSetMock.mockReset();
     titleGetMock.mockReset();

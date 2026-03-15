@@ -9,8 +9,6 @@ import type { EditFileChange } from "./workspace";
 import type {
   AgentPlan,
   ConversationCard,
-  TodoItem,
-  TodoStatus,
   ToolResult,
 } from "../types";
 
@@ -91,138 +89,7 @@ export function planGet(tabId: string): ToolResult<PlanGetOutput> {
   return { ok: true, data: { plan } };
 }
 
-/* ── 3.4 agent.todo.add ─────────────────────────────────────────────────────── */
-
-export interface TodoAddInput {
-  text: string;
-}
-
-export interface TodoAddOutput {
-  item: TodoItem;
-}
-
-export function todoAdd(
-  tabId: string,
-  input: TodoAddInput,
-): ToolResult<TodoAddOutput> {
-  if (!input.text?.trim()) {
-    return {
-      ok: false,
-      error: { code: "INVALID_ARGUMENT", message: "text must not be empty" },
-    };
-  }
-  const now = Date.now();
-  const item: TodoItem = {
-    id: uid(),
-    text: input.text.trim(),
-    status: "todo",
-    createdAtMs: now,
-    updatedAtMs: now,
-  };
-  patchAgentState(tabId, (prev) => ({ ...prev, todos: [...prev.todos, item] }));
-  return { ok: true, data: { item } };
-}
-
-/* ── 3.5 agent.todo.update ──────────────────────────────────────────────────── */
-
-export interface TodoUpdateInput {
-  id: string;
-  patch: Partial<Pick<TodoItem, "text" | "status" | "blockedReason">>;
-}
-
-export interface TodoUpdateOutput {
-  item: TodoItem;
-}
-
-export function todoUpdate(
-  tabId: string,
-  input: TodoUpdateInput,
-): ToolResult<TodoUpdateOutput> {
-  const { todos } = getAgentState(tabId);
-  const idx = todos.findIndex((t) => t.id === input.id);
-  if (idx === -1) {
-    return {
-      ok: false,
-      error: { code: "NOT_FOUND", message: `Todo ${input.id} not found` },
-    };
-  }
-
-  const newStatus: TodoStatus =
-    (input.patch.status as TodoStatus) ?? todos[idx].status;
-
-  if (
-    newStatus === "blocked" &&
-    !input.patch.blockedReason &&
-    !todos[idx].blockedReason
-  ) {
-    return {
-      ok: false,
-      error: {
-        code: "INVALID_ARGUMENT",
-        message: "blockedReason is required when status is 'blocked'",
-      },
-    };
-  }
-
-  const updated: TodoItem = {
-    ...todos[idx],
-    ...input.patch,
-    status: newStatus,
-    updatedAtMs: Date.now(),
-  };
-
-  const newTodos = [...todos];
-  newTodos[idx] = updated;
-  patchAgentState(tabId, { todos: newTodos });
-  return { ok: true, data: { item: updated } };
-}
-
-/* ── 3.6 agent.todo.list ────────────────────────────────────────────────────── */
-
-export interface TodoListInput {
-  status?: TodoStatus | "any";
-  limit?: number;
-}
-
-export interface TodoListOutput {
-  items: TodoItem[];
-}
-
-export function todoList(
-  tabId: string,
-  input: TodoListInput,
-): ToolResult<TodoListOutput> {
-  let { todos } = getAgentState(tabId);
-  const filter = input.status ?? "any";
-  if (filter !== "any") {
-    todos = todos.filter((t) => t.status === filter);
-  }
-  const limit = input.limit ?? 200;
-  return { ok: true, data: { items: todos.slice(0, limit) } };
-}
-
-/* ── 3.7 agent.todo.remove ──────────────────────────────────────────────────── */
-
-export interface TodoRemoveInput {
-  id: string;
-}
-
-export interface TodoRemoveOutput {
-  removed: boolean;
-}
-
-export function todoRemove(
-  tabId: string,
-  input: TodoRemoveInput,
-): ToolResult<TodoRemoveOutput> {
-  const { todos } = getAgentState(tabId);
-  const next = todos.filter((t) => t.id !== input.id);
-  const removed = next.length !== todos.length;
-  patchAgentState(tabId, { todos: next });
-  return { ok: true, data: { removed } };
-}
-
-/* ── agent.title.set ──────────────────────────────────────────────────────────────── */
+/* ── agent.title.set ───────────────────────────────────────────────────────── */
 
 export interface TitleSetInput {
   title: string;

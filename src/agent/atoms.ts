@@ -182,6 +182,7 @@ function makeDefaultAgentState(): AgentState {
   return {
     status: "idle",
     config: { ...defaultConfig },
+    turnCount: 0,
     chatMessages: [],
     apiMessages: [],
     streamingContent: null,

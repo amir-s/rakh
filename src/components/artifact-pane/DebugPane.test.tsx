@@ -73,6 +73,7 @@ function buildFixture() {
 
   const state: AgentState = {
     status: "done",
+    turnCount: 0,
     config: {
       cwd: "/tmp/workspace",
       model: "openai/gpt-5.2",

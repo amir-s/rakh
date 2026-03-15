@@ -7,6 +7,7 @@ pub mod logging;
 pub mod mcp;
 pub mod pty;
 pub mod shell_env;
+pub mod todos;
 pub mod tool_artifacts;
 pub mod utils;
 pub mod whisper;
@@ -36,6 +37,7 @@ pub fn run() {
             pty_writers: Mutex::new(HashMap::new()),
             pty_masters: Mutex::new(HashMap::new()),
             db: Mutex::new(db),
+            todo_locks: Mutex::new(HashMap::new()),
         })
         .manage(McpRunState::default())
         .invoke_handler(tauri::generate_handler![
@@ -59,6 +61,14 @@ pub fn run() {
             tool_artifacts::tool_artifact_get,
             tool_artifacts::tool_artifact_search,
             tool_artifacts::tool_artifact_delete,
+            todos::todo_store_load,
+            todos::todo_store_add,
+            todos::todo_store_update,
+            todos::todo_store_remove,
+            todos::todo_store_note_add,
+            todos::todo_store_record_mutation,
+            todos::todo_store_context_enrich,
+            todos::todo_store_get_path,
             external_tools::open_in_editor,
             external_tools::open_shell,
             pty::spawn_pty,

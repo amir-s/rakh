@@ -210,8 +210,8 @@ export function buildCollapsedArgPreview(tc: ToolCallDisplay): string | null {
       return `${truncateText(artifactId, 20)} /${pattern}/`;
     }
     case "agent_todo_add": {
-      const text = typeof args.text === "string" ? args.text : "";
-      return text ? truncateText(text) : "add todo";
+      const title = typeof args.title === "string" ? args.title : "";
+      return title ? truncateText(title) : "add todo";
     }
     case "agent_todo_update": {
       const id = typeof args.id === "string" ? args.id : "";
@@ -219,21 +219,32 @@ export function buildCollapsedArgPreview(tc: ToolCallDisplay): string | null {
         args.patch && typeof args.patch === "object"
           ? (args.patch as Record<string, unknown>)
           : null;
-      const status =
-        patch && typeof patch.status === "string" ? patch.status : null;
-      const text =
-        patch && typeof patch.text === "string"
-          ? truncateText(patch.text, 36)
+      const state =
+        patch && typeof patch.state === "string" ? patch.state : null;
+      const title =
+        patch && typeof patch.title === "string"
+          ? truncateText(patch.title, 36)
+          : null;
+      const completionNote =
+        patch && typeof patch.completionNote === "string"
+          ? truncateText(patch.completionNote, 24)
           : null;
       const update = [
-        status ? `status:${status}` : null,
-        text ? `text:${text}` : null,
+        state ? `state:${state}` : null,
+        title ? `title:${title}` : null,
+        completionNote ? `done:${completionNote}` : null,
       ]
         .filter(Boolean)
         .join(" - ");
       if (id && update) return `${id} (${update})`;
       if (id) return id;
       return update || "update todo";
+    }
+    case "agent_todo_note_add": {
+      const kind = typeof args.kind === "string" ? args.kind : "note";
+      const text =
+        typeof args.text === "string" ? truncateText(args.text, 32) : "";
+      return text ? `${kind}: ${text}` : `add ${kind} note`;
     }
     case "agent_todo_list": {
       const status = typeof args.status === "string" ? args.status : "any";

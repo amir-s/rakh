@@ -140,13 +140,13 @@ export function buildArtifactFilterOptions(
 }
 
 export function buildTodoSnapshot(
-  todos: Array<{ id: string; status: string; text: string }>,
+  todos: Array<{ id: string; state: string; title: string }>,
 ): string {
   return JSON.stringify(
     todos.map((todo) => ({
       id: todo.id,
-      status: todo.status,
-      text: todo.text,
+      state: todo.state,
+      title: todo.title,
     })),
   );
 }

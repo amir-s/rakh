@@ -66,6 +66,7 @@ import {
   serializeToolResultForModel,
 } from "./utils";
 import { executeThroughToolGateway } from "./toolGateway";
+import { executeThroughContextGateway } from "./contextGateway";
 
 type ToolFailureResult = Extract<ToolResult<unknown>, { ok: false }>;
 
@@ -188,6 +189,7 @@ interface SubagentLoopOptions {
   tabId: string;
   signal: AbortSignal;
   runId: string;
+  currentTurn: number;
   subagentDef: SubagentDefinition;
   message: string;
   parentModelId: string;
@@ -206,6 +208,7 @@ export async function runSubagentLoop(
     tabId,
     signal,
     runId,
+    currentTurn,
     subagentDef,
     message,
     parentModelId,
@@ -578,12 +581,42 @@ export async function runSubagentLoop(
     if (signal.aborted) break;
     turns++;
 
+    const stateBeforeTurn = getAgentState(tabId);
+    const activeTodo = stateBeforeTurn.todos.find((todo) => todo.state === "doing");
+    const contextGateway = await executeThroughContextGateway({
+      messages: localApiMessages,
+      plan: stateBeforeTurn.plan,
+      todos: stateBeforeTurn.todos,
+      providers,
+      advancedOptions: stateBeforeTurn.config.advancedOptions,
+      logContext: subagentContext,
+      stateSnapshot: {
+        tabId,
+        runId,
+        agentId: `agent_${subagentDef.id}`,
+        modelId,
+        currentTurn,
+        messageCount: localApiMessages.length,
+        ...(stateBeforeTurn.config.contextLength
+          ? { contextLength: stateBeforeTurn.config.contextLength }
+          : {}),
+        ...(activeTodo ? { activeTodoId: activeTodo.id } : {}),
+      },
+    });
+    if (contextGateway.replacementApiMessages) {
+      localApiMessages.splice(
+        0,
+        localApiMessages.length,
+        ...contextGateway.replacementApiMessages,
+      );
+    }
+
     const streamed = await streamTurn({
       tabId,
       signal,
       modelId,
       model: languageModel,
-      messages: localApiMessages,
+      messages: contextGateway.messages,
       tools: toolDefs,
       debugEnabled,
       logContext: subagentContext,
@@ -735,6 +768,7 @@ export async function runSubagentLoop(
               tabId,
               runId,
               agentId: `agent_${subagentDef.id}`,
+              currentTurn,
               toolCallId: tcId,
               toolName: tc.function.name,
               preArgs: args,
