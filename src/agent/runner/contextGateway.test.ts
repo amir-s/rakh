@@ -211,7 +211,7 @@ describe("context gateway", () => {
     expect(generateObjectMock).not.toHaveBeenCalled();
   });
 
-  it("uses the override model, enriches todos, and returns replacement api messages", async () => {
+  it("uses the override model, enriches todos, returns replacement api messages, and emits a debug card when enabled", async () => {
     const messages = makeMessages();
     const enrichedTodo = makeTodo({
       thingsLearned: [
@@ -268,6 +268,7 @@ describe("context gateway", () => {
           apiKey: "test-key",
         },
       ],
+      debugEnabled: true,
       stateSnapshot: {
         tabId: "tab-1",
         runId: "run-1",
@@ -319,5 +320,53 @@ describe("context gateway", () => {
       content: "Continue implementing the todo compactor.",
     });
     expect(result.messages).toEqual(result.replacementApiMessages);
+    expect(result.debugChatMessage).toMatchObject({
+      role: "assistant",
+      badge: "DEBUG",
+      content: "ContextGateway compacted the API context. Debug snapshot below.",
+      cards: [
+        {
+          kind: "summary",
+          title: "ContextGateway Compaction",
+        },
+      ],
+    });
+    expect(result.debugChatMessage?.cards?.[0]).toMatchObject({
+      kind: "summary",
+      title: "ContextGateway Compaction",
+    });
+    expect(result.debugChatMessage?.cards?.[0]?.kind).toBe("summary");
+    expect(
+      (
+        result.debugChatMessage?.cards?.[0] &&
+        "markdown" in result.debugChatMessage.cards[0]
+      )
+        ? result.debugChatMessage.cards[0].markdown
+        : "",
+    ).toContain('"todos"');
+    expect(
+      (
+        result.debugChatMessage?.cards?.[0] &&
+        "markdown" in result.debugChatMessage.cards[0]
+      )
+        ? result.debugChatMessage.cards[0].markdown
+        : "",
+    ).toContain('"apiMessages"');
+    expect(
+      (
+        result.debugChatMessage?.cards?.[0] &&
+        "markdown" in result.debugChatMessage.cards[0]
+      )
+        ? result.debugChatMessage.cards[0].markdown
+        : "",
+    ).toContain("### Before");
+    expect(
+      (
+        result.debugChatMessage?.cards?.[0] &&
+        "markdown" in result.debugChatMessage.cards[0]
+      )
+        ? result.debugChatMessage.cards[0].markdown
+        : "",
+    ).toContain("### After");
   });
 });

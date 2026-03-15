@@ -589,6 +589,7 @@ export async function runSubagentLoop(
       todos: stateBeforeTurn.todos,
       providers,
       advancedOptions: stateBeforeTurn.config.advancedOptions,
+      debugEnabled: stateBeforeTurn.showDebug ?? false,
       logContext: subagentContext,
       stateSnapshot: {
         tabId,

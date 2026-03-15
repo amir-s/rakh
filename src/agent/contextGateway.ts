@@ -1,4 +1,4 @@
-import type { ApiMessage } from "./types";
+import type { ApiMessage, ChatMessage } from "./types";
 
 export interface ContextGatewayStateSnapshot {
   tabId: string;
@@ -21,6 +21,7 @@ export interface ContextGatewayInput {
 export interface ContextGatewayOutput {
   messages: ApiMessage[];
   replacementApiMessages?: ApiMessage[];
+  debugChatMessage?: ChatMessage;
 }
 
 export interface TodoNormalizationPolicyConfig {

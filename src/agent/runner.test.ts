@@ -875,6 +875,143 @@ describe("runner", () => {
     });
   });
 
+  it("adds a debug summary card with before/after context when compaction runs in debug mode", async () => {
+    const tabId = "tab-context-compaction-debug";
+    setState(tabId, {
+      config: { cwd: "/workspace/app", model: "openai/gpt-5.2", contextLength: 100 },
+      showDebug: true,
+      chatMessages: [
+        { id: "chat-1", role: "user", content: "Earlier question", timestamp: 1 },
+        { id: "chat-2", role: "assistant", content: "Earlier answer", timestamp: 2 },
+      ],
+      apiMessages: [
+        { role: "system", content: "system prompt" },
+        { role: "user", content: "A".repeat(320) },
+        { role: "assistant", content: "B".repeat(320) },
+      ],
+      plan: {
+        markdown: "1. Compact the API history\n2. Continue implementation",
+        updatedAtMs: 10,
+        version: 1,
+      },
+      todos: [
+        {
+          id: "todo-ctx",
+          title: "Finish compaction",
+          state: "doing",
+          owner: "main",
+          createdTurn: 1,
+          updatedTurn: 1,
+          lastTouchedTurn: 1,
+          filesTouched: ["src/agent/runner/contextGateway.ts"],
+          thingsLearned: [
+            {
+              id: "note-agent",
+              text: "Preserve the leading system prompt.",
+              addedTurn: 1,
+              author: "main",
+              source: "agent",
+              verified: false,
+            },
+          ],
+          criticalInfo: [],
+          mutationLog: [],
+        },
+      ],
+    });
+    generateObjectMock.mockResolvedValue({
+      object: {
+        summary: "Use the compacted context and continue implementing the gateway.",
+        todoUpdates: [
+          {
+            todoId: "todo-ctx",
+            verifyThingsLearnedNoteIds: ["note-agent"],
+            verifyCriticalInfoNoteIds: [],
+            appendThingsLearned: [
+              "Compaction replaces apiMessages without touching chatMessages.",
+            ],
+            appendCriticalInfo: [],
+            removeDuplicateThingsLearnedNoteIds: [],
+            removeDuplicateCriticalInfoNoteIds: [],
+          },
+        ],
+      },
+    });
+    applyTodoContextEnrichmentMock.mockResolvedValue({
+      ok: true,
+      data: {
+        items: [
+          {
+            id: "todo-ctx",
+            title: "Finish compaction",
+            state: "doing",
+            owner: "main",
+            createdTurn: 1,
+            updatedTurn: 1,
+            lastTouchedTurn: 4,
+            filesTouched: ["src/agent/runner/contextGateway.ts"],
+            thingsLearned: [
+              {
+                id: "note-agent",
+                text: "Preserve the leading system prompt.",
+                addedTurn: 1,
+                author: "main",
+                source: "agent",
+                verified: true,
+              },
+              {
+                id: "note-cg",
+                text: "Compaction replaces apiMessages without touching chatMessages.",
+                addedTurn: 4,
+                author: "context_gateway",
+                source: "context_gateway",
+                verified: true,
+              },
+            ],
+            criticalInfo: [],
+            mutationLog: [],
+          },
+        ],
+      },
+    });
+    turns.push({ deltas: ["After compaction"], toolCalls: [] });
+
+    await runAgent(tabId, "Continue from the compacted context.");
+
+    const state = states[tabId];
+    expect(state.chatMessages).toHaveLength(5);
+    expect(state.chatMessages[2]).toMatchObject({
+      role: "user",
+      content: "Continue from the compacted context.",
+    });
+    expect(state.chatMessages[3]).toMatchObject({
+      role: "assistant",
+      badge: "DEBUG",
+      content: "ContextGateway compacted the API context. Debug snapshot below.",
+    });
+    expect(state.chatMessages[3]?.cards).toMatchObject([
+      {
+        kind: "summary",
+        title: "ContextGateway Compaction",
+      },
+    ]);
+    const debugCards = state.chatMessages[3]?.cards as
+      | Array<{ kind: string; markdown?: string; title?: string }>
+      | undefined;
+    expect(Array.isArray(debugCards)).toBe(true);
+    const debugCard = debugCards?.[0];
+    if (!debugCard || debugCard.kind !== "summary") {
+      throw new Error("expected a summary debug card");
+    }
+    expect(debugCard.markdown).toContain("### Before");
+    expect(debugCard.markdown).toContain("### After");
+    expect(debugCard.markdown).toContain('"todos"');
+    expect(state.chatMessages[4]).toMatchObject({
+      role: "assistant",
+      content: "After compaction",
+    });
+  });
+
   it("merges discovered MCP tools into the main run and routes them through approval", async () => {
     const tabId = "tab-mcp-tool";
     setState(tabId, {
