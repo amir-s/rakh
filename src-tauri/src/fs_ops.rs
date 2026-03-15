@@ -37,7 +37,7 @@ pub fn list_dir(
         for entry in entries_iter {
             let entry = entry.map_err(|e| e.to_string())?;
             let name = entry.file_name().to_string_lossy().to_string();
-            if !include_hidden && name.starts_with('.') {
+            if !include_hidden && name.starts_with('.') && name != ".github" {
                 continue;
             }
             if entries.len() >= max_entries {
@@ -419,6 +419,16 @@ pub fn glob_files(
         // Walk the directory tree respecting .gitignore
         let walker = ignore::WalkBuilder::new(&base)
             .hidden(!include_hidden)
+            .filter_entry(move |e| {
+                // Always include .github even when hidden files are excluded
+                if !include_hidden {
+                    let name = e.file_name().to_string_lossy();
+                    if name == ".github" {
+                        return true;
+                    }
+                }
+                true
+            })
             .git_ignore(true)
             .git_global(true)
             .git_exclude(true)
@@ -611,6 +621,16 @@ pub fn search_files_grep(
         let mut walker_builder = ignore::WalkBuilder::new(&root_dir);
         walker_builder
             .hidden(!include_hidden)
+            .filter_entry(move |e| {
+                // Always include .github even when hidden files are excluded
+                if !include_hidden {
+                    let name = e.file_name().to_string_lossy();
+                    if name == ".github" {
+                        return true;
+                    }
+                }
+                true
+            })
             .follow_links(follow_symlinks)
             .git_ignore(true)
             .git_global(true)
@@ -899,6 +919,16 @@ mod tests {
         let res2 = list_dir(path_str.clone(), true, 100, None).unwrap();
         let entries2 = res2["entries"].as_array().unwrap();
         assert_eq!(entries2.len(), 2);
+
+        // 3. .github dir is always visible even without include_hidden
+        let github_dir = dir.path().join(".github");
+        fs::create_dir(&github_dir).unwrap();
+        fs::write(github_dir.join("CODEOWNERS"), "* @owner").unwrap();
+        let res3 = list_dir(path_str.clone(), false, 100, None).unwrap();
+        let entries3 = res3["entries"].as_array().unwrap();
+        let names3: Vec<&str> = entries3.iter().map(|e| e["name"].as_str().unwrap()).collect();
+        assert!(names3.contains(&".github"), ".github should be visible without includeHidden");
+        assert!(!names3.contains(&".hidden"), ".hidden should still be excluded");
     }
 
     #[test]
