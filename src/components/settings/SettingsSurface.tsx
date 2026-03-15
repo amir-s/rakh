@@ -2877,10 +2877,11 @@ function DeveloperSection({
         description="Configure ToolGateway output compaction and ContextGateway API compaction. Saved to ~/.rakh/config/gateway_policies.json."
         actions={
           <div className="flex items-center gap-2">
-            <Button
+            <IconButton
               type="button"
-              variant="ghost"
-              size="xs"
+              className="settings-gateway-policy-action"
+              aria-label="Reset defaults"
+              title="Reset defaults"
               onClick={() => {
                 setGatewayPolicyDraft(
                   JSON.stringify(DEFAULT_GATEWAY_POLICY_SETTINGS, null, 2),
@@ -2888,18 +2889,30 @@ function DeveloperSection({
                 setGatewayPolicyError(null);
               }}
             >
-              Reset defaults
-            </Button>
-            <Button
+              <span
+                aria-hidden="true"
+                className="material-symbols-outlined text-base"
+              >
+                restart_alt
+              </span>
+            </IconButton>
+            <IconButton
               type="button"
-              size="xs"
+              className="settings-gateway-policy-action settings-gateway-policy-action--save"
+              aria-label="Save config"
+              title="Save config"
               onClick={() => {
                 void handleSaveGatewayPolicies();
               }}
               disabled={!gatewayPolicyDirty}
             >
-              Save config
-            </Button>
+              <span
+                aria-hidden="true"
+                className="material-symbols-outlined text-base"
+              >
+                save
+              </span>
+            </IconButton>
           </div>
         }
       >
