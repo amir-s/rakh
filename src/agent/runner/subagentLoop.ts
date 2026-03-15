@@ -50,6 +50,7 @@ import {
 import {
   resolveLanguageModel,
 } from "./providerOptions";
+import { recordLlmUsage } from "../sessionStats";
 import { streamTurn } from "./streamTurn";
 import {
   buildSubagentSystemPrompt,
@@ -580,6 +581,7 @@ export async function runSubagentLoop(
     const streamed = await streamTurn({
       tabId,
       signal,
+      modelId,
       model: languageModel,
       messages: localApiMessages,
       tools: toolDefs,
@@ -596,6 +598,13 @@ export async function runSubagentLoop(
               ),
             )
           : undefined,
+      usageMetadata: {
+        actorKind: "subagent",
+        actorId: subagentDef.id,
+        actorLabel: subagentDef.name,
+        operation: "assistant turn",
+      },
+      onRecordUsage: (input) => recordLlmUsage(tabId, input),
     });
 
     finalText = streamed.text;
@@ -668,6 +677,7 @@ export async function runSubagentLoop(
           providers,
           logContext: toolLog.context,
           updateToolCallById,
+          recordLlmUsage: (input) => recordLlmUsage(tabId, input),
           advancedOptions: getAgentState(tabId).config.advancedOptions,
           syntheticExecutors: {
             user_input: async () => {

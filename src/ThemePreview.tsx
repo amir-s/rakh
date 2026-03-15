@@ -436,8 +436,43 @@ export default function ThemePreview() {
                     onChangeAutoApproveEdits={() => {}}
                     onChangeAutoApproveCommands={() => {}}
                     contextWindowPct={28}
+                    contextCurrentTokens={7168}
                     contextCurrentKb={9.5}
                     contextMaxKb={32}
+                    sessionUsageSummary={{
+                      usage: {
+                        inputTokens: 14200,
+                        noCacheInputTokens: 14200,
+                        cacheReadTokens: 0,
+                        cacheWriteTokens: 0,
+                        outputTokens: 3600,
+                        reasoningTokens: 800,
+                        totalTokens: 17800,
+                      },
+                      costStatus: "complete",
+                      knownCostUsd: 0.096,
+                      missingPricingModels: [],
+                      breakdown: [
+                        {
+                          actorKind: "main",
+                          actorId: "main",
+                          actorLabel: "Rakh",
+                          operationLabels: ["assistant turn"],
+                          modelIds: ["openai/gpt-5.2"],
+                          usage: {
+                            inputTokens: 14200,
+                            noCacheInputTokens: 14200,
+                            cacheReadTokens: 0,
+                            cacheWriteTokens: 0,
+                            outputTokens: 3600,
+                            reasoningTokens: 800,
+                            totalTokens: 17800,
+                          },
+                          costStatus: "complete",
+                          knownCostUsd: 0.096,
+                        },
+                      ],
+                    }}
                   />
                   <div className="chat-input-shell">
                     <div className="ds-composer-draft ds-composer-draft--muted">
@@ -476,8 +511,67 @@ export default function ThemePreview() {
                     onChangeAutoApproveEdits={() => {}}
                     onChangeAutoApproveCommands={() => {}}
                     contextWindowPct={71}
+                    contextCurrentTokens={19800}
                     contextCurrentKb={22.8}
                     contextMaxKb={32}
+                    sessionUsageSummary={{
+                      usage: {
+                        inputTokens: 22800,
+                        noCacheInputTokens: 22800,
+                        cacheReadTokens: 0,
+                        cacheWriteTokens: 0,
+                        outputTokens: 6100,
+                        reasoningTokens: 1400,
+                        totalTokens: 28900,
+                      },
+                      costStatus: "partial",
+                      knownCostUsd: 0.148,
+                      missingPricingModels: [
+                        {
+                          modelId: "my-gateway/meta/llama-3.3-70b",
+                          label: "Llama 3.3 70B",
+                        },
+                      ],
+                      breakdown: [
+                        {
+                          actorKind: "main",
+                          actorId: "main",
+                          actorLabel: "Rakh",
+                          operationLabels: ["assistant turn"],
+                          modelIds: ["openai/gpt-5.2"],
+                          usage: {
+                            inputTokens: 16800,
+                            noCacheInputTokens: 16800,
+                            cacheReadTokens: 0,
+                            cacheWriteTokens: 0,
+                            outputTokens: 4900,
+                            reasoningTokens: 1400,
+                            totalTokens: 21700,
+                          },
+                          costStatus: "complete",
+                          knownCostUsd: 0.148,
+                        },
+                        {
+                          actorKind: "internal",
+                          actorId: "context-compaction-summary",
+                          actorLabel: "Context compaction",
+                          operationLabels: ["artifact summary"],
+                          modelIds: ["my-gateway/meta/llama-3.3-70b"],
+                          usage: {
+                            inputTokens: 6000,
+                            noCacheInputTokens: 6000,
+                            cacheReadTokens: 0,
+                            cacheWriteTokens: 0,
+                            outputTokens: 1200,
+                            reasoningTokens: 0,
+                            totalTokens: 7200,
+                          },
+                          costStatus: "missing",
+                          knownCostUsd: 0,
+                        },
+                      ],
+                    }}
+                    onOpenProvidersSettings={() => {}}
                   />
                   <div className="chat-input-shell">
                     <div className="ds-composer-draft ds-composer-draft--muted">

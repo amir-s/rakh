@@ -26,7 +26,7 @@ export function fmtCtx(n?: number): string {
 }
 
 /** Format prompt price per 1M tokens. Returns "free" or "$0.15/M". */
-export function fmtPrice(pricing?: { prompt: number }): string {
+export function fmtPrice(pricing?: { prompt?: number }): string {
   if (typeof pricing?.prompt !== "number" || !Number.isFinite(pricing.prompt)) {
     return "";
   }
@@ -148,11 +148,24 @@ export function buildGatewayModels(
         context_length: model.limit?.context,
         pricing:
           model.cost && (
-            model.cost.input !== undefined || model.cost.output !== undefined
+            model.cost.input !== undefined ||
+            model.cost.output !== undefined ||
+            model.cost.cacheRead !== undefined ||
+            model.cost.cacheWrite !== undefined
           )
             ? {
-                prompt: model.cost.input ?? 0,
-                completion: model.cost.output ?? 0,
+                ...(model.cost.input !== undefined
+                  ? { prompt: model.cost.input }
+                  : {}),
+                ...(model.cost.output !== undefined
+                  ? { completion: model.cost.output }
+                  : {}),
+                ...(model.cost.cacheRead !== undefined
+                  ? { cacheRead: model.cost.cacheRead }
+                  : {}),
+                ...(model.cost.cacheWrite !== undefined
+                  ? { cacheWrite: model.cost.cacheWrite }
+                  : {}),
               }
             : undefined,
         sdk_id: model.id,

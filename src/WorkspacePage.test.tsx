@@ -107,8 +107,10 @@ const workspaceMocks = vi.hoisted(() => ({
       worktreeBranch: "main",
       worktreePath: undefined as string | undefined,
     },
+    currentContextStats: null,
     contextWindowKb: null,
     contextWindowPct: null,
+    sessionUsageSummary: null,
     error: null as string | null,
     errorAction: null as
       | null
@@ -350,7 +352,14 @@ vi.mock("@/components/NewSession", () => ({
 }));
 
 vi.mock("@/components/ChatControls", () => ({
-  default: () => null,
+  default: ({
+    onOpenProvidersSettings,
+  }: {
+    onOpenProvidersSettings?: () => void;
+  }) =>
+    onOpenProvidersSettings ? (
+      <button onClick={onOpenProvidersSettings}>Open provider settings</button>
+    ) : null,
 }));
 
 vi.mock("@/components/AutoScrollArea", () => ({
@@ -725,8 +734,10 @@ describe("WorkspacePage chat input", () => {
         worktreeBranch: "main",
         worktreePath: undefined,
       },
+      currentContextStats: null,
       contextWindowKb: null,
       contextWindowPct: null,
+      sessionUsageSummary: null,
       clearQueuedMessages: workspaceMocks.clearQueuedMessagesMock,
       error: null,
       errorAction: null,
@@ -1758,6 +1769,16 @@ describe("WorkspacePage chat input", () => {
     });
 
     fireEvent.click(screen.getByRole("button", { name: "Open AI Providers" }));
+
+    expect(workspaceMocks.openSettingsTabMock).toHaveBeenCalledWith("providers");
+  });
+
+  it("opens AI Providers from the composer stats control", async () => {
+    await act(async () => {
+      render(<WorkspacePage />);
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Open provider settings" }));
 
     expect(workspaceMocks.openSettingsTabMock).toHaveBeenCalledWith("providers");
   });

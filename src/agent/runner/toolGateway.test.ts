@@ -261,4 +261,82 @@ describe("tool gateway", () => {
       },
     });
   });
+
+  it("records internal LLM usage for artifact summaries", async () => {
+    const recordLlmUsage = vi.fn();
+    streamTextMock.mockImplementation(() => ({
+      text: Promise.resolve("summary"),
+      toolCalls: Promise.resolve([]),
+      totalUsage: Promise.resolve({
+        inputTokens: 400,
+        inputTokenDetails: {
+          noCacheTokens: 400,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+        },
+        outputTokens: 120,
+        outputTokenDetails: {
+          textTokens: 120,
+          reasoningTokens: 0,
+        },
+        totalTokens: 520,
+      }),
+    }));
+
+    await executeThroughToolGateway({
+      tabId: "tab-1",
+      runId: "run-1",
+      agentId: "agent_main",
+      toolCallId: "tc-usage",
+      toolName: "exec_run",
+      rawArgs: {
+        command: "npm",
+        intention: "Summarize failures only",
+      },
+      currentModelId: "openai/gpt-5.2",
+      apiMessages: [],
+      providers: [
+        {
+          id: "provider-openai",
+          name: "OpenAI",
+          type: "openai",
+          apiKey: "test",
+        },
+      ],
+      logContext: { tabId: "tab-1", traceId: "trace:1", depth: 1 },
+      updateToolCallById: vi.fn(),
+      recordLlmUsage,
+      configProvider: {
+        getConfig: () => ({
+          hugeOutput: {
+            enabled: true,
+            defaultThresholdBytes: 1,
+            thresholdBands: [],
+          },
+          summary: {
+            enabled: true,
+            modelStrategy: "parent",
+            maxSummaryChars: 120,
+            maxSteps: 3,
+            toolArtifactGetMaxBytes: 1000,
+            toolArtifactSearchMaxMatches: 5,
+            toolArtifactSearchContextLines: 1,
+          },
+        }),
+      },
+      localExecutor: async (): Promise<ToolGatewayExecutorResult> => ({
+        result: { ok: true, data: { stdout: "very large output" } },
+      }),
+    });
+
+    expect(recordLlmUsage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actorKind: "internal",
+        actorId: "context-compaction-summary",
+        actorLabel: "Context compaction",
+        operation: "artifact summary",
+        modelId: "openai/gpt-5.2",
+      }),
+    );
+  });
 });

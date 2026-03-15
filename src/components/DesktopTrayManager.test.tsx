@@ -112,6 +112,7 @@ function makeSession(id: string, label: string): PersistedSession {
     reviewEdits: "[]",
     queuedMessages: "[]",
     queueState: "idle",
+    llmUsageLedger: "[]",
     archived: false,
     pinned: false,
     createdAt: 0,

@@ -4,6 +4,8 @@ import { atom } from "jotai";
 export interface ProviderModelCost {
   input?: number;
   output?: number;
+  cacheRead?: number;
+  cacheWrite?: number;
 }
 
 export interface ProviderModelLimit {
@@ -51,14 +53,27 @@ function normalizeProviderModelCost(value: unknown): ProviderModelCost | undefin
 
   const input = parseFiniteNumber(value.input);
   const output = parseFiniteNumber(value.output);
+  const cacheRead = parseFiniteNumber(
+    "cacheRead" in value ? value.cacheRead : value.cache_read,
+  );
+  const cacheWrite = parseFiniteNumber(
+    "cacheWrite" in value ? value.cacheWrite : value.cache_write,
+  );
 
-  if (input === undefined && output === undefined) {
+  if (
+    input === undefined &&
+    output === undefined &&
+    cacheRead === undefined &&
+    cacheWrite === undefined
+  ) {
     return undefined;
   }
 
   return {
     ...(input !== undefined ? { input } : {}),
     ...(output !== undefined ? { output } : {}),
+    ...(cacheRead !== undefined ? { cacheRead } : {}),
+    ...(cacheWrite !== undefined ? { cacheWrite } : {}),
   };
 }
 

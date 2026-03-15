@@ -256,6 +256,25 @@ export interface QueuedUserMessage {
   createdAtMs: number;
 }
 
+export type LlmUsageActorKind = "main" | "subagent" | "internal";
+
+export interface LlmUsageRecord {
+  id: string;
+  timestamp: number;
+  modelId: string;
+  actorKind: LlmUsageActorKind;
+  actorId: string;
+  actorLabel: string;
+  operation: string;
+  inputTokens: number;
+  noCacheInputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  outputTokens: number;
+  reasoningTokens: number;
+  totalTokens: number;
+}
+
 /* ─────────────────────────────────────────────────────────────────────────────
    Advanced model / provider options (set at session creation time)
 ─────────────────────────────────────────────────────────────────────────── */
@@ -356,6 +375,8 @@ export interface AgentState {
   queuedMessages: QueuedUserMessage[];
   /** Whether queued follow-ups will auto-drain, stay paused, or are empty. */
   queueState: AgentQueueState;
+  /** Raw per-call LLM token usage for session-level accounting and pricing. */
+  llmUsageLedger: LlmUsageRecord[];
   /** Controls debug-only UI surfaces for this tab */
   showDebug?: boolean;
   /** Latest known run trace for this tab. Not persisted across restarts. */

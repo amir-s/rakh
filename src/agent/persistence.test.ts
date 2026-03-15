@@ -123,6 +123,7 @@ describe("persistence", () => {
       reviewEdits: [{ filePath: "a.ts" }],
       queuedMessages: [{ id: "q1", content: "follow up", createdAtMs: 42 }],
       queueState: "paused",
+      llmUsageLedger: [],
     } as unknown as Parameters<typeof buildPersistedSession>[1];
 
     const session = buildPersistedSession(tab, state);
@@ -385,6 +386,7 @@ describe("persistence", () => {
       reviewEdits: "[]",
       queuedMessages: "[]",
       queueState: "idle",
+      llmUsageLedger: "[]",
       archived: true,
       pinned: true,
       createdAt: 1,

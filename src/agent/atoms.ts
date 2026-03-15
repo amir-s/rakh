@@ -197,6 +197,7 @@ function makeDefaultAgentState(): AgentState {
     groupInlineToolCallsOverride: null,
     queuedMessages: [],
     queueState: "idle",
+    llmUsageLedger: [],
     showDebug: readStoredBoolean(DEBUG_MODE_STORAGE_KEY, import.meta.env.DEV),
   };
 }

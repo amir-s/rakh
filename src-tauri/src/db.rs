@@ -46,6 +46,8 @@ pub struct PersistedSession {
     pub queued_messages: String,
     /// Queue drain state for persisted follow-ups
     pub queue_state: String,
+    /// JSON-serialised LlmUsageRecord[]
+    pub llm_usage_ledger: String,
     pub archived: bool,
     pub pinned: bool,
     pub created_at: i64,
@@ -710,6 +712,7 @@ pub fn init_db() -> Result<Connection, String> {
             todos            TEXT    NOT NULL DEFAULT '[]',
             queued_messages  TEXT    NOT NULL DEFAULT '[]',
             queue_state      TEXT    NOT NULL DEFAULT 'idle',
+            llm_usage_ledger TEXT    NOT NULL DEFAULT '[]',
             archived         INTEGER NOT NULL DEFAULT 0,
             pinned           INTEGER NOT NULL DEFAULT 0,
             created_at       INTEGER NOT NULL,
@@ -742,6 +745,9 @@ pub fn init_db() -> Result<Connection, String> {
     );
     let _ = conn
         .execute_batch("ALTER TABLE sessions ADD COLUMN queue_state TEXT NOT NULL DEFAULT 'idle';");
+    let _ = conn.execute_batch(
+        "ALTER TABLE sessions ADD COLUMN llm_usage_ledger TEXT NOT NULL DEFAULT '[]';",
+    );
     let _ =
         conn.execute_batch("ALTER TABLE sessions ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0;");
     let _ = conn.execute_batch(
@@ -832,7 +838,7 @@ pub fn db_load_sessions(state: State<'_, AppState>) -> Result<Vec<PersistedSessi
                 "SELECT id, label, icon, mode, tab_title, cwd, project_path, setup_command, model,
                 plan_markdown, plan_version, plan_updated_at,
                 chat_messages, api_messages, todos, review_edits,
-                queued_messages, queue_state,
+                queued_messages, queue_state, llm_usage_ledger,
                 archived, pinned, created_at, updated_at,
                 worktree_path, worktree_branch, worktree_declined, show_debug,
                 advanced_options, communication_profile
@@ -863,17 +869,18 @@ pub fn db_load_sessions(state: State<'_, AppState>) -> Result<Vec<PersistedSessi
                     review_edits: row.get(15)?,
                     queued_messages: row.get(16)?,
                     queue_state: row.get(17)?,
-                    archived: row.get::<_, i64>(18)? != 0,
-                    pinned: row.get::<_, i64>(19)? != 0,
-                    created_at: row.get(20)?,
-                    updated_at: row.get(21)?,
-                    worktree_path: row.get(22)?,
-                    worktree_branch: row.get(23)?,
-                    worktree_declined: row.get::<_, i64>(24)? != 0,
-                    show_debug: row.get::<_, i64>(25)? != 0,
-                    advanced_options: row.get::<_, String>(26).unwrap_or_default(),
+                    llm_usage_ledger: row.get::<_, String>(18).unwrap_or_default(),
+                    archived: row.get::<_, i64>(19)? != 0,
+                    pinned: row.get::<_, i64>(20)? != 0,
+                    created_at: row.get(21)?,
+                    updated_at: row.get(22)?,
+                    worktree_path: row.get(23)?,
+                    worktree_branch: row.get(24)?,
+                    worktree_declined: row.get::<_, i64>(25)? != 0,
+                    show_debug: row.get::<_, i64>(26)? != 0,
+                    advanced_options: row.get::<_, String>(27).unwrap_or_default(),
                     communication_profile: row
-                        .get::<_, String>(27)
+                        .get::<_, String>(28)
                         .unwrap_or_else(|_| "pragmatic".to_string()),
                 })
             })
@@ -935,10 +942,10 @@ pub fn db_upsert_session(
             id, label, icon, mode, tab_title, cwd, project_path, setup_command, model,
             plan_markdown, plan_version, plan_updated_at,
             chat_messages, api_messages, todos, review_edits,
-            queued_messages, queue_state,
+            queued_messages, queue_state, llm_usage_ledger,
             archived, pinned, created_at, updated_at,
             worktree_path, worktree_branch, worktree_declined, show_debug, advanced_options, communication_profile
-         ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25,?26,?27,?28)
+         ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25,?26,?27,?28,?29)
          ON CONFLICT(id) DO UPDATE SET
             label             = excluded.label,
             icon              = excluded.icon,
@@ -957,6 +964,7 @@ pub fn db_upsert_session(
             review_edits      = excluded.review_edits,
             queued_messages   = excluded.queued_messages,
             queue_state       = excluded.queue_state,
+            llm_usage_ledger  = excluded.llm_usage_ledger,
             archived          = excluded.archived,
             pinned            = excluded.pinned,
             worktree_path     = excluded.worktree_path,
@@ -965,7 +973,7 @@ pub fn db_upsert_session(
             show_debug        = excluded.show_debug,
             advanced_options  = excluded.advanced_options,
             communication_profile = excluded.communication_profile,
-            updated_at        = ?22",
+            updated_at        = ?23",
             rusqlite::params![
                 session.id,
                 session.label,
@@ -985,6 +993,7 @@ pub fn db_upsert_session(
                 session.review_edits,
                 session.queued_messages,
                 session.queue_state,
+                session.llm_usage_ledger,
                 session.archived as i64,
                 session.pinned as i64,
                 session.created_at,
@@ -1166,7 +1175,7 @@ pub fn db_load_archived_sessions(
                 "SELECT id, label, icon, mode, tab_title, cwd, project_path, setup_command, model,
                 plan_markdown, plan_version, plan_updated_at,
                 chat_messages, api_messages, todos, review_edits,
-                queued_messages, queue_state,
+                queued_messages, queue_state, llm_usage_ledger,
                 archived, pinned, created_at, updated_at,
                 worktree_path, worktree_branch, worktree_declined, show_debug,
                 advanced_options, communication_profile
@@ -1197,17 +1206,18 @@ pub fn db_load_archived_sessions(
                     review_edits: row.get(15)?,
                     queued_messages: row.get(16)?,
                     queue_state: row.get(17)?,
-                    archived: row.get::<_, i64>(18)? != 0,
-                    pinned: row.get::<_, i64>(19)? != 0,
-                    created_at: row.get(20)?,
-                    updated_at: row.get(21)?,
-                    worktree_path: row.get(22)?,
-                    worktree_branch: row.get(23)?,
-                    worktree_declined: row.get::<_, i64>(24)? != 0,
-                    show_debug: row.get::<_, i64>(25)? != 0,
-                    advanced_options: row.get::<_, String>(26).unwrap_or_default(),
+                    llm_usage_ledger: row.get::<_, String>(18).unwrap_or_default(),
+                    archived: row.get::<_, i64>(19)? != 0,
+                    pinned: row.get::<_, i64>(20)? != 0,
+                    created_at: row.get(21)?,
+                    updated_at: row.get(22)?,
+                    worktree_path: row.get(23)?,
+                    worktree_branch: row.get(24)?,
+                    worktree_declined: row.get::<_, i64>(25)? != 0,
+                    show_debug: row.get::<_, i64>(26)? != 0,
+                    advanced_options: row.get::<_, String>(27).unwrap_or_default(),
                     communication_profile: row
-                        .get::<_, String>(27)
+                        .get::<_, String>(28)
                         .unwrap_or_else(|_| "pragmatic".to_string()),
                 })
             })
@@ -2461,6 +2471,7 @@ mod tests {
                 review_edits     TEXT    NOT NULL DEFAULT '[]',
                 queued_messages  TEXT    NOT NULL DEFAULT '[]',
                 queue_state      TEXT    NOT NULL DEFAULT 'idle',
+                llm_usage_ledger TEXT    NOT NULL DEFAULT '[]',
                 archived         INTEGER NOT NULL DEFAULT 0,
                 pinned           INTEGER NOT NULL DEFAULT 0,
                 created_at       INTEGER NOT NULL,
@@ -2543,6 +2554,7 @@ mod tests {
             review_edits: "[]".to_string(),
             queued_messages: "[]".to_string(),
             queue_state: "idle".to_string(),
+            llm_usage_ledger: "[]".to_string(),
             archived: false,
             pinned: false,
             created_at: 1000,
@@ -2560,10 +2572,10 @@ mod tests {
                 id, label, icon, mode, tab_title, cwd, project_path, setup_command, model,
                 plan_markdown, plan_version, plan_updated_at,
                 chat_messages, api_messages, todos, review_edits,
-                queued_messages, queue_state,
+                queued_messages, queue_state, llm_usage_ledger,
                 archived, pinned, created_at, updated_at,
                 worktree_path, worktree_branch, worktree_declined, show_debug
-             ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25,?26)",
+             ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25,?26,?27)",
             rusqlite::params![
                 session.id,
                 session.label,
@@ -2583,6 +2595,7 @@ mod tests {
                 session.review_edits,
                 session.queued_messages,
                 session.queue_state,
+                session.llm_usage_ledger,
                 session.archived as i64,
                 session.pinned as i64,
                 session.created_at,

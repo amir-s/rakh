@@ -16,6 +16,15 @@ type MockTurn = {
   finishReason?: string;
   rawFinishReason?: string;
   steps?: unknown[];
+  totalUsage?: {
+    inputTokens?: number;
+    noCacheInputTokens?: number;
+    cacheReadTokens?: number;
+    cacheWriteTokens?: number;
+    outputTokens?: number;
+    reasoningTokens?: number;
+    totalTokens?: number;
+  };
 };
 
 type MockAgentState = {
@@ -39,6 +48,7 @@ type MockAgentState = {
   errorDetails: unknown;
   tabTitle: string;
   reviewEdits: unknown[];
+  llmUsageLedger: Array<Record<string, unknown>>;
   autoApproveEdits: boolean;
   autoApproveCommands: "no" | "agent" | "yes";
   showDebug?: boolean;
@@ -317,6 +327,7 @@ function makeState(overrides: Partial<MockAgentState> = {}): MockAgentState {
     errorDetails: null,
     tabTitle: "",
     reviewEdits: [],
+    llmUsageLedger: [],
     autoApproveEdits: false,
     autoApproveCommands: "no",
     ...overrides,
@@ -562,6 +573,31 @@ describe("runner", () => {
       const turnReasoning = `${streamedReasoning}${(turn.reasoningDeltas ?? []).join("")}`;
       const finishReason =
         turn.finishReason ?? (turnToolCalls.length > 0 ? "tool-calls" : "stop");
+      const totalUsage = turn.totalUsage
+        ? {
+            inputTokens: turn.totalUsage.inputTokens,
+            inputTokenDetails: {
+              noCacheTokens: turn.totalUsage.noCacheInputTokens,
+              cacheReadTokens: turn.totalUsage.cacheReadTokens,
+              cacheWriteTokens: turn.totalUsage.cacheWriteTokens,
+            },
+            outputTokens: turn.totalUsage.outputTokens,
+            outputTokenDetails: {
+              reasoningTokens: turn.totalUsage.reasoningTokens,
+              textTokens:
+                typeof turn.totalUsage.outputTokens === "number" &&
+                typeof turn.totalUsage.reasoningTokens === "number"
+                  ? Math.max(
+                      0,
+                      turn.totalUsage.outputTokens - turn.totalUsage.reasoningTokens,
+                    )
+                  : undefined,
+            },
+            totalTokens: turn.totalUsage.totalTokens,
+            reasoningTokens: turn.totalUsage.reasoningTokens,
+            cachedInputTokens: turn.totalUsage.cacheReadTokens,
+          }
+        : undefined;
       const textStream = (async function* () {
         if (turn.streamError) throw turn.streamError;
         for (const delta of turn.deltas ?? []) yield delta;
@@ -585,6 +621,7 @@ describe("runner", () => {
           : Promise.resolve(turnToolCalls),
         finishReason: Promise.resolve(finishReason),
         rawFinishReason: Promise.resolve(turn.rawFinishReason),
+        totalUsage: Promise.resolve(totalUsage),
         steps: Promise.resolve(
           turn.steps ?? [
             {
@@ -622,7 +659,17 @@ describe("runner", () => {
   it("completes a normal assistant turn with no tool calls", async () => {
     const tabId = "tab-no-tools";
     setState(tabId);
-    turns.push({ deltas: ["Hello", " world"], toolCalls: [] });
+    turns.push({
+      deltas: ["Hello", " world"],
+      toolCalls: [],
+      totalUsage: {
+        inputTokens: 1200,
+        noCacheInputTokens: 1200,
+        outputTokens: 320,
+        reasoningTokens: 80,
+        totalTokens: 1520,
+      },
+    });
 
     await runAgent(tabId, "hi");
 
@@ -645,6 +692,20 @@ describe("runner", () => {
       role: "assistant",
       content: "Hello world",
     });
+    expect(state.llmUsageLedger).toMatchObject([
+      {
+        actorKind: "main",
+        actorId: "main",
+        actorLabel: "Rakh",
+        operation: "assistant turn",
+        modelId: "openai/gpt-5.2",
+        inputTokens: 1200,
+        noCacheInputTokens: 1200,
+        outputTokens: 320,
+        reasoningTokens: 80,
+        totalTokens: 1520,
+      },
+    ]);
     expect(dispatchToolMock).not.toHaveBeenCalled();
   });
 
@@ -2412,6 +2473,12 @@ describe("runner", () => {
             },
           },
         ],
+        totalUsage: {
+          inputTokens: 900,
+          noCacheInputTokens: 900,
+          outputTokens: 120,
+          totalTokens: 1020,
+        },
       });
       turns.push({
         deltas: ["Posting GitHub summary card."],
@@ -2422,14 +2489,32 @@ describe("runner", () => {
             "GitHub Update",
           ),
         ],
+        totalUsage: {
+          inputTokens: 700,
+          noCacheInputTokens: 700,
+          outputTokens: 180,
+          totalTokens: 880,
+        },
       });
       turns.push({
         deltas: ["GitHub update ready below."],
         toolCalls: [],
+        totalUsage: {
+          inputTokens: 320,
+          noCacheInputTokens: 320,
+          outputTokens: 60,
+          totalTokens: 380,
+        },
       });
       turns.push({
         deltas: ["Issue created and linked."],
         toolCalls: [],
+        totalUsage: {
+          inputTokens: 540,
+          noCacheInputTokens: 540,
+          outputTokens: 90,
+          totalTokens: 630,
+        },
       });
 
       await runAgent(tabId, "please create a GitHub issue for the auth timeout bug");
@@ -2476,6 +2561,23 @@ describe("runner", () => {
           artifacts: [],
           artifactValidations: [],
         },
+      });
+      expect(state.llmUsageLedger).toHaveLength(4);
+      expect(
+        state.llmUsageLedger.filter((entry) => entry.actorKind === "main"),
+      ).toHaveLength(2);
+      expect(
+        state.llmUsageLedger.filter(
+          (entry) => entry.actorKind === "subagent" && entry.actorId === "github",
+        ),
+      ).toHaveLength(2);
+      expect(
+        state.llmUsageLedger.find(
+          (entry) => entry.actorKind === "subagent" && entry.actorId === "github",
+        ),
+      ).toMatchObject({
+        actorLabel: "GitHub Operator",
+        modelId: "openai/gpt-5.2",
       });
       expect(streamTextMock).toHaveBeenCalledTimes(4);
     });
