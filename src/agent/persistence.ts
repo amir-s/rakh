@@ -266,7 +266,7 @@ export function buildPersistedSession(
     reviewEdits: JSON.stringify(state.reviewEdits),
     queuedMessages: JSON.stringify(state.queuedMessages),
     queueState: state.queueState,
-    llmUsageLedger: JSON.stringify(state.llmUsageLedger),
+    llmUsageLedger: JSON.stringify(state.llmUsageLedger ?? []),
     archived: false,
     pinned: tab.pinned ?? false,
     worktreePath: state.config.worktreePath ?? "",
@@ -295,7 +295,7 @@ export function isSessionEmpty(state: AgentState): boolean {
   if (state.chatMessages.length > 0 || state.apiMessages.length > 0) return false;
   if (state.todos.length > 0 || state.reviewEdits.length > 0) return false;
   if (state.queuedMessages.length > 0) return false;
-  if (state.llmUsageLedger.length > 0) return false;
+  if ((state.llmUsageLedger?.length ?? 0) > 0) return false;
   if (state.tabTitle.trim().length > 0) return false;
   if (state.plan.markdown.trim().length > 0) return false;
   if (state.plan.version > 0 || state.plan.updatedAtMs > 0) return false;
