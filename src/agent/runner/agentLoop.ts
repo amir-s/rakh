@@ -20,7 +20,7 @@ import type {
 } from "../types";
 import type { LogContext } from "@/logging/types";
 
-import { createConversationCardAccumulator } from "./chatState";
+import { appendChatMessage, createConversationCardAccumulator } from "./chatState";
 import { isCurrentRunId } from "./abortRegistry";
 import {
   buildPendingToolDisplay,
@@ -175,6 +175,7 @@ export async function agentLoop(
         todos: stateBeforeTurn.todos,
         providers,
         advancedOptions: advancedOpts,
+        debugEnabled: stateBeforeTurn.showDebug ?? false,
         logContext: turnContext,
         stateSnapshot: {
           tabId,
@@ -193,6 +194,9 @@ export async function agentLoop(
         patchAgentState(tabId, {
           apiMessages: contextGateway.replacementApiMessages,
         });
+      }
+      if (contextGateway.debugChatMessage) {
+        appendChatMessage(tabId, contextGateway.debugChatMessage);
       }
 
       const streamed = await streamTurn({

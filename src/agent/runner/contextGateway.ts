@@ -12,16 +12,19 @@ import {
 } from "../contextGateway";
 import { estimateContextUsage } from "../contextUsage";
 import { getModelCatalogEntry } from "../modelCatalog";
+import { buildConversationCard } from "../tools/agentControl";
 import { applyTodoContextEnrichment } from "../tools/todos";
 import type {
   AdvancedModelOptions,
   AgentPlan,
   ApiMessage,
+  ChatMessage,
   TodoItem,
   TodoNoteItem,
 } from "../types";
 import type { ProviderInstance } from "../db";
 
+import { msgId } from "./chatState";
 import { writeRunnerLog } from "./logging";
 import { buildProviderOptions, resolveLanguageModel } from "./providerOptions";
 
@@ -51,6 +54,7 @@ export interface ExecuteThroughContextGatewayOptions {
   todos: TodoItem[];
   providers: ProviderInstance[];
   advancedOptions?: AdvancedModelOptions;
+  debugEnabled?: boolean;
   logContext?: LogContext;
   stateSnapshot: ContextGatewayStateSnapshot;
   configProvider?: ContextGatewayConfigProvider;
@@ -266,6 +270,102 @@ function buildReplacementApiMessages(
   ];
 }
 
+function buildCompactionDebugSnapshot(
+  stateSnapshot: ContextGatewayStateSnapshot,
+  plan: AgentPlan,
+  todos: TodoItem[],
+  apiMessages: ApiMessage[],
+): Record<string, unknown> {
+  return {
+    stateSnapshot: {
+      tabId: stateSnapshot.tabId,
+      runId: stateSnapshot.runId,
+      agentId: stateSnapshot.agentId,
+      modelId: stateSnapshot.modelId,
+      currentTurn: stateSnapshot.currentTurn,
+      messageCount: stateSnapshot.messageCount,
+      ...(stateSnapshot.activeTodoId
+        ? { activeTodoId: stateSnapshot.activeTodoId }
+        : {}),
+      ...(typeof stateSnapshot.contextLength === "number"
+        ? { contextLength: stateSnapshot.contextLength }
+        : {}),
+      ...(typeof stateSnapshot.contextUsagePct === "number"
+        ? { contextUsagePct: stateSnapshot.contextUsagePct }
+        : {}),
+      ...(typeof stateSnapshot.estimatedTokens === "number"
+        ? { estimatedTokens: stateSnapshot.estimatedTokens }
+        : {}),
+      ...(typeof stateSnapshot.estimatedBytes === "number"
+        ? { estimatedBytes: stateSnapshot.estimatedBytes }
+        : {}),
+    },
+    plan,
+    todos: sanitizeTodosForCompaction(todos),
+    apiMessages: sanitizeApiMessagesForCompaction(apiMessages),
+  };
+}
+
+function buildCompactionDebugCardMarkdown(
+  before: Record<string, unknown>,
+  after: Record<string, unknown>,
+): string {
+  return [
+    "ContextGateway compacted the main-agent API context for this turn.",
+    "",
+    "### Before",
+    "```json",
+    JSON.stringify(before, null, 2),
+    "```",
+    "",
+    "### After",
+    "```json",
+    JSON.stringify(after, null, 2),
+    "```",
+  ].join("\n");
+}
+
+function buildCompactionDebugChatMessage(
+  options: ExecuteThroughContextGatewayOptions,
+  childContext: LogContext | undefined,
+  stateSnapshot: ContextGatewayStateSnapshot,
+  updatedTodos: TodoItem[],
+  replacementApiMessages: ApiMessage[],
+): ChatMessage | undefined {
+  if (!options.debugEnabled) return undefined;
+
+  const before = buildCompactionDebugSnapshot(
+    stateSnapshot,
+    options.plan,
+    options.todos,
+    options.messages,
+  );
+  const after = buildCompactionDebugSnapshot(
+    stateSnapshot,
+    options.plan,
+    updatedTodos,
+    replacementApiMessages,
+  );
+  const builtCard = buildConversationCard({
+    kind: "summary",
+    title: "ContextGateway Compaction",
+    markdown: buildCompactionDebugCardMarkdown(before, after),
+  });
+  if (!builtCard.ok) return undefined;
+
+  const messageId = msgId();
+  return {
+    id: messageId,
+    role: "assistant",
+    content: "ContextGateway compacted the API context. Debug snapshot below.",
+    timestamp: Date.now(),
+    badge: "DEBUG",
+    cards: [builtCard.data.card],
+    bubbleGroupId: `context-gateway:${messageId}`,
+    ...(childContext?.traceId ? { traceId: childContext.traceId } : {}),
+  };
+}
+
 async function compactWithTodoNormalizationPolicy(
   config: ContextGatewayConfig["todoNormalization"],
   options: ExecuteThroughContextGatewayOptions,
@@ -394,6 +494,13 @@ async function compactWithTodoNormalizationPolicy(
       options.messages,
       compactedContextMessage,
     );
+    const debugChatMessage = buildCompactionDebugChatMessage(
+      options,
+      childContext,
+      stateSnapshot,
+      updatedTodos,
+      replacementApiMessages,
+    );
 
     writeRunnerLog({
       level: "info",
@@ -414,6 +521,7 @@ async function compactWithTodoNormalizationPolicy(
       ...(config.replaceApiMessagesAfterCompaction
         ? { replacementApiMessages }
         : {}),
+      ...(debugChatMessage ? { debugChatMessage } : {}),
     };
   } catch (error) {
     writeRunnerLog({
