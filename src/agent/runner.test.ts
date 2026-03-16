@@ -80,6 +80,7 @@ const {
   callMcpToolMock,
   shutdownMcpRunMock,
   artifactCreateMock,
+  artifactGetMock,
   switchToGitBranchMock,
   logFrontendSoonMock,
 } = vi.hoisted(() => ({
@@ -111,6 +112,7 @@ const {
   callMcpToolMock: vi.fn(),
   shutdownMcpRunMock: vi.fn(),
   artifactCreateMock: vi.fn(),
+  artifactGetMock: vi.fn(),
   logFrontendSoonMock: vi.fn(),
 }));
 
@@ -277,6 +279,7 @@ vi.mock("./tools/artifacts", async () => {
   return {
     ...actual,
     artifactCreate: (...args: unknown[]) => artifactCreateMock(...args),
+    artifactGet: (...args: unknown[]) => artifactGetMock(...args),
   };
 });
 
@@ -345,6 +348,42 @@ function makeArtifact(
     createdAt: 123,
     ...overrides,
   };
+}
+
+function makeCompactedHistoryMarkdown(nextStep = "..."): string {
+  return [
+    "[COMPACTED HISTORY]",
+    "Prior conversation history was compacted for context management.",
+    "Use the following summary as the authoritative record of earlier context.",
+    "Prefer newer raw messages over this summary if they conflict.",
+    "",
+    "Current task",
+    "Investigate context compaction.",
+    "",
+    "User goal",
+    "Shrink internal history while preserving execution state.",
+    "",
+    "Hard constraints",
+    "Do not preserve dialogue.",
+    "",
+    "What has been done",
+    "Runner and subagent hooks were inspected.",
+    "",
+    "Important facts discovered",
+    "apiMessages and chatMessages already diverge.",
+    "",
+    "Files / artifacts / outputs created",
+    "Created one context-compaction artifact.",
+    "",
+    "Decisions already made",
+    "Use a single assistant summary message after compaction.",
+    "",
+    "Unresolved issues",
+    "None.",
+    "",
+    "Exact next step",
+    nextStep,
+  ].join("\n");
 }
 
 function makeSummaryCardToolCall(
@@ -438,6 +477,7 @@ describe("runner", () => {
     callMcpToolMock.mockReset();
     shutdownMcpRunMock.mockReset();
     artifactCreateMock.mockReset();
+    artifactGetMock.mockReset();
     switchToGitBranchMock.mockReset();
     logFrontendSoonMock.mockReset();
     jotaiStoreMock.get.mockReset();
@@ -502,6 +542,15 @@ describe("runner", () => {
     artifactCreateMock.mockResolvedValue({
       ok: true,
       data: { artifact: makeArtifact() },
+    });
+    artifactGetMock.mockResolvedValue({
+      ok: true,
+      data: {
+        artifact: makeArtifact({
+          contentFormat: "markdown",
+          content: makeCompactedHistoryMarkdown(),
+        }),
+      },
     });
 
     streamTextMock.mockImplementation(() => {
@@ -3470,6 +3519,314 @@ describe("runner", () => {
       );
       expect(state.error).toBeNull();
       expect(streamTextMock).toHaveBeenCalledTimes(3);
+    });
+
+    it("compacts main-agent api history without appending the slash command to chat", async () => {
+      const tabId = "tab-trigger-compact";
+      const compactedMarkdown = makeCompactedHistoryMarkdown(
+        "Resume implementation from the compaction card.",
+      );
+      setState(tabId, {
+        chatMessages: [
+          { role: "user", content: "please investigate context usage" },
+          { role: "assistant", content: "Looking into it." },
+        ],
+        apiMessages: [
+          { role: "system", content: "Original system prompt" },
+          { role: "user", content: "please investigate context usage" },
+          { role: "assistant", content: "Looking into it." },
+          {
+            role: "tool",
+            tool_call_id: "tc-1",
+            content: JSON.stringify({ ok: true, data: { found: true } }),
+          },
+        ],
+        plan: {
+          markdown: "1. Inspect runner\n2. Add compaction",
+          updatedAtMs: 10,
+          version: 2,
+        },
+        todos: [
+          {
+            id: "todo-1",
+            title: "Implement compaction",
+            state: "doing",
+            completionNote: undefined,
+            filesTouched: ["src/agent/runner.ts"],
+            thingsLearned: [{ text: "Subagents currently stream to chat", verified: true }],
+            criticalInfo: [{ text: "Do not rewrite the system prompt", verified: true }],
+          },
+        ],
+      });
+
+      turns.push({
+        deltas: ["Saving compacted context artifact."],
+        toolCalls: [
+          {
+            id: "tc-compact-artifact",
+            name: "agent_artifact_create",
+            arguments: {
+              artifactType: "compact-state",
+              kind: "context-compaction",
+              contentFormat: "markdown",
+              summary: "Compacted context snapshot",
+              content: compactedMarkdown,
+            },
+          },
+        ],
+      });
+      turns.push({
+        deltas: ["Context compacted."],
+        toolCalls: [],
+      });
+
+      dispatchToolMock.mockImplementation(async (...args: unknown[]) => {
+        const toolName = args[2] as string;
+        const toolArgs = args[3] as Record<string, unknown>;
+        const runtime = args[6] as Record<string, unknown>;
+        if (toolName === "agent_artifact_create") {
+          return {
+            ok: true,
+            data: {
+              artifact: makeArtifact({
+                sessionId: tabId,
+                runId: runtime.runId,
+                agentId: runtime.agentId,
+                artifactId: "compact_artifact_1",
+                kind: "context-compaction",
+                summary: toolArgs.summary,
+                metadata: toolArgs.metadata,
+                contentFormat: "markdown",
+              }),
+            },
+          };
+        }
+        return { ok: true, data: { ok: true } };
+      });
+      artifactGetMock.mockResolvedValue({
+        ok: true,
+        data: {
+          artifact: makeArtifact({
+            sessionId: tabId,
+            artifactId: "compact_artifact_1",
+            kind: "context-compaction",
+            contentFormat: "markdown",
+            content: compactedMarkdown,
+            metadata: { __rakh: { artifactType: "compact-state" } },
+          }),
+        },
+      });
+
+      await runAgent(tabId, "/compact");
+
+      const state = states[tabId];
+      expect(state.status).toBe("idle");
+      expect(state.error).toBeNull();
+      expect(state.chatMessages).toHaveLength(5);
+      expect(state.chatMessages.some((msg) => msg.content === "/compact")).toBe(false);
+      expect(
+        state.chatMessages.some(
+          (msg) =>
+            msg.role === "assistant" &&
+            msg.agentName === "Context Compaction" &&
+            msg.content === "Saving compacted context artifact.",
+        ),
+      ).toBe(true);
+      expect(
+        state.chatMessages.some(
+          (msg) =>
+            msg.role === "assistant" &&
+            msg.agentName === "Context Compaction" &&
+            msg.content === "Context compacted." &&
+            !Array.isArray(msg.cards),
+        ),
+      ).toBe(true);
+      expect(state.chatMessages.at(-1)).toMatchObject({
+        role: "assistant",
+        agentName: "Context Compaction",
+        content: "Context compacted.",
+        cards: [
+          {
+            kind: "summary",
+            title: "Compacted Context",
+            markdown: compactedMarkdown,
+          },
+        ],
+      });
+      expect(state.apiMessages).toEqual([
+        { role: "system", content: "Original system prompt" },
+        { role: "assistant", content: compactedMarkdown },
+      ]);
+      expect(streamTextMock).toHaveBeenCalledTimes(2);
+      expect(artifactGetMock).toHaveBeenCalledWith(tabId, {
+        artifactId: "compact_artifact_1",
+        includeContent: true,
+      });
+    });
+
+    it("shows a no-op assistant message when there is no main-agent history to compact", async () => {
+      const tabId = "tab-trigger-compact-empty";
+      setState(tabId, {
+        chatMessages: [{ role: "assistant", content: "Only visible chat exists." }],
+        apiMessages: [],
+      });
+
+      await runAgent(tabId, "/compact");
+
+      const state = states[tabId];
+      expect(state.status).toBe("idle");
+      expect(state.apiMessages).toEqual([]);
+      expect(streamTextMock).not.toHaveBeenCalled();
+      expect(state.chatMessages).toHaveLength(2);
+      expect(state.chatMessages.at(-1)).toMatchObject({
+        role: "assistant",
+        agentName: "Context Compaction",
+      });
+      expect(String(state.chatMessages.at(-1)?.content)).toContain(
+        "Nothing to compact yet",
+      );
+      expect(state.chatMessages.some((msg) => msg.content === "/compact")).toBe(false);
+    });
+
+    it("rejects trailing arguments for /compact without mutating api history", async () => {
+      const tabId = "tab-trigger-compact-args";
+      setState(tabId, {
+        apiMessages: [
+          { role: "system", content: "Original system prompt" },
+          { role: "user", content: "Investigate compaction." },
+        ],
+      });
+
+      await runAgent(tabId, "/compact now");
+
+      const state = states[tabId];
+      expect(state.status).toBe("idle");
+      expect(streamTextMock).not.toHaveBeenCalled();
+      expect(state.apiMessages).toEqual([
+        { role: "system", content: "Original system prompt" },
+        { role: "user", content: "Investigate compaction." },
+      ]);
+      expect(state.chatMessages).toHaveLength(1);
+      expect(state.chatMessages[0]).toMatchObject({
+        role: "assistant",
+        agentName: "Context Compaction",
+      });
+      expect(String(state.chatMessages[0]?.content)).toContain(
+        "does not accept arguments",
+      );
+    });
+
+    it("re-compacts already summarized api history together with newer raw turns", async () => {
+      const tabId = "tab-trigger-compact-repeat";
+      const newCompactedMarkdown = makeCompactedHistoryMarkdown(
+        "Continue from the newest raw turn.",
+      );
+      setState(tabId, {
+        apiMessages: [
+          { role: "system", content: "Original system prompt" },
+          { role: "assistant", content: makeCompactedHistoryMarkdown("Older next step.") },
+          { role: "user", content: "Continue with the implementation." },
+          { role: "assistant", content: "I updated the tests." },
+        ],
+      });
+
+      turns.push({
+        deltas: ["Saving compacted context artifact."],
+        toolCalls: [
+          {
+            id: "tc-compact-artifact-repeat",
+            name: "agent_artifact_create",
+            arguments: {
+              artifactType: "compact-state",
+              kind: "context-compaction",
+              contentFormat: "markdown",
+              summary: "Compacted context snapshot",
+              content: newCompactedMarkdown,
+            },
+          },
+        ],
+      });
+      turns.push({
+        deltas: ["Context compacted."],
+        toolCalls: [],
+      });
+
+      dispatchToolMock.mockImplementation(async (...args: unknown[]) => {
+        const toolName = args[2] as string;
+        const runtime = args[6] as Record<string, unknown>;
+        if (toolName === "agent_artifact_create") {
+          return {
+            ok: true,
+            data: {
+              artifact: makeArtifact({
+                sessionId: tabId,
+                runId: runtime.runId,
+                agentId: runtime.agentId,
+                artifactId: "compact_artifact_repeat",
+                kind: "context-compaction",
+                contentFormat: "markdown",
+                metadata: { __rakh: { artifactType: "compact-state" } },
+              }),
+            },
+          };
+        }
+        return { ok: true, data: { ok: true } };
+      });
+      artifactGetMock.mockResolvedValue({
+        ok: true,
+        data: {
+          artifact: makeArtifact({
+            sessionId: tabId,
+            artifactId: "compact_artifact_repeat",
+            kind: "context-compaction",
+            contentFormat: "markdown",
+            content: newCompactedMarkdown,
+            metadata: { __rakh: { artifactType: "compact-state" } },
+          }),
+        },
+      });
+
+      await runAgent(tabId, "/compact");
+
+      expect(states[tabId].apiMessages).toEqual([
+        { role: "system", content: "Original system prompt" },
+        { role: "assistant", content: newCompactedMarkdown },
+      ]);
+    });
+  });
+
+  describe("manual-only subagent delegation", () => {
+    it("rejects agent_subagent_call for the compact subagent", async () => {
+      const tabId = "tab-subagent-compact-reject";
+      setState(tabId);
+
+      turns.push({
+        deltas: [],
+        toolCalls: [
+          {
+            id: "tc-subagent-compact",
+            name: "agent_subagent_call",
+            arguments: {
+              subagentId: "compact",
+              message: "compact the internal state",
+            },
+          },
+        ],
+      });
+      turns.push({
+        deltas: ["Compaction subagent is trigger-only."],
+        toolCalls: [],
+      });
+
+      await runAgent(tabId, "try the compact subagent");
+
+      expect(parseToolMessageResult(tabId, "tc-subagent-compact")).toEqual({
+        ok: false,
+        error: {
+          code: "INVALID_ARGUMENT",
+          message: 'Subagent "compact" is not available via agent_subagent_call.',
+        },
+      });
     });
   });
 

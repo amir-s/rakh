@@ -113,4 +113,18 @@ describe("buildSystemPrompt", () => {
       "You must create and manage todos yourself after reviewing the planner output.",
     );
   });
+
+  it("omits manual-only compaction subagents from the parent prompt", () => {
+    const systemPrompt = buildSystemPrompt(
+      "/workspace",
+      false,
+      false,
+      false,
+      runtimeContext,
+      undefined,
+    );
+
+    expect(systemPrompt).not.toContain("/compact");
+    expect(systemPrompt).not.toContain("Compacts the main agent's internal context");
+  });
 });

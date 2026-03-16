@@ -3,6 +3,7 @@ import { copywriterSubagent } from "./copywriter";
 import { reviewerSubagent } from "./reviewer";
 import { securitySubagent } from "./security";
 import { githubSubagent } from "./github";
+import { compactSubagent } from "./compact";
 import type {
   SubagentArtifactSpec,
   SubagentDefinition,
@@ -22,6 +23,7 @@ const SUBAGENT_REGISTRY: SubagentDefinition[] = [
   reviewerSubagent,
   securitySubagent,
   githubSubagent,
+  compactSubagent,
 ];
 
 /** Look up a subagent by its unique ID. Returns undefined if not found. */
@@ -32,6 +34,12 @@ export function getSubagent(id: string): SubagentDefinition | undefined {
 /** Return all registered subagents (shallow copy). */
 export function getAllSubagents(): SubagentDefinition[] {
   return [...SUBAGENT_REGISTRY];
+}
+
+export function getCallableSubagents(): SubagentDefinition[] {
+  return SUBAGENT_REGISTRY.filter(
+    (subagent) => subagent.callableByMainAgent ?? true,
+  );
 }
 
 export function getSubagentArtifactSpecs(

@@ -49,6 +49,7 @@ interface StreamTurnOptions {
   logContext: LogContext;
   providerOptions?: Record<string, Record<string, JsonValue>>;
   agentName?: string;
+  appendToChat?: boolean;
   statusWhileStreaming?: "thinking";
   toPendingToolCalls: (toolCalls: ApiToolCall[]) => ToolCallDisplay[] | undefined;
   usageMetadata?: Omit<RecordLlmUsageInput, "usage" | "modelId">;
@@ -69,6 +70,7 @@ export async function streamTurn(
     logContext,
     providerOptions,
     agentName,
+    appendToChat = true,
     statusWhileStreaming,
     toPendingToolCalls,
     usageMetadata,
@@ -93,21 +95,25 @@ export async function streamTurn(
   const streamErrors: unknown[] = [];
 
   const assistantChatId = msgId();
-  appendChatMessage(tabId, {
-    id: assistantChatId,
-    role: "assistant",
-    content: "",
-    timestamp: Date.now(),
-    streaming: true,
-    traceId: logContext.traceId,
-    ...(agentName ? { agentName } : {}),
-  });
+  if (appendToChat) {
+    appendChatMessage(tabId, {
+      id: assistantChatId,
+      role: "assistant",
+      content: "",
+      timestamp: Date.now(),
+      streaming: true,
+      traceId: logContext.traceId,
+      ...(agentName ? { agentName } : {}),
+    });
+  }
 
-  patchAgentState(tabId, (prev) => ({
-    ...prev,
-    ...(statusWhileStreaming ? { status: statusWhileStreaming } : {}),
-    streamingContent: "",
-  }));
+  if (appendToChat || statusWhileStreaming) {
+    patchAgentState(tabId, (prev) => ({
+      ...prev,
+      ...(statusWhileStreaming ? { status: statusWhileStreaming } : {}),
+      ...(appendToChat ? { streamingContent: "" } : {}),
+    }));
+  }
 
   const mappedMessages = mapApiMessagesToModelMessages(messages);
   const result = streamText({
@@ -132,6 +138,7 @@ export async function streamTurn(
   };
 
   const updateStreamingMessage = () => {
+    if (!appendToChat) return;
     updateLastChatMessage(tabId, (m) =>
       m.id === assistantChatId
         ? {
@@ -197,7 +204,9 @@ export async function streamTurn(
             deltaLength: textDelta.length,
             accumulatedLength: accText.length,
           });
-          patchAgentState(tabId, { streamingContent: accText });
+          if (appendToChat) {
+            patchAgentState(tabId, { streamingContent: accText });
+          }
           updateStreamingMessage();
           continue;
         }
@@ -231,7 +240,9 @@ export async function streamTurn(
           accumulatedLength: accText.length,
         });
 
-        patchAgentState(tabId, { streamingContent: accText });
+        if (appendToChat) {
+          patchAgentState(tabId, { streamingContent: accText });
+        }
         updateStreamingMessage();
       }
     }
@@ -271,7 +282,9 @@ export async function streamTurn(
   if (reasoningStartedAtMs !== null && reasoningDurationMs === null) {
     reasoningDurationMs = Math.max(0, Date.now() - reasoningStartedAtMs);
   }
-  patchAgentState(tabId, { streamingContent: null });
+  if (appendToChat) {
+    patchAgentState(tabId, { streamingContent: null });
+  }
 
   const parsedToolCalls: ApiToolCall[] = (
     Array.isArray(sdkToolCalls) ? sdkToolCalls : []
@@ -299,21 +312,23 @@ export async function streamTurn(
     reasoningDurationMs: reasoningDurationMs ?? undefined,
   });
 
-  updateLastChatMessage(tabId, (m) => {
-    if (m.id !== assistantChatId) return m;
-    return {
-      ...m,
-      ...(agentName ? { agentName } : {}),
-      content: accText,
-      reasoning: accReasoning || undefined,
-      reasoningStreaming: undefined,
-      reasoningStartedAtMs: reasoningStartedAtMs ?? undefined,
-      reasoningDurationMs: reasoningDurationMs ?? undefined,
-      streaming: false,
-      badge: parsedToolCalls.length > 0 ? "CALLING TOOLS" : undefined,
-      toolCalls: toPendingToolCalls(parsedToolCalls),
-    };
-  });
+  if (appendToChat) {
+    updateLastChatMessage(tabId, (m) => {
+      if (m.id !== assistantChatId) return m;
+      return {
+        ...m,
+        ...(agentName ? { agentName } : {}),
+        content: accText,
+        reasoning: accReasoning || undefined,
+        reasoningStreaming: undefined,
+        reasoningStartedAtMs: reasoningStartedAtMs ?? undefined,
+        reasoningDurationMs: reasoningDurationMs ?? undefined,
+        streaming: false,
+        badge: parsedToolCalls.length > 0 ? "CALLING TOOLS" : undefined,
+        toolCalls: toPendingToolCalls(parsedToolCalls),
+      };
+    });
+  }
 
   return {
     assistantChatId,

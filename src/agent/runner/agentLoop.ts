@@ -312,6 +312,25 @@ export async function agentLoop(
                   };
                 }
 
+                if (!(subagentDef.callableByMainAgent ?? true)) {
+                  updateToolCallById({
+                    status: "error",
+                    result: {
+                      code: "INVALID_ARGUMENT",
+                      message: `Subagent "${subagentId}" is not available via agent_subagent_call.`,
+                    },
+                  });
+                  return {
+                    result: {
+                      ok: false as const,
+                      error: {
+                        code: "INVALID_ARGUMENT" as const,
+                        message: `Subagent "${subagentId}" is not available via agent_subagent_call.`,
+                      },
+                    },
+                  };
+                }
+
                 if (subagentDef.requiresApproval) {
                   updateToolCallById({ status: "awaiting_approval" });
                   const approved = await requestApproval(tabId, tcId);

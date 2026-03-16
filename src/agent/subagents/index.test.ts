@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   findSubagentByTrigger,
   getAllSubagents,
+  getCallableSubagents,
   getSubagent,
   getSubagentThemeColorMap,
   getSubagentThemeColorToken,
@@ -112,12 +113,26 @@ describe("getSubagent", () => {
     expect(sa?.id).toBe("github");
   });
 
+  it("returns the compact subagent for id=compact", () => {
+    const sa = getSubagent("compact");
+    expect(sa).toBeDefined();
+    expect(sa?.id).toBe("compact");
+  });
+
   it("returns undefined for an unknown id", () => {
     expect(getSubagent("does-not-exist")).toBeUndefined();
   });
 
   it("returns undefined for an empty string", () => {
     expect(getSubagent("")).toBeUndefined();
+  });
+});
+
+describe("getCallableSubagents", () => {
+  it("excludes manual-only trigger subagents", () => {
+    expect(getCallableSubagents().some((subagent) => subagent.id === "compact")).toBe(
+      false,
+    );
   });
 });
 
@@ -206,6 +221,13 @@ describe("findSubagentByTrigger", () => {
     const result = findSubagentByTrigger("/github");
     expect(result).not.toBeNull();
     expect(result?.subagent.id).toBe("github");
+    expect(result?.subMessage).toBe("");
+  });
+
+  it("matches the /compact trigger", () => {
+    const result = findSubagentByTrigger("/compact");
+    expect(result).not.toBeNull();
+    expect(result?.subagent.id).toBe("compact");
     expect(result?.subMessage).toBe("");
   });
 });
