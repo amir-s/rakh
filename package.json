@@ -5,10 +5,12 @@
   "scripts": {
     "d": "tauri dev --config src-tauri/tauri.dev.conf.json",
     "b": "tauri build",
+    "prepare": "node scripts/setup-cargo-target-config.mjs",
     "dev": "vite",
     "build": "vite build",
     "start": "vite preview",
     "preview": "vite preview",
+    "setup:cargo-target": "node scripts/setup-cargo-target-config.mjs",
     "model-search": "node scripts/model-search.mjs",
     "typecheck": "tsc --noEmit",
     "lint": "eslint",
