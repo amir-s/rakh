@@ -1928,37 +1928,56 @@ describe("WorkspacePage chat input", () => {
     expect(workspaceMocks.openSettingsTabMock).toHaveBeenCalledWith("providers");
   });
 
-  it("copies a chat bubble as markdown", async () => {
-    workspaceMocks.agentState = {
-      ...workspaceMocks.agentState,
-      chatMessages: [
+  it("copies a chat bubble as markdown and shows temporary success feedback", async () => {
+    vi.useFakeTimers();
+    try {
+      workspaceMocks.agentState = {
+        ...workspaceMocks.agentState,
+        chatMessages: [
+          {
+            id: "user-1",
+            role: "user",
+            content: "Hello `world`",
+            timestamp: 1,
+          },
+        ],
+      };
+      workspaceMocks.chatBubbleGroups = [
         {
-          id: "user-1",
-          role: "user",
-          content: "Hello `world`",
-          timestamp: 1,
+          kind: "user",
+          key: "user:user-1",
+          message: workspaceMocks.agentState.chatMessages[0],
         },
-      ],
-    };
-    workspaceMocks.chatBubbleGroups = [
-      {
-        kind: "user",
-        key: "user:user-1",
-        message: workspaceMocks.agentState.chatMessages[0],
-      },
-    ];
+      ];
 
-    render(<WorkspacePage />);
+      render(<WorkspacePage />);
 
-    fireEvent.click(
-      screen.getByRole("button", { name: "Copy bubble as markdown" }),
-    );
+      const copyButton = screen.getByRole("button", {
+        name: "Copy bubble as markdown",
+      });
 
-    await waitFor(() => {
+      expect(copyButton.textContent).toContain("content_copy");
+
+      await act(async () => {
+        fireEvent.click(copyButton);
+      });
+
       expect(workspaceMocks.clipboardWriteTextMock).toHaveBeenCalledWith(
         "## You\n\nHello `world`",
       );
-    });
+      expect(copyButton.textContent).toContain("check");
+
+      act(() => {
+        vi.advanceTimersByTime(2500);
+      });
+
+      expect(copyButton.textContent).toContain("content_copy");
+    } finally {
+      act(() => {
+        vi.runOnlyPendingTimers();
+      });
+      vi.useRealTimers();
+    }
   });
 
   it("forks a bubble into a new workspace tab with truncated history", async () => {

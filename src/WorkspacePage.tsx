@@ -108,6 +108,7 @@ import { openLogViewerWindow } from "@/logging/window";
 const OPEN_IN_EDITOR_COMMAND_ID = "__open-in-editor__";
 const OPEN_SHELL_COMMAND_ID = "__open-shell__";
 const DEFAULT_HANDOFF_COMMIT_MESSAGE = "changes from rakh";
+const COPY_BUBBLE_SUCCESS_DURATION_MS = 2500;
 
 interface WorktreeHandoffState {
   loading: boolean;
@@ -501,6 +502,8 @@ export default function WorkspacePage() {
     () => groupChatMessagesForBubbles(agent.chatMessages),
     [agent.chatMessages],
   );
+  const [copiedBubbleKey, setCopiedBubbleKey] = useState<string | null>(null);
+  const copyBubbleResetTimeoutRef = useRef<number | null>(null);
   const subagentMetaByName = useMemo(() => {
     const byName = new Map<string, { color: string; icon: string }>();
     for (const subagent of getAllSubagents()) {
@@ -516,13 +519,30 @@ export default function WorkspacePage() {
     () => slashCommands.find((command) => command.command === "/help") ?? null,
     [slashCommands],
   );
+  useEffect(() => {
+    return () => {
+      if (copyBubbleResetTimeoutRef.current !== null) {
+        window.clearTimeout(copyBubbleResetTimeoutRef.current);
+      }
+    };
+  }, []);
   const handleCopyBubbleMarkdown = useCallback(async (group: ChatBubbleGroup) => {
     const markdown = serializeChatBubbleGroupAsMarkdown(group);
-    if (!markdown || !navigator.clipboard?.writeText) return;
+    if (!markdown || !navigator.clipboard?.writeText) return false;
     try {
       await navigator.clipboard.writeText(markdown);
+      setCopiedBubbleKey(group.key);
+      if (copyBubbleResetTimeoutRef.current !== null) {
+        window.clearTimeout(copyBubbleResetTimeoutRef.current);
+      }
+      copyBubbleResetTimeoutRef.current = window.setTimeout(() => {
+        setCopiedBubbleKey((current) => (current === group.key ? null : current));
+        copyBubbleResetTimeoutRef.current = null;
+      }, COPY_BUBBLE_SUCCESS_DURATION_MS);
+      return true;
     } catch {
       // Clipboard copy is a convenience action.
+      return false;
     }
   }, []);
   const handleForkBubble = useCallback(
@@ -657,6 +677,7 @@ export default function WorkspacePage() {
   const renderBubbleActions = useCallback(
     (group: ChatBubbleGroup) => {
       const forkDisabled = bubbleGroupContainsStreaming(group);
+      const copied = copiedBubbleKey === group.key;
       const traceId =
         group.kind === "assistant" && (agent.showDebug ?? false)
           ? [...group.messages]
@@ -688,7 +709,10 @@ export default function WorkspacePage() {
           ) : null}
           <IconButton
             type="button"
-            className="msg-header-action-btn"
+            className={cn(
+              "msg-header-action-btn",
+              copied && "msg-header-action-btn--success",
+            )}
             title="Copy bubble as markdown"
             aria-label="Copy bubble as markdown"
             onClick={(event) => {
@@ -697,7 +721,7 @@ export default function WorkspacePage() {
             }}
           >
             <span className="material-symbols-outlined text-sm" aria-hidden="true">
-              content_copy
+              {copied ? "check" : "content_copy"}
             </span>
           </IconButton>
           <IconButton
@@ -722,7 +746,13 @@ export default function WorkspacePage() {
         </>
       );
     },
-    [agent.showDebug, handleCopyBubbleMarkdown, handleForkBubble, handleOpenAssistantLogs],
+    [
+      agent.showDebug,
+      copiedBubbleKey,
+      handleCopyBubbleMarkdown,
+      handleForkBubble,
+      handleOpenAssistantLogs,
+    ],
   );
   const handleOpenToolLogs = useCallback((toolCall: ToolCallDisplay) => {
     void openLogViewerWindow({
