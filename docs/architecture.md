@@ -75,6 +75,23 @@ initial `artifactList()` fetch, then subscribes to backend `artifact_changed`
 events through the Tauri event API and refreshes inventory only when matching
 session artifacts change.
 
+Chat bubbles now expose hover/focus actions implemented by
+[`src/agent/chatBubbleActions.ts`](../src/agent/chatBubbleActions.ts):
+
+- `Copy` serializes the visible bubble to markdown, including visible tool
+  usage and cards, while omitting reasoning/thinking blocks
+- `Fork` opens a new workspace tab rooted at that bubble boundary
+
+Forking is intentionally asymmetric across persisted state:
+
+- the new tab truncates `chatMessages` and `apiMessages` to the selected bubble
+  boundary
+- durable session artifacts are cloned into the new session so the artifact
+  pane stays usable immediately
+- todos are only preserved when the fork target is the latest visible bubble;
+  earlier-bubble forks clear todos, plan state, review diffs, and usage ledger
+  because Rakh does not persist historical snapshots for those derived stores
+
 ### State model
 
 [`src/agent/atoms.ts`](../src/agent/atoms.ts) is the shared state boundary
@@ -307,6 +324,12 @@ Todo persistence is a parallel path:
   is the source of truth
 - the frontend hydrates todo state from that JSON store during session restore
 - SQLite session rows do not persist todo state
+
+Bubble forks create a new todo-store file for the forked session. When the fork
+targets the latest bubble, the current todo list is copied into that new file.
+When the fork targets an earlier bubble, the new todo file starts empty for the
+same reason earlier-bubble plan/review state is cleared: historical snapshots do
+not exist for those stores.
 
 Closed workspace tabs are archived, not deleted, unless the session is still
 empty.
