@@ -8,7 +8,7 @@ import { getCommunicationProfileRecord } from "../communicationProfiles";
 import { profilesAtom, type ProviderInstance } from "../db";
 import { getModelCatalogEntry } from "../modelCatalog";
 import {
-  getAllSubagents,
+  getCallableSubagents,
   getSubagentArtifactSpecs,
   type SubagentDefinition,
 } from "../subagents";
@@ -169,7 +169,7 @@ GENERATED FILES
 
 AVAILABLE SUBAGENTS
 The following specialized subagents can be invoked with agent_subagent_call:
-${getAllSubagents()
+${getCallableSubagents()
   .map((s) => {
     let entry = `- ${s.id}: ${s.description}${
       s.triggerCommand ? ` (trigger: ${s.triggerCommand})` : ""

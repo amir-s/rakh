@@ -112,6 +112,18 @@ export interface SubagentDefinition {
   requiresApproval: boolean;
 
   /**
+   * Whether the main agent may invoke this subagent through agent_subagent_call.
+   * Defaults to true. Trigger-command-only subagents can set this to false.
+   */
+  callableByMainAgent?: boolean;
+
+  /**
+   * Usage ledger actor kind for this subagent's model calls.
+   * Defaults to "subagent". Internal maintenance flows can use "internal".
+   */
+  usageActorKind?: "subagent" | "internal";
+
+  /**
    * Optional slash-command prefix (e.g. "/plan") that routes a user message
    * directly to this subagent, bypassing the main agent.
    * The remainder of the message after the command is passed as the input.

@@ -195,6 +195,7 @@ interface SubagentLoopOptions {
   providers: ProviderInstance[];
   debugEnabled: boolean;
   logContext: LogContext;
+  suppressChatOutput?: boolean;
 }
 
 export async function runSubagentLoop(
@@ -214,6 +215,7 @@ export async function runSubagentLoop(
     providers,
     debugEnabled,
     logContext,
+    suppressChatOutput = false,
   } = opts;
 
   const startedAtMs = Date.now();
@@ -590,6 +592,7 @@ export async function runSubagentLoop(
       debugEnabled,
       logContext: subagentContext,
       agentName: subagentDef.name,
+      appendToChat: !suppressChatOutput,
       toPendingToolCalls: (toolCalls) =>
         toolCalls.length > 0
           ? toolCalls.map((tc) =>
@@ -601,7 +604,7 @@ export async function runSubagentLoop(
             )
           : undefined,
       usageMetadata: {
-        actorKind: "subagent",
+        actorKind: subagentDef.usageActorKind ?? "subagent",
         actorId: subagentDef.id,
         actorLabel: subagentDef.name,
         operation: "assistant turn",

@@ -12,13 +12,16 @@ import {
 import { providersAtom } from "./db";
 import { getModelCatalogEntry } from "./modelCatalog";
 import { execAbort, execStop } from "./tools/exec";
-import { findSubagentByTrigger } from "./subagents";
+import { findSubagentByTrigger, type SubagentDefinition } from "./subagents";
 import { cancelAllApprovals } from "./approvals";
 import type {
+  ApiMessage,
   AttachedImage,
   AgentQueueState,
   ChatMessage,
+  ConversationCard,
   QueuedUserMessage,
+  TodoItem,
   ToolApiMessage,
   ToolCallDisplay,
 } from "./types";
@@ -45,6 +48,8 @@ import {
   buildSystemPromptRuntimeContext,
 } from "./runner/systemPrompt";
 import { RunAbortedError, serializeError } from "./runner/utils";
+import { artifactGet } from "./tools/artifacts";
+import { buildConversationCard } from "./tools/agentControl";
 
 export { buildProviderOptions } from "./runner/providerOptions";
 export { serializeError } from "./runner/utils";
@@ -82,6 +87,245 @@ function setAgentErrorState(
     streamingContent: null,
     queueState: pauseQueueState(prev.queuedMessages, prev.queueState),
   }));
+}
+
+const COMPACT_TRIGGER_SUBAGENT_ID = "compact";
+const COMPACT_SUMMARY_CARD_TITLE = "Compacted Context";
+const COMPACT_REQUIRED_SECTIONS = [
+  "[COMPACTED HISTORY]",
+  "Current task",
+  "User goal",
+  "Hard constraints",
+  "What has been done",
+  "Important facts discovered",
+  "Files / artifacts / outputs created",
+  "Decisions already made",
+  "Unresolved issues",
+  "Exact next step",
+] as const;
+
+function appendAssistantChatMessage(
+  tabId: string,
+  content: string,
+  options?: {
+    agentName?: string;
+    cards?: ConversationCard[];
+  },
+): void {
+  const trimmed = content.trim();
+  patchAgentState(tabId, (prev) => ({
+    ...prev,
+    chatMessages: [
+      ...prev.chatMessages,
+      {
+        id: msgId(),
+        role: "assistant",
+        content: trimmed,
+        timestamp: Date.now(),
+        ...(options?.agentName ? { agentName: options.agentName } : {}),
+        ...(options?.cards && options.cards.length > 0
+          ? { cards: options.cards }
+          : {}),
+      },
+    ],
+  }));
+}
+
+function projectTodoForCompaction(todo: TodoItem): Record<string, unknown> {
+  return {
+    id: todo.id,
+    title: todo.title,
+    state: todo.state,
+    ...(todo.completionNote ? { completionNote: todo.completionNote } : {}),
+    filesTouched: [...todo.filesTouched],
+    thingsLearned: todo.thingsLearned.map((note) => ({
+      text: note.text,
+      verified: note.verified,
+    })),
+    criticalInfo: todo.criticalInfo.map((note) => ({
+      text: note.text,
+      verified: note.verified,
+    })),
+  };
+}
+
+function buildManualCompactionPayload(
+  apiMessages: ApiMessage[],
+  state: ReturnType<typeof getAgentState>,
+): { ok: true; systemPrompt: string; message: string } | {
+  ok: false;
+  error: string;
+} {
+  const firstMessage = apiMessages[0];
+  if (!firstMessage || firstMessage.role !== "system") {
+    return {
+      ok: false,
+      error: "Nothing to compact yet. The main agent has no system prompt in its internal history.",
+    };
+  }
+
+  const messages = apiMessages.slice(1);
+  if (messages.length === 0) {
+    return {
+      ok: false,
+      error: "Nothing to compact yet. The main agent has no internal conversation history beyond the system prompt.",
+    };
+  }
+
+  const payload = {
+    system_prompt: firstMessage.content,
+    messages,
+    current_plan: {
+      markdown: state.plan.markdown,
+      version: state.plan.version,
+      updatedAtMs: state.plan.updatedAtMs,
+    },
+    todos: state.todos.map(projectTodoForCompaction),
+  };
+
+  return {
+    ok: true,
+    systemPrompt: firstMessage.content,
+    message: JSON.stringify(payload, null, 2),
+  };
+}
+
+function validateCompactedHistoryMarkdown(content: string): string | null {
+  const missing = COMPACT_REQUIRED_SECTIONS.filter(
+    (section) => !content.includes(section),
+  );
+  if (missing.length === 0) return null;
+  return `Compacted history is missing required sections: ${missing.join(", ")}`;
+}
+
+async function runManualCompactionTrigger(
+  tabId: string,
+  userMessage: string,
+  triggerSubagent: SubagentDefinition,
+  controller: AbortController,
+  runId: string,
+  currentTurn: number,
+  runLogContext: ReturnType<typeof createMainRunLogContext>["childContext"],
+): Promise<{ ok: true } | { ok: false; error?: unknown }> {
+  const compactArgs = userMessage
+    .trim()
+    .slice(triggerSubagent.triggerCommand?.length ?? 0)
+    .trim();
+  if (compactArgs.length > 0) {
+    appendAssistantChatMessage(
+      tabId,
+      "`/compact` does not accept arguments. Run `/compact` by itself.",
+      { agentName: triggerSubagent.name },
+    );
+    return { ok: true };
+  }
+
+  const state = getAgentState(tabId);
+  const payload = buildManualCompactionPayload(state.apiMessages, state);
+  if (!payload.ok) {
+    appendAssistantChatMessage(tabId, payload.error, {
+      agentName: triggerSubagent.name,
+    });
+    return { ok: true };
+  }
+
+  const triggerProviders = jotaiStore.get(providersAtom);
+  const triggerDebug = state.showDebug ?? false;
+  const subagentResult = await runSubagentLoop({
+    tabId,
+    signal: controller.signal,
+    runId,
+    currentTurn,
+    subagentDef: triggerSubagent,
+    message: payload.message,
+    parentModelId: state.config.model,
+    providers: triggerProviders,
+    debugEnabled: triggerDebug,
+    logContext: runLogContext,
+    suppressChatOutput: false,
+  });
+
+  if (!subagentResult.ok) {
+    appendAssistantChatMessage(tabId, subagentResult.error.message, {
+      agentName: triggerSubagent.name,
+    });
+    return { ok: false, error: subagentResult.error };
+  }
+
+  const artifactManifest = subagentResult.data.artifacts[0];
+  if (!artifactManifest) {
+    appendAssistantChatMessage(
+      tabId,
+      "Compaction finished without producing a compacted context artifact.",
+      { agentName: triggerSubagent.name },
+    );
+    return { ok: false };
+  }
+
+  const artifactResult = await artifactGet(tabId, {
+    artifactId: artifactManifest.artifactId,
+    includeContent: true,
+  });
+  if (!artifactResult.ok) {
+    appendAssistantChatMessage(tabId, artifactResult.error.message, {
+      agentName: triggerSubagent.name,
+    });
+    return { ok: false, error: artifactResult.error };
+  }
+
+  const compactedContent = artifactResult.data.artifact.content;
+  if (typeof compactedContent !== "string" || !compactedContent.trim()) {
+    appendAssistantChatMessage(
+      tabId,
+      "Compaction artifact is missing its markdown content.",
+      { agentName: triggerSubagent.name },
+    );
+    return { ok: false };
+  }
+
+  const compactedValidationError =
+    validateCompactedHistoryMarkdown(compactedContent);
+  if (compactedValidationError) {
+    appendAssistantChatMessage(tabId, compactedValidationError, {
+      agentName: triggerSubagent.name,
+    });
+    return { ok: false };
+  }
+
+  const summaryCard = buildConversationCard({
+    kind: "summary",
+    title: COMPACT_SUMMARY_CARD_TITLE,
+    markdown: compactedContent,
+  });
+  if (!summaryCard.ok) {
+    appendAssistantChatMessage(
+      tabId,
+      `Compaction succeeded but the summary card could not be created: ${summaryCard.error.message}`,
+      { agentName: triggerSubagent.name },
+    );
+    return { ok: false, error: summaryCard.error };
+  }
+
+  patchAgentState(tabId, (prev) => ({
+    ...prev,
+    apiMessages: [
+      { role: "system", content: payload.systemPrompt },
+      { role: "assistant", content: compactedContent },
+    ],
+    chatMessages: [
+      ...prev.chatMessages,
+      {
+        id: msgId(),
+        role: "assistant",
+        content: subagentResult.data.rawText.trim() || "Context compacted.",
+        timestamp: Date.now(),
+        agentName: triggerSubagent.name,
+        cards: [summaryCard.data.card],
+      },
+    ],
+  }));
+
+  return { ok: true };
 }
 
 function findRunningExecToolCallIds(tabId: string): string[] {
@@ -482,17 +726,17 @@ async function runAgentTurn(
   const triggerMatch = findSubagentByTrigger(userMessage);
   if (triggerMatch) {
     const { subagent: triggerSubagent, subMessage } = triggerMatch;
-    const triggerState = getAgentState(tabId);
-    const triggerProviders = jotaiStore.get(providersAtom);
-    const triggerDebug = triggerState.showDebug ?? false;
+    const isCompactTrigger = triggerSubagent.id === COMPACT_TRIGGER_SUBAGENT_ID;
 
-    const triggerUserMsg: ChatMessage = {
-      id: msgId(),
-      role: "user",
-      content: userMessage,
-      timestamp: Date.now(),
-      ...(attachments && attachments.length > 0 ? { attachments } : {}),
-    };
+    const triggerUserMsg: ChatMessage | null = isCompactTrigger
+      ? null
+      : {
+          id: msgId(),
+          role: "user",
+          content: userMessage,
+          timestamp: Date.now(),
+          ...(attachments && attachments.length > 0 ? { attachments } : {}),
+        };
     dequeueQueuedMessage(tabId, options.queuedMessageId);
     patchAgentState(tabId, (prev) => ({
       ...prev,
@@ -500,42 +744,70 @@ async function runAgentTurn(
       error: null,
       errorAction: null,
       errorDetails: null,
-      chatMessages: options?.skipUserChatAppend
-        ? prev.chatMessages
-        : [...prev.chatMessages, triggerUserMsg],
+      chatMessages:
+        options?.skipUserChatAppend || triggerUserMsg === null
+          ? prev.chatMessages
+          : [...prev.chatMessages, triggerUserMsg],
       streamingContent: null,
     }));
 
     try {
-      const triggerResult = await runSubagentLoop({
-        tabId,
-        signal: controller.signal,
-        runId,
-        currentTurn,
-        subagentDef: triggerSubagent,
-        message: subMessage,
-        parentModelId: triggerState.config.model,
-        providers: triggerProviders,
-        debugEnabled: triggerDebug,
-        logContext: runLogContext,
-      });
-      if (!triggerResult.ok) {
-        writeRunnerLog({
-          level: "error",
-          tags: ["frontend", "agent-loop", "messages"],
-          event: "runner.run.error",
-          message: "Trigger subagent run failed",
-          kind: "error",
-          data: triggerResult.error,
-          context: runLogContext,
-        });
-        setAgentErrorState(
+      if (isCompactTrigger) {
+        const compactResult = await runManualCompactionTrigger(
           tabId,
-          triggerResult.error.message,
-          triggerResult.error,
+          userMessage,
+          triggerSubagent,
+          controller,
+          runId,
+          currentTurn,
+          runLogContext,
         );
-      } else {
+        if (!compactResult.ok) {
+          writeRunnerLog({
+            level: "error",
+            tags: ["frontend", "agent-loop", "messages"],
+            event: "runner.run.error",
+            message: "Manual compaction failed",
+            kind: "error",
+            ...(compactResult.error !== undefined ? { data: compactResult.error } : {}),
+            context: runLogContext,
+          });
+        }
         completedCleanly = true;
+      } else {
+        const triggerState = getAgentState(tabId);
+        const triggerProviders = jotaiStore.get(providersAtom);
+        const triggerDebug = triggerState.showDebug ?? false;
+        const triggerResult = await runSubagentLoop({
+          tabId,
+          signal: controller.signal,
+          runId,
+          currentTurn,
+          subagentDef: triggerSubagent,
+          message: subMessage,
+          parentModelId: triggerState.config.model,
+          providers: triggerProviders,
+          debugEnabled: triggerDebug,
+          logContext: runLogContext,
+        });
+        if (!triggerResult.ok) {
+          writeRunnerLog({
+            level: "error",
+            tags: ["frontend", "agent-loop", "messages"],
+            event: "runner.run.error",
+            message: "Trigger subagent run failed",
+            kind: "error",
+            data: triggerResult.error,
+            context: runLogContext,
+          });
+          setAgentErrorState(
+            tabId,
+            triggerResult.error.message,
+            triggerResult.error,
+          );
+        } else {
+          completedCleanly = true;
+        }
       }
     } catch (err) {
       if ((err as Error).name === "AbortError") return;
@@ -548,16 +820,25 @@ async function runAgentTurn(
         level: "error",
         tags: ["frontend", "agent-loop", "messages"],
         event: "runner.run.error",
-        message: "Trigger subagent run threw",
+        message: isCompactTrigger
+          ? "Manual compaction threw"
+          : "Trigger subagent run threw",
         kind: "error",
         data: err,
         context: runLogContext,
       });
-      setAgentErrorState(tabId, msg, serializeError(err));
-      updateLastChatMessage(tabId, (m) =>
-        m.role === "assistant" ? { ...m, streaming: false } : m,
-      );
-      return;
+      if (isCompactTrigger) {
+        appendAssistantChatMessage(tabId, msg, {
+          agentName: triggerSubagent.name,
+        });
+        completedCleanly = true;
+      } else {
+        setAgentErrorState(tabId, msg, serializeError(err));
+        updateLastChatMessage(tabId, (m) =>
+          m.role === "assistant" ? { ...m, streaming: false } : m,
+        );
+        return;
+      }
     } finally {
       clearActiveRun(tabId, activeRun);
       if (activeRun.abortReason !== null) return;
