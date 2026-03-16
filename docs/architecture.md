@@ -97,6 +97,14 @@ components subscribe with fine-grained derived atoms from `useAgents.ts`.
 - `chatMessages` remain the durable user-visible transcript
 - `apiMessages` are runtime working memory used for the next model call
 
+Manual context compaction relies on that split. `/compact` preserves the
+visible `chatMessages` transcript, but after the compactor succeeds it rewrites
+`apiMessages` down to:
+
+1. the original main-agent system prompt
+2. one synthetic assistant message containing the compacted execution-state
+   block
+
 ## Agent runtime
 
 ### Model and provider resolution
@@ -134,6 +142,29 @@ High-level flow for a workspace turn:
 7. execute tools or intercept subagent/user-input flows
 8. append tool results as `tool` messages and continue until the model stops
    calling tools or the run limit is hit
+
+Manual `/compact` follows a separate trigger path in the same runner facade:
+
+1. detect the `/compact` slash command before the main-agent loop starts
+2. require an existing main-agent system prompt and at least one non-system
+   `apiMessage`
+3. serialize the current internal state into one injected user payload with:
+   - `system_prompt`
+   - `messages`
+   - `current_plan`
+   - `todos`
+4. run the `compact` subagent with that payload as its only input
+5. require exactly one markdown `compact-state` artifact
+6. read the artifact body back from durable storage and verify the required
+   compacted-history sections
+7. atomically replace `apiMessages` with the original system prompt plus the
+   compacted assistant summary
+8. append a visible assistant chat message with a summary card that renders the
+   compacted markdown
+
+Because `/compact` is currently run with visible subagent output enabled, the
+chat transcript also shows the compactor's internal streaming/tool activity
+before the final summary card is appended.
 
 The runner supports multiple concurrent tabs by keeping a separate abort
 controller and run counter per tab.
@@ -198,7 +229,8 @@ private tool loop implemented by
 [`src/agent/runner/subagentLoop.ts`](../src/agent/runner/subagentLoop.ts).
 
 Artifacts are the durable output channel for plans, reviews, security reports,
-and other structured handoffs. The detailed contracts live in:
+context compaction summaries, and other structured handoffs. The detailed
+contracts live in:
 
 - [`docs/subagents.md`](./subagents.md)
 - [`docs/artifacts.md`](./artifacts.md)

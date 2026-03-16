@@ -11,6 +11,7 @@ They are used for:
 - Review results
 - Security audits
 - Copy review suggestions
+- Context compaction summaries
 - MCP-returned file/image payloads when MCP artifactization is enabled in Settings
 - Other handoff outputs that should survive beyond a single chat turn
 
@@ -202,6 +203,24 @@ The lifecycle is:
 6. Later, `artifactGet()` uses `validatorId` to find the same validator again
    and returns validation status with the artifact.
 
+Manual context compaction is slightly different:
+
+1. The `/compact` trigger runs the internal `compact` subagent with a single
+   injected payload containing the main agent's `system_prompt`, `messages`,
+   `current_plan`, and `todos`.
+2. The subagent must create exactly one markdown artifact with
+   `artifactType: "compact-state"` and `kind: "context-compaction"`.
+3. The main runner reads that artifact back immediately with
+   `agent_artifact_get`.
+4. The runner performs a required-section markdown check on the artifact body.
+5. If validation succeeds, the runner rewrites the main agent's `apiMessages`
+   to the original system prompt plus one assistant compacted-history block.
+
+The artifact remains durable in the shared artifact store and is also shown to
+the user through a runtime-generated summary card. The compacted markdown
+artifact is the durable snapshot; the rewritten `apiMessages` are the new live
+working memory.
+
 ## Validation Modes
 
 Validators support two modes:
@@ -254,6 +273,7 @@ extended to structured JSON outputs.
 
 ## Current Artifact-Backed Subagents
 
+- `compact` -> `artifactType: "compact-state"` -> markdown -> no schema validator
 - `planner` -> `artifactType: "plan"` -> markdown -> no validator
 - `reviewer` -> `artifactType: "review-report"` -> json -> `reject`
 - `security` -> `artifactType: "security-report"` -> json -> `reject`
