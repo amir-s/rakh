@@ -1027,6 +1027,46 @@ describe("WorkspacePage chat input", () => {
     ).toHaveLength(1);
   });
 
+  it("uses the latest trace id for the bubble header trace action", async () => {
+    workspaceMocks.agentState = {
+      ...workspaceMocks.agentState,
+      showDebug: true,
+    };
+    workspaceMocks.chatBubbleGroups = [
+      {
+        kind: "assistant",
+        key: "assistant:msg-trace-latest",
+        messages: [
+          {
+            id: "msg-trace-older",
+            role: "assistant",
+            content: "First segment",
+            timestamp: 1,
+            traceId: "trace-assistant-older",
+          },
+          {
+            id: "msg-trace-newer",
+            role: "assistant",
+            content: "Second segment",
+            timestamp: 2,
+            traceId: "trace-assistant-newer",
+          },
+        ],
+      },
+    ];
+
+    render(<WorkspacePage />);
+
+    fireEvent.click(screen.getByRole("button", { name: "View trace logs" }));
+
+    await waitFor(() => {
+      expect(workspaceMocks.openLogViewerWindowMock).toHaveBeenCalledWith({
+        origin: "assistant-message",
+        filter: { traceId: "trace-assistant-newer" },
+      });
+    });
+  });
+
   it("hides assistant trace log actions when debug mode is off", () => {
     workspaceMocks.agentState = {
       ...workspaceMocks.agentState,
