@@ -40,7 +40,7 @@ import {
   MentionTextarea,
   type MentionTextareaHandle,
 } from "@/components/MentionTextarea";
-import { Button, ModalShell, TextField } from "@/components/ui";
+import { Button, IconButton, ModalShell, TextField } from "@/components/ui";
 import {
   VoiceInputRecordingRow,
   VoiceInputStateProvider,
@@ -52,6 +52,7 @@ import { useTabs, type Tab } from "@/contexts/TabsContext";
 import { useAgent, useStopAgent } from "@/agent/useAgents";
 import { useModels } from "@/agent/useModels";
 import {
+  getAgentState,
   patchAgentState,
   setGlobalDebugMode,
   voiceInputEnabledAtom,
@@ -62,7 +63,15 @@ import {
   matchesSlashCommandInput,
 } from "@/agent/slashCommands";
 import { getAllSubagents, getSubagentThemeColorToken } from "@/agent/subagents";
-import { groupChatMessagesForBubbles } from "@/agent/chatBubbleGroups";
+import {
+  groupChatMessagesForBubbles,
+  type ChatBubbleGroup,
+} from "@/agent/chatBubbleGroups";
+import {
+  bubbleGroupContainsStreaming,
+  buildForkedAgentState,
+  serializeChatBubbleGroupAsMarkdown,
+} from "@/agent/chatBubbleActions";
 import { useArtifactContentCache } from "@/components/artifact-pane/useSessionArtifacts";
 import {
   buildToolCallRenderItemsByMessage,
@@ -84,6 +93,8 @@ import {
   type ProjectCommandConfig,
 } from "@/projectScripts";
 import { execRun } from "@/agent/tools/exec";
+import { replaceSessionTodos } from "@/agent/tools/todos";
+import { cloneSessionArtifacts } from "@/agent/tools/artifacts";
 import {
   detachGitHead,
   readGitHeadState,
@@ -291,7 +302,7 @@ function renderCompactToolCall(
 ───────────────────────────────────────────────────────────────────────────── */
 
 export default function WorkspacePage() {
-  const { tabs, activeTabId, openSettingsTab, updateTab } = useTabs();
+  const { tabs, activeTabId, addTab, openSettingsTab, updateTab } = useTabs();
   const activeTab = tabs.find((t) => t.id === activeTabId);
   const isNewSession = activeTab?.mode !== "workspace";
   const persistActiveTabChanges = useCallback(
@@ -504,6 +515,99 @@ export default function WorkspacePage() {
   const helpCommand = useMemo(
     () => slashCommands.find((command) => command.command === "/help") ?? null,
     [slashCommands],
+  );
+  const handleCopyBubbleMarkdown = useCallback(async (group: ChatBubbleGroup) => {
+    const markdown = serializeChatBubbleGroupAsMarkdown(group);
+    if (!markdown || !navigator.clipboard?.writeText) return;
+    try {
+      await navigator.clipboard.writeText(markdown);
+    } catch {
+      // Clipboard copy is a convenience action.
+    }
+  }, []);
+  const handleForkBubble = useCallback(
+    async (group: ChatBubbleGroup) => {
+      if (!activeTab || activeTab.mode !== "workspace") return;
+
+      const messageIds =
+        group.kind === "user"
+          ? [group.message.id]
+          : group.messages.map((message) => message.id);
+      const forkedState = buildForkedAgentState(
+        getAgentState(activeTabId),
+        messageIds,
+      );
+      if (!forkedState) return;
+
+      const nextLabelBase = activeTab.label.trim() || "Session";
+      const nextLabel = `${nextLabelBase} fork`;
+      const nextTabId = addTab({
+        mode: "workspace",
+        label: nextLabel,
+        icon: activeTab.icon,
+        status: "idle",
+      });
+      const nextTab: Tab = {
+        id: nextTabId,
+        label: nextLabel,
+        icon: activeTab.icon,
+        status: "idle",
+        mode: "workspace",
+      };
+
+      patchAgentState(nextTabId, () => forkedState);
+
+      await upsertSession(nextTab);
+      await Promise.all([
+        replaceSessionTodos(nextTabId, forkedState.todos),
+        cloneSessionArtifacts(activeTabId, nextTabId),
+      ]);
+    },
+    [activeTab, activeTabId, addTab],
+  );
+  const renderBubbleActions = useCallback(
+    (group: ChatBubbleGroup) => {
+      const forkDisabled = bubbleGroupContainsStreaming(group);
+
+      return (
+        <>
+          <IconButton
+            type="button"
+            className="msg-header-action-btn"
+            title="Copy bubble as markdown"
+            aria-label="Copy bubble as markdown"
+            onClick={(event) => {
+              event.stopPropagation();
+              void handleCopyBubbleMarkdown(group);
+            }}
+          >
+            <span className="material-symbols-outlined text-sm" aria-hidden="true">
+              content_copy
+            </span>
+          </IconButton>
+          <IconButton
+            type="button"
+            className="msg-header-action-btn"
+            title={
+              forkDisabled
+                ? "Wait for the message to finish streaming before forking."
+                : "Fork from this bubble"
+            }
+            aria-label="Fork from this bubble"
+            disabled={forkDisabled}
+            onClick={(event) => {
+              event.stopPropagation();
+              void handleForkBubble(group);
+            }}
+          >
+            <span className="material-symbols-outlined text-sm" aria-hidden="true">
+              fork_right
+            </span>
+          </IconButton>
+        </>
+      );
+    },
+    [handleCopyBubbleMarkdown, handleForkBubble],
   );
 
   const textareaRef = useRef<MentionTextareaHandle>(null);
@@ -1311,6 +1415,7 @@ export default function WorkspacePage() {
                   <UserMessage
                     key={group.key}
                     images={group.message.attachments}
+                    actions={renderBubbleActions(group)}
                   >
                     <Markdown>{group.message.content}</Markdown>
                   </UserMessage>
@@ -1352,6 +1457,7 @@ export default function WorkspacePage() {
                     animated={animated}
                     collapsible={isSubagent}
                     defaultCollapsed={false}
+                    actions={renderBubbleActions(group)}
                   >
                     {(() => {
                       const seenTraceIds = new Set<string>();

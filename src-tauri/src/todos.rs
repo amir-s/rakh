@@ -370,6 +370,29 @@ pub fn todo_store_get_path(
 }
 
 #[tauri::command]
+pub fn todo_store_replace(
+    session_id: String,
+    items: Vec<TodoItem>,
+    app_handle: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<Vec<TodoItem>, String> {
+    let lock = session_lock(&state, &session_id);
+    let _guard = lock.lock().unwrap();
+    let path = todo_file_path(&session_id)?;
+    write_todos_to_disk(&path, &items)?;
+    emit_todo_changed(
+        &app_handle,
+        &TodoChangeEvent {
+            session_id,
+            todo_id: None,
+            change: "replaced".to_string(),
+            changed_at: now_ms(),
+        },
+    );
+    Ok(items)
+}
+
+#[tauri::command]
 pub fn todo_store_add(
     session_id: String,
     input: TodoAddInput,

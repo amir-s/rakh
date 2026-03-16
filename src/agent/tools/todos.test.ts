@@ -17,6 +17,7 @@ vi.mock("../atoms", () => ({
 }));
 
 import {
+  replaceSessionTodos,
   recordTodoMutation,
   todoAdd,
   todoList,
@@ -167,6 +168,22 @@ describe("tools/todos", () => {
         ],
       },
     });
+  });
+
+  it("replaces a session todo file and syncs the new list into local state", async () => {
+    const todo = makeTodo("todo-5", "doing");
+    invokeMock.mockResolvedValue([todo]);
+
+    const result = await replaceSessionTodos("tab-5", [todo]);
+
+    expect(invokeMock).toHaveBeenCalledWith("todo_store_replace", {
+      sessionId: "tab-5",
+      items: [todo],
+    });
+    expect(patchAgentStateMock).toHaveBeenCalledWith("tab-5", {
+      todos: [todo],
+    });
+    expect(result).toEqual([todo]);
   });
 
   it("surfaces backend validation errors from todo updates", async () => {

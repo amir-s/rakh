@@ -47,6 +47,7 @@ type MockChatBubbleGroup =
     };
 
 const workspaceMocks = vi.hoisted(() => ({
+  addTabMock: vi.fn<(partial?: Record<string, unknown>) => string>(),
   sendMessageMock: vi.fn<(message: string) => void>(),
   queueMessageMock: vi.fn<(message: string) => void>(),
   steerMessageMock: vi.fn<(message: string, queuedMessageId?: string) => void>(),
@@ -99,6 +100,7 @@ const workspaceMocks = vi.hoisted(() => ({
   agentState: {
     autoApproveCommands: "no" as const,
     autoApproveEdits: false,
+    apiMessages: [] as Array<Record<string, unknown>>,
     chatMessages: [] as MockChatMessage[],
     config: {
       cwd: "/repo",
@@ -111,6 +113,12 @@ const workspaceMocks = vi.hoisted(() => ({
     contextWindowKb: null,
     contextWindowPct: null,
     sessionUsageSummary: null,
+    llmUsageLedger: [] as Array<Record<string, unknown>>,
+    plan: {
+      markdown: "",
+      updatedAtMs: 0,
+      version: 0,
+    },
     error: null as string | null,
     errorAction: null as
       | null
@@ -126,6 +134,7 @@ const workspaceMocks = vi.hoisted(() => ({
     queueState: "idle" as "idle" | "draining" | "paused",
     queuedMessages: [] as Array<{ id: string; content: string; createdAtMs: number }>,
     removeQueuedMessage: null as null | ((messageId: string) => void),
+    reviewEdits: [] as Array<Record<string, unknown>>,
     resumeQueue: null as null | (() => void),
     sendMessage: null as null | ((message: string) => void),
     setAutoApproveCommands: null as null | ((value: "no" | "agent" | "yes") => void),
@@ -137,6 +146,7 @@ const workspaceMocks = vi.hoisted(() => ({
     status: "idle" as "idle" | "thinking" | "working" | "done" | "error",
     stop: null as null | (() => void),
     tabTitle: "",
+    todos: [] as Array<Record<string, unknown>>,
     retry: vi.fn(),
   },
   transcriptCallback: null as null | ((transcript: string) => void),
@@ -147,6 +157,8 @@ const workspaceMocks = vi.hoisted(() => ({
   switchToGitBranchMock: vi.fn(),
   detachGitHeadMock: vi.fn(),
   upsertSessionMock: vi.fn(),
+  replaceSessionTodosMock: vi.fn(),
+  clipboardWriteTextMock: vi.fn<(text: string) => Promise<void>>(),
   openLogViewerWindowMock: vi.fn(),
   eventHandlers: new Map<string, (event: { payload: unknown }) => void>(),
   chatBubbleGroups: [] as MockChatBubbleGroup[],
@@ -187,6 +199,7 @@ vi.mock("@/contexts/TabsContext", () => ({
   useTabs: () => ({
     tabs: workspaceMocks.tabs,
     activeTabId: "tab-1",
+    addTab: workspaceMocks.addTabMock,
     openSettingsTab: workspaceMocks.openSettingsTabMock,
     updateTab: workspaceMocks.updateTabMock,
   }),
@@ -233,7 +246,39 @@ vi.mock("@/agent/persistence", () => ({
   upsertSession: (...args: unknown[]) => workspaceMocks.upsertSessionMock(...args),
 }));
 
+vi.mock("@/agent/tools/todos", () => ({
+  replaceSessionTodos: (...args: unknown[]) =>
+    workspaceMocks.replaceSessionTodosMock(...args),
+}));
+
 vi.mock("@/agent/atoms", () => ({
+  getAgentState: () => ({
+    status: workspaceMocks.agentState.status,
+    config: workspaceMocks.agentState.config,
+    turnCount: 2,
+    chatMessages: workspaceMocks.agentState.chatMessages,
+    apiMessages: workspaceMocks.agentState.apiMessages ?? [],
+    streamingContent: null,
+    plan: workspaceMocks.agentState.plan ?? {
+      markdown: "",
+      updatedAtMs: 0,
+      version: 0,
+    },
+    todos: workspaceMocks.agentState.todos ?? [],
+    error: workspaceMocks.agentState.error,
+    errorDetails: workspaceMocks.agentState.errorDetails,
+    errorAction: workspaceMocks.agentState.errorAction,
+    tabTitle: workspaceMocks.agentState.tabTitle,
+    reviewEdits: workspaceMocks.agentState.reviewEdits ?? [],
+    autoApproveEdits: workspaceMocks.agentState.autoApproveEdits,
+    autoApproveCommands: workspaceMocks.agentState.autoApproveCommands,
+    groupInlineToolCallsOverride: null,
+    queuedMessages: workspaceMocks.agentState.queuedMessages,
+    queueState: workspaceMocks.agentState.queueState,
+    llmUsageLedger: workspaceMocks.agentState.llmUsageLedger ?? [],
+    showDebug: workspaceMocks.agentState.showDebug,
+    lastRunTraceId: workspaceMocks.agentState.lastRunTraceId,
+  }),
   patchAgentState: workspaceMocks.patchAgentStateMock,
   setGlobalDebugMode: workspaceMocks.setGlobalDebugModeMock,
   voiceInputEnabledAtom: {},
@@ -321,11 +366,33 @@ vi.mock("@/components/Terminal", () => ({
 }));
 
 vi.mock("@/components/UserMessage", () => ({
-  default: ({ children }: { children: ReactNode }) => <div>{children}</div>,
+  default: ({
+    actions,
+    children,
+  }: {
+    actions?: ReactNode;
+    children: ReactNode;
+  }) => (
+    <div>
+      {actions}
+      {children}
+    </div>
+  ),
 }));
 
 vi.mock("@/components/AgentMessage", () => ({
-  default: ({ children }: { children: ReactNode }) => <div>{children}</div>,
+  default: ({
+    actions,
+    children,
+  }: {
+    actions?: ReactNode;
+    children: ReactNode;
+  }) => (
+    <div>
+      {actions}
+      {children}
+    </div>
+  ),
 }));
 
 vi.mock("@/components/ToolCallApproval", () => ({
@@ -399,6 +466,23 @@ vi.mock("@/components/ReasoningThought", () => ({
 vi.mock("@/components/ui", () => ({
   Badge: ({ children }: { children: ReactNode }) => <span>{children}</span>,
   Button: ({
+    children,
+    onClick,
+    disabled,
+    title,
+    "aria-label": ariaLabel,
+  }: {
+    children: ReactNode;
+    onClick?: () => void;
+    disabled?: boolean;
+    title?: string;
+    "aria-label"?: string;
+  }) => (
+    <button onClick={onClick} disabled={disabled} title={title} aria-label={ariaLabel}>
+      {children}
+    </button>
+  ),
+  IconButton: ({
     children,
     onClick,
     disabled,
@@ -640,7 +724,14 @@ describe("WorkspacePage chat input", () => {
       configurable: true,
       value: "MacIntel",
     });
+    Object.defineProperty(window.navigator, "clipboard", {
+      configurable: true,
+      value: {
+        writeText: workspaceMocks.clipboardWriteTextMock,
+      },
+    });
     installSelectionGeometryPolyfills();
+    workspaceMocks.addTabMock.mockReset();
     workspaceMocks.sendMessageMock.mockReset();
     workspaceMocks.queueMessageMock.mockReset();
     workspaceMocks.steerMessageMock.mockReset();
@@ -680,6 +771,8 @@ describe("WorkspacePage chat input", () => {
     workspaceMocks.switchToGitBranchMock.mockReset();
     workspaceMocks.detachGitHeadMock.mockReset();
     workspaceMocks.upsertSessionMock.mockReset();
+    workspaceMocks.replaceSessionTodosMock.mockReset();
+    workspaceMocks.clipboardWriteTextMock.mockReset();
     workspaceMocks.openLogViewerWindowMock.mockReset();
     workspaceMocks.invokeMock.mockResolvedValue({
       matches: [
@@ -720,12 +813,16 @@ describe("WorkspacePage chat input", () => {
       ok: true,
       data: { detached: true },
     });
+    workspaceMocks.addTabMock.mockReturnValue("tab-fork");
     workspaceMocks.upsertSessionMock.mockResolvedValue(undefined);
+    workspaceMocks.replaceSessionTodosMock.mockResolvedValue([]);
+    workspaceMocks.clipboardWriteTextMock.mockResolvedValue(undefined);
     workspaceMocks.openLogViewerWindowMock.mockResolvedValue(true);
     workspaceMocks.chatBubbleGroups = [];
     workspaceMocks.agentState = {
       autoApproveCommands: "no",
       autoApproveEdits: false,
+      apiMessages: [],
       chatMessages: [],
       config: {
         cwd: "/repo",
@@ -738,6 +835,12 @@ describe("WorkspacePage chat input", () => {
       contextWindowKb: null,
       contextWindowPct: null,
       sessionUsageSummary: null,
+      llmUsageLedger: [],
+      plan: {
+        markdown: "",
+        updatedAtMs: 0,
+        version: 0,
+      },
       clearQueuedMessages: workspaceMocks.clearQueuedMessagesMock,
       error: null,
       errorAction: null,
@@ -748,6 +851,7 @@ describe("WorkspacePage chat input", () => {
       queuedMessages: [],
       removeQueuedMessage: workspaceMocks.removeQueuedMessageMock,
       resumeQueue: workspaceMocks.resumeQueueMock,
+      reviewEdits: [],
       sendMessage: workspaceMocks.sendMessageMock,
       setAutoApproveCommands: workspaceMocks.setAutoApproveCommandsMock,
       setAutoApproveEdits: workspaceMocks.setAutoApproveEditsMock,
@@ -758,6 +862,7 @@ describe("WorkspacePage chat input", () => {
       status: "idle",
       stop: workspaceMocks.stopMock,
       tabTitle: "",
+      todos: [],
       retry: vi.fn(),
     };
   });
@@ -1781,5 +1886,156 @@ describe("WorkspacePage chat input", () => {
     fireEvent.click(screen.getByRole("button", { name: "Open provider settings" }));
 
     expect(workspaceMocks.openSettingsTabMock).toHaveBeenCalledWith("providers");
+  });
+
+  it("copies a chat bubble as markdown", async () => {
+    workspaceMocks.agentState = {
+      ...workspaceMocks.agentState,
+      chatMessages: [
+        {
+          id: "user-1",
+          role: "user",
+          content: "Hello `world`",
+          timestamp: 1,
+        },
+      ],
+    };
+    workspaceMocks.chatBubbleGroups = [
+      {
+        kind: "user",
+        key: "user:user-1",
+        message: workspaceMocks.agentState.chatMessages[0],
+      },
+    ];
+
+    render(<WorkspacePage />);
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Copy bubble as markdown" }),
+    );
+
+    await waitFor(() => {
+      expect(workspaceMocks.clipboardWriteTextMock).toHaveBeenCalledWith(
+        "## You\n\nHello `world`",
+      );
+    });
+  });
+
+  it("forks a bubble into a new workspace tab with truncated history", async () => {
+    workspaceMocks.invokeMock.mockResolvedValueOnce(2);
+    workspaceMocks.agentState = {
+      ...workspaceMocks.agentState,
+      apiMessages: [
+        { role: "system", content: "system prompt" },
+        { role: "user", content: "First question" },
+        { role: "assistant", content: "First answer" },
+        { role: "user", content: "Second question" },
+      ],
+      chatMessages: [
+        {
+          id: "user-1",
+          role: "user",
+          content: "First question",
+          timestamp: 1,
+        },
+        {
+          id: "assistant-1",
+          role: "assistant",
+          content: "First answer",
+          timestamp: 2,
+          traceId: "trace-1",
+        },
+        {
+          id: "user-2",
+          role: "user",
+          content: "Second question",
+          timestamp: 3,
+        },
+      ],
+      todos: [
+        {
+          id: "todo-1",
+          title: "Investigate",
+          state: "todo",
+          owner: "main",
+          createdTurn: 1,
+          updatedTurn: 1,
+          lastTouchedTurn: 1,
+          filesTouched: [],
+          thingsLearned: [],
+          criticalInfo: [],
+          mutationLog: [],
+        },
+      ],
+    };
+    workspaceMocks.chatBubbleGroups = [
+      {
+        kind: "user",
+        key: "user:user-1",
+        message: workspaceMocks.agentState.chatMessages[0],
+      },
+      {
+        kind: "assistant",
+        key: "assistant:assistant-1",
+        messages: [workspaceMocks.agentState.chatMessages[1]],
+      },
+      {
+        kind: "user",
+        key: "user:user-2",
+        message: workspaceMocks.agentState.chatMessages[2],
+      },
+    ];
+
+    render(<WorkspacePage />);
+
+    fireEvent.click(
+      screen.getAllByRole("button", { name: "Fork from this bubble" })[1],
+    );
+
+    await waitFor(() => {
+      expect(workspaceMocks.addTabMock).toHaveBeenCalledWith({
+        mode: "workspace",
+        label: "Workspace fork",
+        icon: "chat_bubble_outline",
+        status: "idle",
+      });
+    });
+
+    expect(workspaceMocks.patchAgentStateMock).toHaveBeenLastCalledWith(
+      "tab-fork",
+      expect.any(Function),
+    );
+
+    const forkPatch = workspaceMocks.patchAgentStateMock.mock.calls.at(-1)?.[1] as (
+      prev: Record<string, unknown>,
+    ) => Record<string, unknown>;
+    const forkedState = forkPatch({});
+
+    expect(forkedState.chatMessages).toEqual(
+      workspaceMocks.agentState.chatMessages.slice(0, 2),
+    );
+    expect(forkedState.apiMessages).toEqual(
+      workspaceMocks.agentState.apiMessages.slice(0, 3),
+    );
+    expect(forkedState.todos).toEqual([]);
+    expect(forkedState.status).toBe("idle");
+    expect(workspaceMocks.replaceSessionTodosMock).toHaveBeenCalledWith(
+      "tab-fork",
+      [],
+    );
+    expect(workspaceMocks.upsertSessionMock).toHaveBeenCalledWith({
+      id: "tab-fork",
+      label: "Workspace fork",
+      icon: "chat_bubble_outline",
+      status: "idle",
+      mode: "workspace",
+    });
+    expect(workspaceMocks.invokeMock).toHaveBeenCalledWith(
+      "db_artifact_clone_session",
+      {
+        sourceSessionId: "tab-1",
+        targetSessionId: "tab-fork",
+      },
+    );
   });
 });

@@ -525,6 +525,74 @@ fn load_latest_manifest_row(
     .map_err(|e| format!("INTERNAL: failed to query latest artifact row: {}", e))
 }
 
+fn load_most_recent_manifest_row_for_session(
+    db: &Connection,
+    session_id: &str,
+) -> Result<Option<ArtifactManifestRow>, String> {
+    let mut stmt = db
+        .prepare(
+            "SELECT
+                session_id, run_id, agent_id, artifact_seq, artifact_id, version,
+                kind, summary, parent_json,
+                metadata_json, content_format, blob_hash, size_bytes, created_at
+             FROM artifact_manifests
+             WHERE session_id = ?1
+             ORDER BY created_at DESC, artifact_id ASC, version DESC
+             LIMIT 1",
+        )
+        .map_err(|e| format!("INTERNAL: failed to prepare session artifact query: {}", e))?;
+
+    stmt.query_row(params![session_id], |row| parse_manifest_row(row))
+        .optional()
+        .map_err(|e| format!("INTERNAL: failed to query session artifact row: {}", e))
+}
+
+fn clone_artifact_manifests_between_sessions(
+    db: &Connection,
+    source_session_id: &str,
+    target_session_id: &str,
+) -> Result<usize, String> {
+    validate_non_empty(source_session_id, "sourceSessionId")?;
+    validate_non_empty(target_session_id, "targetSessionId")?;
+    if source_session_id == target_session_id {
+        return Err(
+            "INVALID_ARGUMENT: sourceSessionId and targetSessionId must differ".to_string(),
+        );
+    }
+
+    let target_count: i64 = db
+        .query_row(
+            "SELECT COUNT(*) FROM artifact_manifests WHERE session_id = ?1",
+            params![target_session_id],
+            |row| row.get(0),
+        )
+        .map_err(|e| {
+            format!(
+                "INTERNAL: failed to inspect target session artifacts: {}",
+                e
+            )
+        })?;
+    if target_count > 0 {
+        return Err("CONFLICT: target session already has artifacts".to_string());
+    }
+
+    db.execute(
+        "INSERT INTO artifact_manifests (
+            session_id, run_id, agent_id, artifact_seq, artifact_id, version,
+            kind, summary, parent_json, metadata_json,
+            content_format, blob_hash, size_bytes, created_at
+         )
+         SELECT
+            ?2, run_id, agent_id, artifact_seq, artifact_id, version,
+            kind, summary, parent_json, metadata_json,
+            content_format, blob_hash, size_bytes, created_at
+         FROM artifact_manifests
+         WHERE session_id = ?1",
+        params![source_session_id, target_session_id],
+    )
+    .map_err(|e| format!("INTERNAL: failed to clone session artifacts: {}", e))
+}
+
 /* ── AppState ─────────────────────────────────────────────────────────────── */
 
 pub struct AppState {
@@ -753,8 +821,8 @@ pub fn init_db() -> Result<Connection, String> {
     let _ = conn.execute_batch(
         "ALTER TABLE sessions ADD COLUMN communication_profile TEXT NOT NULL DEFAULT 'pragmatic';",
     );
-    let _ =
-        conn.execute_batch("ALTER TABLE sessions ADD COLUMN turn_count INTEGER NOT NULL DEFAULT 0;");
+    let _ = conn
+        .execute_batch("ALTER TABLE sessions ADD COLUMN turn_count INTEGER NOT NULL DEFAULT 0;");
     conn.execute_batch(
         "
         CREATE TABLE IF NOT EXISTS artifact_blobs (
@@ -1719,6 +1787,70 @@ pub fn db_artifact_list(
             json!({
                 "durationMs": start.elapsed().as_millis() as u64,
                 "error": e
+            }),
+            log_context.as_ref(),
+        ),
+    }
+
+    result
+}
+
+#[tauri::command]
+pub fn db_artifact_clone_session(
+    source_session_id: String,
+    target_session_id: String,
+    app_handle: AppHandle,
+    state: State<'_, AppState>,
+    log_context: Option<LogContext>,
+) -> Result<usize, String> {
+    let start = Instant::now();
+    tool_log_with_context(
+        "db_artifact_clone_session",
+        "start",
+        json!({
+            "sourceSessionId": source_session_id,
+            "targetSessionId": target_session_id,
+        }),
+        log_context.as_ref(),
+    );
+
+    let result: Result<usize, String> = (|| {
+        let db = state.db.lock().unwrap();
+        let copied_count =
+            clone_artifact_manifests_between_sessions(&db, &source_session_id, &target_session_id)?;
+
+        if copied_count > 0 {
+            if let Some(row) = load_most_recent_manifest_row_for_session(&db, &target_session_id)? {
+                let manifest = manifest_row_to_api(row, false)?;
+                let payload =
+                    artifact_change_event_from_manifest(&manifest, ArtifactChangeKind::Created);
+                let _ = app_handle.emit("artifact_changed", &payload);
+            }
+        }
+
+        Ok(copied_count)
+    })();
+
+    match &result {
+        Ok(copied_count) => tool_log_with_context(
+            "db_artifact_clone_session",
+            "ok",
+            json!({
+                "sourceSessionId": source_session_id,
+                "targetSessionId": target_session_id,
+                "copiedCount": copied_count,
+                "durationMs": start.elapsed().as_millis() as u64,
+            }),
+            log_context.as_ref(),
+        ),
+        Err(error) => tool_log_with_context(
+            "db_artifact_clone_session",
+            "err",
+            json!({
+                "sourceSessionId": source_session_id,
+                "targetSessionId": target_session_id,
+                "error": error,
+                "durationMs": start.elapsed().as_millis() as u64,
             }),
             log_context.as_ref(),
         ),
@@ -2816,6 +2948,70 @@ mod tests {
             Some(v) => std::env::set_var("HOME", v),
             None => std::env::remove_var("HOME"),
         }
+    }
+
+    #[test]
+    fn test_clone_artifact_manifests_between_sessions_copies_all_versions() {
+        let conn = Connection::open_in_memory().unwrap();
+        init_artifact_schema(&conn);
+
+        let content = "# report\n\nhello";
+        let (blob_hash, size_bytes) = upsert_blob_record(&conn, content, "markdown").unwrap();
+
+        conn.execute(
+            "INSERT INTO artifact_manifests (
+                session_id, run_id, agent_id, artifact_seq, artifact_id, version,
+                kind, summary, parent_json, metadata_json,
+                content_format, blob_hash, size_bytes, created_at
+             ) VALUES (?1, ?2, ?3, 1, ?4, 1, 'report', 'v1', 'null', '{}', 'markdown', ?5, ?6, ?7)",
+            params![
+                "tab-source",
+                "run_1",
+                "agent_main",
+                "report_deadbeef",
+                blob_hash,
+                size_bytes,
+                100_i64
+            ],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO artifact_manifests (
+                session_id, run_id, agent_id, artifact_seq, artifact_id, version,
+                kind, summary, parent_json, metadata_json,
+                content_format, blob_hash, size_bytes, created_at
+             ) VALUES (?1, ?2, ?3, 1, ?4, 2, 'report', 'v2', 'null', '{}', 'markdown', ?5, ?6, ?7)",
+            params![
+                "tab-source",
+                "run_2",
+                "agent_main",
+                "report_deadbeef",
+                blob_hash,
+                size_bytes,
+                200_i64
+            ],
+        )
+        .unwrap();
+
+        let copied_count =
+            clone_artifact_manifests_between_sessions(&conn, "tab-source", "tab-target").unwrap();
+
+        assert_eq!(copied_count, 2);
+
+        let target_latest = load_latest_manifest_row(&conn, "tab-target", "report_deadbeef")
+            .unwrap()
+            .expect("cloned artifact");
+        assert_eq!(target_latest.version, 2);
+        assert_eq!(target_latest.session_id, "tab-target");
+
+        let total_target: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM artifact_manifests WHERE session_id = ?1",
+                params!["tab-target"],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(total_target, 2);
     }
 
     #[test]
