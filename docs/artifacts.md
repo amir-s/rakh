@@ -18,6 +18,11 @@ They are used for:
 Artifacts are stored per session. The manifest lives in SQLite and the content
 blob is stored separately by content hash.
 
+Because manifests and blobs are decoupled, sessions can clone artifacts without
+duplicating blob bytes. Session cloning/forking duplicates the manifest rows
+under a new `sessionId` while continuing to reference the same immutable blob
+hashes.
+
 Current storage layout:
 
 - Release builds:
@@ -67,6 +72,12 @@ In the desktop app, artifact pane updates are not poll-based anymore. The UI
 does one initial `agent_artifact_list` read per session view, then listens for
 backend `artifact_changed` Tauri events and refetches manifests when matching
 session artifacts change.
+
+The frontend also exposes `cloneSessionArtifacts(sourceSessionId, targetSessionId)`
+for session forks. That command clones all artifact manifest rows from the
+source session into the target session and then relies on the normal
+`artifact_changed` -> `agent_artifact_list` refresh path to repopulate the new
+tab's artifact pane.
 
 ### Create
 
@@ -126,7 +137,8 @@ Current behavior:
 Artifact writes also produce a lightweight UI notification event.
 
 The Rust backend emits `artifact_changed` after successful
-`db_artifact_create` and `db_artifact_version` calls. The frontend subscribes
+`db_artifact_create`, `db_artifact_version`, and session-artifact clone
+operations. The frontend subscribes
 through `listenForArtifactChanges()` in
 [`src/agent/tools/artifacts.ts`](../src/agent/tools/artifacts.ts).
 
@@ -152,6 +164,9 @@ Notes:
   source of truth
 - listeners filter by `sessionId` so tabs only react to their own artifact
   changes
+- session clones currently emit one synthetic `created` event for the target
+  session to trigger a full inventory refetch; the cloned manifests themselves
+  remain the source of truth
 
 ## Framework Metadata
 
