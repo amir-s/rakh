@@ -4168,6 +4168,73 @@ describe("runner", () => {
       );
     });
 
+    it("restores project memory when compaction aborts after writing learned facts", async () => {
+      const tabId = "tab-trigger-compact-memory-abort";
+      await saveSavedProjects([
+        {
+          path: "/repo",
+          name: "Repo",
+          icon: "folder",
+          learnedFacts: ["Existing fact."],
+        },
+      ]);
+      setState(tabId, {
+        config: {
+          cwd: "/repo",
+          model: "openai/gpt-5.2",
+          projectPath: "/repo",
+        },
+        apiMessages: [
+          { role: "system", content: "Original system prompt" },
+          { role: "user", content: "Compact the session." },
+        ],
+      });
+
+      turns.push({
+        deltas: ["Saving learned facts before the run is aborted."],
+        toolCalls: [
+          {
+            id: "tc-project-memory-abort",
+            name: "agent_project_memory_add",
+            arguments: {
+              facts: ["The backend uses Tauri."],
+            },
+          },
+        ],
+      });
+      turns.push({
+        streamError: new DOMException("Aborted", "AbortError"),
+      });
+
+      dispatchToolMock.mockImplementation(async (...args: unknown[]) => {
+        const toolName = args[2] as string;
+        if (toolName === "agent_project_memory_add") {
+          await saveSavedProjects([
+            {
+              path: "/repo",
+              name: "Repo",
+              icon: "folder",
+              learnedFacts: ["Existing fact.", "The backend uses Tauri."],
+            },
+          ]);
+          return {
+            ok: true,
+            data: {
+              projectPath: "/repo",
+              learnedFacts: ["Existing fact.", "The backend uses Tauri."],
+              addedFacts: ["The backend uses Tauri."],
+              updated: true,
+            },
+          };
+        }
+        return { ok: true, data: { ok: true } };
+      });
+
+      await runAgent(tabId, "/compact");
+
+      expect(getSavedProjects()[0]?.learnedFacts).toEqual(["Existing fact."]);
+    });
+
     it("marks project memory unwritable when no saved project record matches the session", async () => {
       const tabId = "tab-trigger-compact-memory-untracked";
       const compactedMarkdown = makeCompactedHistoryMarkdown("Resume work.");

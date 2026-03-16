@@ -86,6 +86,7 @@ import {
   inferProjectName,
   resolveSavedProject,
   upsertSavedProject,
+  upsertSavedProjectPreservingLearnedFacts,
   type SavedProject,
 } from "@/projects";
 import {
@@ -989,9 +990,6 @@ export default function WorkspacePage() {
         path: project.path,
         name: project.name,
         icon: project.icon || DEFAULT_PROJECT_ICON,
-        ...(project.learnedFacts?.length
-          ? { learnedFacts: project.learnedFacts }
-          : {}),
         ...(project.setupCommand ? { setupCommand: project.setupCommand } : {}),
         ...(project.commands?.length ? { commands: project.commands } : {}),
       };
@@ -1005,7 +1003,9 @@ export default function WorkspacePage() {
         });
       }
 
-      const savedProjects = await upsertSavedProject(nextProject);
+      const savedProjects = await upsertSavedProjectPreservingLearnedFacts(
+        nextProject,
+      );
       const resolvedProject = await resolveSavedProject(
         savedProjects.find((entry) => entry.path === nextProject.path) ??
           nextProject,
@@ -1030,9 +1030,6 @@ export default function WorkspacePage() {
         path: project.path,
         name: project.name,
         icon: project.icon || DEFAULT_PROJECT_ICON,
-        ...(project.learnedFacts?.length
-          ? { learnedFacts: project.learnedFacts }
-          : {}),
         ...(project.setupCommand ? { setupCommand: project.setupCommand } : {}),
         ...(project.commands?.length ? { commands: project.commands } : {}),
       };
@@ -1042,7 +1039,9 @@ export default function WorkspacePage() {
         ...(project.commands?.length ? { commands: project.commands } : {}),
       });
 
-      const savedProjects = await upsertSavedProject(nextProject);
+      const savedProjects = await upsertSavedProjectPreservingLearnedFacts(
+        nextProject,
+      );
       const resolvedProject = await resolveSavedProject(
         savedProjects.find((entry) => entry.path === nextProject.path) ??
           nextProject,

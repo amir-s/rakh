@@ -372,8 +372,9 @@ path/to/other.ts
     name: "agent_project_memory_add",
     description:
       "Append durable learned facts to the current saved project's long-term memory. " +
-      "Use only for stable repo facts or standing user requirements that future sessions should inherit. " +
-      "Do not store transient task state, temporary plans, or next steps.",
+      "Use this when the user asks you to remember stable repo facts or standing requirements for future sessions, " +
+      "or when compaction extracts durable facts worth keeping. " +
+      "Do not store transient task state, temporary plans, debugging breadcrumbs, or next steps.",
     inputSchema: z.object({
       facts: z
         .array(z.string())

@@ -135,9 +135,6 @@ function buildProjectPayload(
     name: normalizedName,
     path: project.path,
     icon: normalizedIcon,
-    ...(project.learnedFacts?.length
-      ? { learnedFacts: project.learnedFacts }
-      : {}),
     ...(setupCommand.trim() ? { setupCommand: setupCommand.trim() } : {}),
     ...(nextCommands.length > 0 ? { commands: nextCommands } : {}),
   };

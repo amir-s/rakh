@@ -35,6 +35,7 @@ import {
   removeSavedProject,
   resolveSavedProjects,
   upsertSavedProject,
+  upsertSavedProjectPreservingLearnedFacts,
   type SavedProject,
 } from "@/projects";
 import { writeProjectScriptsConfig } from "@/projectScripts";
@@ -421,9 +422,6 @@ export default function NewSession({ onSubmit }: NewSessionProps) {
         path: project.path,
         name: project.name,
         icon: project.icon || DEFAULT_PROJECT_ICON,
-        ...(project.learnedFacts?.length
-          ? { learnedFacts: project.learnedFacts }
-          : {}),
         ...(project.setupCommand ? { setupCommand: project.setupCommand } : {}),
         ...(project.commands?.length ? { commands: project.commands } : {}),
       };
@@ -435,7 +433,9 @@ export default function NewSession({ onSubmit }: NewSessionProps) {
         });
       }
 
-      const savedProjects = await upsertSavedProject(nextProject);
+      const savedProjects = await upsertSavedProjectPreservingLearnedFacts(
+        nextProject,
+      );
       const resolvedProjects = await resolveSavedProjects(savedProjects);
       const resolvedProject =
         resolvedProjects.find((entry) => entry.path === nextProject.path) ??
@@ -456,9 +456,6 @@ export default function NewSession({ onSubmit }: NewSessionProps) {
         path: project.path,
         name: project.name,
         icon: project.icon || DEFAULT_PROJECT_ICON,
-        ...(project.learnedFacts?.length
-          ? { learnedFacts: project.learnedFacts }
-          : {}),
         ...(project.setupCommand ? { setupCommand: project.setupCommand } : {}),
         ...(project.commands?.length ? { commands: project.commands } : {}),
       };
@@ -468,7 +465,9 @@ export default function NewSession({ onSubmit }: NewSessionProps) {
         ...(project.commands?.length ? { commands: project.commands } : {}),
       });
 
-      const savedProjects = await upsertSavedProject(nextProject);
+      const savedProjects = await upsertSavedProjectPreservingLearnedFacts(
+        nextProject,
+      );
       const resolvedProjects = await resolveSavedProjects(savedProjects);
       const resolvedProject =
         resolvedProjects.find((entry) => entry.path === nextProject.path) ??
