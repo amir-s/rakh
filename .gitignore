@@ -38,5 +38,6 @@ yarn-error.log*
 
 # tauri
 src-tauri/target/
+src-tauri/.cargo/config
 
 opencode/
