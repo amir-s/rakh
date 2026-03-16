@@ -6,7 +6,6 @@
 
 import { useState, useEffect, useRef } from "react";
 import PatchPreview from "@/components/PatchPreview";
-import { getToolGatewayArtifactRef } from "@/agent/toolGateway";
 import type { ToolCallDisplay } from "@/agent/types";
 import {
   buildEditFileDiffFiles,
@@ -16,7 +15,6 @@ import { CompactToolCallSummaryRow } from "@/components/compactToolCallSummary";
 import { deserializeDiff } from "@/components/diffSerialization";
 import type { EditFileChange } from "@/agent/tools/workspace";
 import { cn } from "@/utils/cn";
-import { Badge } from "@/components/ui";
 
 /* ── Tools with dedicated inline previews ─────────────────────────────────── */
 const CUSTOM_EXPANDED_TOOLS = new Set([
@@ -896,49 +894,6 @@ function ExpandedGeneric({ tc }: { tc: ToolCallDisplay }) {
   );
 }
 
-function ExpandedToolGatewayArtifactRef({ tc }: { tc: ToolCallDisplay }) {
-  const gatewayRef = getToolGatewayArtifactRef(tc.result);
-  if (!gatewayRef) return null;
-
-  return (
-    <div className="cmd-block mt-1 border border-border-subtle rounded-md bg-inset">
-      <div className="flex flex-wrap items-center gap-1.5">
-        <div className="text-xxs font-bold tracking-[0.08em] uppercase text-muted">
-          ToolGateway
-        </div>
-        <Badge variant="muted">artifactized</Badge>
-        {gatewayRef.appliedPolicies.map((policyId) => (
-          <Badge key={policyId} variant="muted">
-            {policyId}
-          </Badge>
-        ))}
-      </div>
-
-      <div className="text-xs text-text leading-[1.55] mt-1">
-        Artifact: <span className="font-mono">{gatewayRef.artifactId}</span>
-      </div>
-      <div className="text-xxs text-muted leading-[1.55]">
-        Size: {formatBytes(gatewayRef.sizeBytes)}
-        {typeof gatewayRef.lineCount === "number"
-          ? ` · Lines: ${gatewayRef.lineCount}`
-          : ""}
-        {" · "}Format: {gatewayRef.originalFormat}
-      </div>
-      <div className="text-xxs text-muted leading-[1.55]">
-        Original tool: {gatewayRef.originalTool}
-      </div>
-      {gatewayRef.summary && (
-        <div className="text-xs text-text leading-[1.6] mt-1">
-          {gatewayRef.summary}
-        </div>
-      )}
-      <div className="text-xxs text-muted leading-[1.55] mt-1">
-        {gatewayRef.note}
-      </div>
-    </div>
-  );
-}
-
 /* ── Public component ───────────────────────────────────────────────────────── */
 interface CompactToolCallProps {
   tc: ToolCallDisplay;
@@ -1001,34 +956,28 @@ export default function CompactToolCall({
     // compact-tool-expanded targets .patch-preview-diff in globals.css
     // to constrain height without scrolling the tab bar out of view.
     <div className="compact-tool-expanded ml-1">
-      {getToolGatewayArtifactRef(tc.result) ? (
-        <ExpandedToolGatewayArtifactRef tc={tc} />
-      ) : (
-        <>
-          {tc.tool === "workspace_listDir" && <ExpandedListDir tc={tc} />}
-          {tc.tool === "workspace_stat" && <ExpandedStatFile tc={tc} />}
-          {tc.tool === "workspace_readFile" && <ExpandedReadFile tc={tc} />}
-          {tc.tool === "workspace_glob" && <ExpandedGlob tc={tc} />}
-          {tc.tool === "git_worktree_init" && <ExpandedGitWorktree tc={tc} />}
-          {tc.tool === "workspace_editFile" && (
-            <ExpandedEditFile tc={tc} cwd={cwd} />
-          )}
-          {tc.tool === "workspace_writeFile" && (
-            <ExpandedWriteFile tc={tc} cwd={cwd} />
-          )}
-          {tc.tool === "exec_run" && (
-            <ExpandedCommand
-              args={tc.args}
-              result={tc.result}
-              streamingOutput={tc.streamingOutput}
-              isRunning={tc.status === "running"}
-            />
-          )}
-          {tc.tool === "workspace_search" && <ExpandedSearch tc={tc} />}
-          {tc.tool === "user_input" && <ExpandedUserInput tc={tc} />}
-          {!CUSTOM_EXPANDED_TOOLS.has(tc.tool) && <ExpandedGeneric tc={tc} />}
-        </>
+      {tc.tool === "workspace_listDir" && <ExpandedListDir tc={tc} />}
+      {tc.tool === "workspace_stat" && <ExpandedStatFile tc={tc} />}
+      {tc.tool === "workspace_readFile" && <ExpandedReadFile tc={tc} />}
+      {tc.tool === "workspace_glob" && <ExpandedGlob tc={tc} />}
+      {tc.tool === "git_worktree_init" && <ExpandedGitWorktree tc={tc} />}
+      {tc.tool === "workspace_editFile" && (
+        <ExpandedEditFile tc={tc} cwd={cwd} />
       )}
+      {tc.tool === "workspace_writeFile" && (
+        <ExpandedWriteFile tc={tc} cwd={cwd} />
+      )}
+      {tc.tool === "exec_run" && (
+        <ExpandedCommand
+          args={tc.args}
+          result={tc.result}
+          streamingOutput={tc.streamingOutput}
+          isRunning={tc.status === "running"}
+        />
+      )}
+      {tc.tool === "workspace_search" && <ExpandedSearch tc={tc} />}
+      {tc.tool === "user_input" && <ExpandedUserInput tc={tc} />}
+      {!CUSTOM_EXPANDED_TOOLS.has(tc.tool) && <ExpandedGeneric tc={tc} />}
     </div>
   );
 

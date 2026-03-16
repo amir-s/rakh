@@ -2,14 +2,12 @@ pub mod db;
 pub mod exec;
 pub mod external_tools;
 pub mod fs_ops;
-pub mod gateway_policies;
 pub mod git;
 pub mod logging;
 pub mod mcp;
 pub mod pty;
 pub mod shell_env;
 pub mod todos;
-pub mod tool_artifacts;
 pub mod utils;
 pub mod whisper;
 
@@ -58,17 +56,12 @@ pub fn run() {
             exec::exec_run,
             exec::exec_abort,
             exec::exec_stop,
-            tool_artifacts::tool_artifact_create,
-            tool_artifacts::tool_artifact_get,
-            tool_artifacts::tool_artifact_search,
-            tool_artifacts::tool_artifact_delete,
             todos::todo_store_load,
             todos::todo_store_add,
             todos::todo_store_update,
             todos::todo_store_remove,
             todos::todo_store_note_add,
             todos::todo_store_record_mutation,
-            todos::todo_store_context_enrich,
             todos::todo_store_get_path,
             external_tools::open_in_editor,
             external_tools::open_shell,
@@ -97,8 +90,6 @@ pub fn run() {
             logging::logs_query,
             logging::logs_export,
             logging::logs_clear,
-            gateway_policies::gateway_policy_settings_load,
-            gateway_policies::gateway_policy_settings_save,
             mcp::mcp_servers_load,
             mcp::mcp_settings_load,
             mcp::mcp_servers_save,

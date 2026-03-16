@@ -278,30 +278,6 @@
   color: var(--color-text);
 }
 
-.settings-gateway-policy-action {
-  width: 26px;
-  height: 26px;
-  color: var(--color-muted);
-  border-color: var(--color-border-mid);
-  background: color-mix(in srgb, var(--color-panel) 70%, transparent);
-}
-
-.settings-gateway-policy-action:hover:not(:disabled) {
-  color: var(--color-text);
-}
-
-.settings-gateway-policy-action--save {
-  color: var(--color-primary);
-  border-color: var(--color-primary-border);
-  background: var(--color-primary-dim);
-}
-
-.settings-gateway-policy-action--save:hover:not(:disabled) {
-  color: var(--color-primary);
-  background: color-mix(in srgb, var(--color-primary) 20%, transparent);
-  border-color: color-mix(in srgb, var(--color-primary) 48%, transparent);
-}
-
 .settings-schema-modal {
   max-width: 940px;
   max-height: 84vh;

@@ -1,7 +1,6 @@
 import { tool as aiTool } from "ai";
 import { z } from "zod";
 import { ARTIFACT_CONTENT_FORMAT } from "./artifactTypes";
-import { TOOL_GATEWAY_INTENTION_DESCRIPTION } from "../toolGateway";
 
 /**
  * Tool specifications are kept with explicit names, then converted to
@@ -16,11 +15,6 @@ type ToolSpec = {
 function tool(spec: ToolSpec): ToolSpec {
   return spec;
 }
-
-const gatewayIntentionField = z
-  .string()
-  .describe(TOOL_GATEWAY_INTENTION_DESCRIPTION)
-  .optional();
 
 const mutationIntentEnum = z.enum([
   "exploration",
@@ -60,10 +54,6 @@ const mutationPolicySchema = z.object({
   }),
 });
 
-function withGatewayIntention<T extends z.ZodObject>(schema: T): T {
-  return schema.extend({ intention: gatewayIntentionField }) as unknown as T;
-}
-
 function withMutationPolicy<T extends z.ZodObject>(schema: T): T {
   return schema.extend(mutationPolicySchema.shape) as unknown as T;
 }
@@ -79,7 +69,7 @@ const TOOL_SPECS = [
     name: "workspace_listDir",
     description:
       "List children of a directory (no recursion). Returns entries with kind, size, and mtime.",
-    inputSchema: withGatewayIntention(z.object({
+    inputSchema: z.object({
       path: z
         .string()
         .describe("Workspace-relative path (default: workspace root)")
@@ -92,7 +82,7 @@ const TOOL_SPECS = [
         .number()
         .describe("Max entries to return (default: 200)")
         .optional(),
-    })),
+    }),
   }),
   tool({
     name: "workspace_stat",
@@ -108,7 +98,7 @@ const TOOL_SPECS = [
     name: "workspace_readFile",
     description:
       "Read the content of a file, optionally constrained to a line range.",
-    inputSchema: withGatewayIntention(z.object({
+    inputSchema: z.object({
       path: z.string().describe("Workspace-relative path to the file"),
       range: z
         .object({
@@ -121,7 +111,7 @@ const TOOL_SPECS = [
         .number()
         .describe("Max bytes to read (default: 200000)")
         .optional(),
-    })),
+    }),
   }),
   tool({
     name: "workspace_writeFile",
@@ -173,7 +163,7 @@ const TOOL_SPECS = [
     name: "workspace_glob",
     description:
       'Find files matching glob patterns (e.g. ["src/**/*.ts", "!**/*.test.ts"]).',
-    inputSchema: withGatewayIntention(z.object({
+    inputSchema: z.object({
       patterns: z.array(z.string()).describe("Glob patterns"),
       cwd: z
         .string()
@@ -191,7 +181,7 @@ const TOOL_SPECS = [
         .boolean()
         .describe("Include hidden files/directories like .git (default: false)")
         .optional(),
-    })),
+    }),
   }),
   tool({
     name: "workspace_search",
@@ -232,7 +222,7 @@ path/to/other.ts
 - Matched lines use \`lineNumber: content\` (colon separator).
 - Context lines (if \`contextLines > 0\`) use \`lineNumber- content\` (dash separator).
 - The \`[TRUNCATED]\` suffix on the header means results were capped at \`maxMatches\`.`,
-    inputSchema: withGatewayIntention(z.object({
+    inputSchema: z.object({
       pattern: z
         .string()
         .describe(
@@ -278,7 +268,7 @@ path/to/other.ts
         .boolean()
         .describe("Follow symbolic links (default: false)")
         .optional(),
-    })),
+    }),
   }),
 
   /* ── exec ─────────────────────────────────────────────────────────────────── */
@@ -293,7 +283,7 @@ path/to/other.ts
       "Use `requireUserApproval: true` for potentially destructive commands or when you want to give the user control over when the command runs. " +
       "IMPORTANT: `args` are passed directly to the process — shell operators (`&&`, `|`, `;`, redirects) are NOT interpreted. " +
       "To chain commands, use `command: 'sh'` with `args: ['-c', 'cmd1 && cmd2']`.",
-    inputSchema: withGatewayIntention(withMutationPolicy(z.object({
+    inputSchema: withMutationPolicy(z.object({
       command: z.string().describe("Executable name (e.g. 'npm', 'git')"),
       args: z.array(z.string()).describe("Command arguments").optional(),
       cwd: z
@@ -321,7 +311,7 @@ path/to/other.ts
           "When true, request approval from user before running this command.",
         )
         .optional(),
-    }))),
+    })),
   }),
 
   /* ── agent.todo ───────────────────────────────────────────────────────────── */
@@ -507,53 +497,6 @@ path/to/other.ts
       limit: z.number().optional().describe("Max items (default: 200)"),
     }),
   }),
-  tool({
-    name: "agent_tool_artifact_get",
-    description:
-      "Read a bounded slice of a temporary tool artifact that was created by the ToolGateway after a large tool result was stored out of context.",
-    inputSchema: withGatewayIntention(z.object({
-      artifactId: z.string().describe("Stable temporary tool artifact ID"),
-      range: z
-        .object({
-          startLine: z.number().int().positive(),
-          endLine: z.number().int().positive(),
-        })
-        .optional()
-        .describe("Optional 1-based inclusive line range"),
-      maxBytes: z
-        .number()
-        .int()
-        .positive()
-        .optional()
-        .describe("Optional max bytes to read (default: bounded by the engine)"),
-    })),
-  }),
-  tool({
-    name: "agent_tool_artifact_search",
-    description:
-      "Search within a temporary tool artifact by regex and return only small contextual matches.",
-    inputSchema: withGatewayIntention(z.object({
-      artifactId: z.string().describe("Stable temporary tool artifact ID"),
-      pattern: z.string().describe("Regular expression to search for"),
-      caseSensitive: z
-        .boolean()
-        .optional()
-        .describe("Case-sensitive matching (default: false)"),
-      maxMatches: z
-        .number()
-        .int()
-        .positive()
-        .optional()
-        .describe("Optional max matches to return (engine-capped)"),
-      contextLines: z
-        .number()
-        .int()
-        .min(0)
-        .optional()
-        .describe("Optional context lines before and after each match"),
-    })),
-  }),
-
   /* ── git ────────────────────────────────────────────────────────────── */
   tool({
     name: "git_worktree_init",

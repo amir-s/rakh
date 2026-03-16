@@ -44,11 +44,6 @@ import {
 } from "@/agent/db";
 import { rankFuzzyItems } from "@/utils/fuzzySearch";
 import {
-  DEFAULT_GATEWAY_POLICY_SETTINGS,
-  normalizeGatewayPolicySettings,
-  type GatewayPolicySettings,
-} from "@/agent/gatewayPolicySettings";
-import {
   saveMcpSettings,
   saveMcpServers,
   testMcpServer,
@@ -2814,140 +2809,26 @@ function DeveloperSection({
 }: {
   controller: SettingsControllerValue;
 }) {
-  const savedGatewayPolicyDraft = useMemo(
-    () => JSON.stringify(controller.gatewayPolicySettings, null, 2),
-    [controller.gatewayPolicySettings],
-  );
-
-  return (
-    <div className="settings-page__section-stack">
-      <SectionCard
-        title="Diagnostics"
-        description="Control debug-only UI and the detached log viewer shortcut."
-      >
-        <div className="settings-row">
-          <div className="settings-row-info">
-            <span className="settings-row-label">Debug mode</span>
-            <span className="settings-row-desc">
-              Enables stream-event logging, extra debug UI, and the log viewer
-              button beside Settings in the title bar.
-            </span>
-          </div>
-          <ToggleSwitch
-            checked={controller.debugModeEnabled}
-            onChange={controller.setDebugModeEnabled}
-            className="settings-switch"
-            title="Debug mode"
-          />
-        </div>
-      </SectionCard>
-
-      <GatewayPoliciesSection
-        key={savedGatewayPolicyDraft}
-        controller={controller}
-        initialDraft={savedGatewayPolicyDraft}
-      />
-    </div>
-  );
-}
-
-function GatewayPoliciesSection({
-  controller,
-  initialDraft,
-}: {
-  controller: SettingsControllerValue;
-  initialDraft: string;
-}) {
-  const [gatewayPolicyDraft, setGatewayPolicyDraft] = useState(() =>
-    initialDraft,
-  );
-  const [gatewayPolicyError, setGatewayPolicyError] = useState<string | null>(
-    null,
-  );
-
-  const gatewayPolicyDirty =
-    gatewayPolicyDraft.trim() !== initialDraft.trim();
-
-  const handleSaveGatewayPolicies = async () => {
-    try {
-      const parsed = JSON.parse(gatewayPolicyDraft) as Partial<GatewayPolicySettings>;
-      const normalized = normalizeGatewayPolicySettings(parsed);
-      await controller.saveGatewayPolicySettings(normalized);
-      setGatewayPolicyDraft(JSON.stringify(normalized, null, 2));
-      setGatewayPolicyError(null);
-    } catch (error) {
-      setGatewayPolicyError(
-        error instanceof Error ? error.message : String(error ?? "Invalid JSON"),
-      );
-    }
-  };
-
   return (
     <SectionCard
-      title="Gateway Policies"
-      description="Configure ToolGateway output compaction and ContextGateway API compaction. Saved to ~/.rakh/config/gateway_policies.json."
-      actions={
-        <div className="flex items-center gap-2">
-          <IconButton
-            type="button"
-            className="settings-gateway-policy-action"
-            aria-label="Reset defaults"
-            title="Reset defaults"
-            onClick={() => {
-              setGatewayPolicyDraft(
-                JSON.stringify(DEFAULT_GATEWAY_POLICY_SETTINGS, null, 2),
-              );
-              setGatewayPolicyError(null);
-            }}
-          >
-            <span
-              aria-hidden="true"
-              className="material-symbols-outlined text-base"
-            >
-              restart_alt
-            </span>
-          </IconButton>
-          <IconButton
-            type="button"
-            className="settings-gateway-policy-action settings-gateway-policy-action--save"
-            aria-label="Save config"
-            title="Save config"
-            onClick={() => {
-              void handleSaveGatewayPolicies();
-            }}
-            disabled={!gatewayPolicyDirty}
-          >
-            <span
-              aria-hidden="true"
-              className="material-symbols-outlined text-base"
-            >
-              save
-            </span>
-          </IconButton>
-        </div>
-      }
+      title="Diagnostics"
+      description="Control debug-only UI and the detached log viewer shortcut."
     >
-      <div className="settings-row settings-row--top-aligned">
+      <div className="settings-row">
         <div className="settings-row-info">
-          <span className="settings-row-label">Gateway policy JSON</span>
+          <span className="settings-row-label">Debug mode</span>
           <span className="settings-row-desc">
-            Edit the persisted ToolGateway and ContextGateway policy config in
-            one place. This includes huge-output thresholds, internal summary
-            settings, and main-agent context compaction rules.
+            Enables stream-event logging, extra debug UI, and the log viewer
+            button beside Settings in the title bar.
           </span>
         </div>
+        <ToggleSwitch
+          checked={controller.debugModeEnabled}
+          onChange={controller.setDebugModeEnabled}
+          className="settings-switch"
+          title="Debug mode"
+        />
       </div>
-      <JsonCodeEditor
-        value={gatewayPolicyDraft}
-        onChange={setGatewayPolicyDraft}
-        themeMode={controller.themeMode}
-        aria-label="Gateway policy JSON"
-      />
-      {gatewayPolicyError ? (
-        <div className="mt-2 text-xxs text-error whitespace-pre-wrap break-words">
-          {gatewayPolicyError}
-        </div>
-      ) : null}
     </SectionCard>
   );
 }

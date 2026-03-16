@@ -164,40 +164,6 @@
     border-radius var(--t-slow);
 }
 
-.inline-tool-gateway-spinner {
-  display: inline-block;
-  width: 10px;
-  height: 10px;
-  border-radius: 999px;
-  border: 1.5px solid color-mix(in srgb, var(--color-primary) 78%, transparent);
-  border-right-color: transparent;
-  animation: spin 0.9s linear infinite;
-}
-
-.inline-tool-gateway-popover {
-  top: 50%;
-  bottom: auto;
-  left: calc(100% + 10px);
-  transform: translateY(-50%);
-}
-
-.inline-tool-gateway-popover::after {
-  top: 50%;
-  left: -10px;
-  transform: translateY(-50%);
-  border-top-color: transparent;
-  border-right-color: var(--color-elevated);
-}
-
-.inline-tool-gateway-popover::before {
-  top: 50%;
-  left: -12px;
-  transform: translateY(-50%);
-  border-top-color: transparent;
-  border-right-color: var(--color-border-mid);
-  margin-top: 0;
-}
-
 /* ── Status dot ────────────────────────────────────────────────────────── */
 .inline-tool-status {
   width: 6px;

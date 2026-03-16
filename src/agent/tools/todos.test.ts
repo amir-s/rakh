@@ -17,7 +17,6 @@ vi.mock("../atoms", () => ({
 }));
 
 import {
-  applyTodoContextEnrichment,
   recordTodoMutation,
   todoAdd,
   todoList,
@@ -70,13 +69,13 @@ describe("tools/todos", () => {
     const result = await todoAdd(
       "tab-1",
       { currentTurn: 7, agentId: "agent_main" },
-      { title: "Ship ContextGateway" },
+      { title: "Ship todo storage" },
     );
 
     expect(invokeMock).toHaveBeenCalledWith("todo_store_add", {
       sessionId: "tab-1",
       input: {
-        title: "Ship ContextGateway",
+        title: "Ship todo storage",
         owner: "main",
         turn: 7,
       },
@@ -190,50 +189,4 @@ describe("tools/todos", () => {
     });
   });
 
-  it("forwards context enrichment updates and syncs the returned todos", async () => {
-    const enriched = makeTodo("todo-5", "doing");
-    enriched.thingsLearned = [
-      {
-        id: "note-1",
-        text: "The compactor verified this note.",
-        addedTurn: 9,
-        author: "context_gateway",
-        source: "context_gateway",
-        verified: true,
-      },
-    ];
-    invokeMock.mockResolvedValue({
-      items: [enriched],
-      removed: true,
-    });
-
-    const result = await applyTodoContextEnrichment("tab-5", {
-      turn: 20,
-      updates: [
-        {
-          todoId: "todo-5",
-          verifyThingsLearnedNoteIds: ["note-agent"],
-          appendThingsLearned: ["The compactor verified this note."],
-        },
-      ],
-    });
-
-    expect(invokeMock).toHaveBeenCalledWith("todo_store_context_enrich", {
-      sessionId: "tab-5",
-      input: {
-        turn: 20,
-        updates: [
-          {
-            todoId: "todo-5",
-            verifyThingsLearnedNoteIds: ["note-agent"],
-            appendThingsLearned: ["The compactor verified this note."],
-          },
-        ],
-      },
-    });
-    expect(patchAgentStateMock).toHaveBeenCalledWith("tab-5", {
-      todos: [enriched],
-    });
-    expect(result).toEqual({ ok: true, data: { items: [enriched] } });
-  });
 });

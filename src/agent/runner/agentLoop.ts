@@ -6,10 +6,6 @@ import {
   shutdownMcpRun,
 } from "../mcp";
 import { getModelCatalogEntry } from "../modelCatalog";
-import {
-  persistedContextGatewayConfigProvider,
-  persistedToolGatewayConfigProvider,
-} from "../gatewayPolicySettings";
 import { requestApproval, consumeApprovalReason, requestUserInput } from "../approvals";
 import { getSubagent } from "../subagents";
 import { TOOL_DEFINITIONS } from "../tools";
@@ -30,6 +26,7 @@ import {
   buildPendingToolDisplay,
   executeLocalTool,
 } from "./executeLocalTool";
+import { executeToolCall } from "./executeToolCall";
 import {
   createToolLogContext,
   logStreamDebug,
@@ -52,8 +49,6 @@ import {
   RunAbortedError,
   serializeToolResultForModel,
 } from "./utils";
-import { executeThroughToolGateway } from "./toolGateway";
-import { executeThroughContextGateway } from "./contextGateway";
 
 function buildToolCallDisplay(
   toolCallId: string,
@@ -171,45 +166,13 @@ export async function agentLoop(
         apiMessageCount: currentApiMessages.length,
         modelId,
       });
-      const stateBeforeTurn = getAgentState(tabId);
-      const activeTodo = stateBeforeTurn.todos.find((todo) => todo.state === "doing");
-      const contextGateway = await executeThroughContextGateway({
-        messages: currentApiMessages,
-        plan: stateBeforeTurn.plan,
-        todos: stateBeforeTurn.todos,
-        providers,
-        advancedOptions: advancedOpts,
-        debugEnabled: stateBeforeTurn.showDebug ?? false,
-        logContext: turnContext,
-        stateSnapshot: {
-          tabId,
-          runId,
-          agentId: "agent_main",
-          modelId,
-          currentTurn,
-          messageCount: currentApiMessages.length,
-          ...(stateBeforeTurn.config.contextLength
-            ? { contextLength: stateBeforeTurn.config.contextLength }
-            : {}),
-          ...(activeTodo ? { activeTodoId: activeTodo.id } : {}),
-        },
-        configProvider: persistedContextGatewayConfigProvider,
-      });
-      if (contextGateway.replacementApiMessages) {
-        patchAgentState(tabId, {
-          apiMessages: contextGateway.replacementApiMessages,
-        });
-      }
-      if (contextGateway.debugChatMessage) {
-        appendChatMessage(tabId, contextGateway.debugChatMessage);
-      }
 
       const streamed = await streamTurn({
         tabId,
         signal,
         modelId,
         model: languageModel,
-        messages: contextGateway.messages,
+        messages: currentApiMessages,
         tools: toolDefinitions,
         debugEnabled,
         logContext: turnContext,
@@ -316,23 +279,11 @@ export async function agentLoop(
           const artifactizeReturnedFiles =
             jotaiStore.get(mcpSettingsAtom)?.artifactizeReturnedFiles === true;
 
-          const result = await executeThroughToolGateway({
-            tabId,
-            runId,
-            agentId: "agent_main",
-            toolCallId: tcId,
+          const result = await executeToolCall({
             toolName: tc.function.name,
             rawArgs,
-            currentModelId: modelId,
-            contextLength: getAgentState(tabId).config.contextLength,
-            apiMessages: currentApiMessages,
-            providers,
-            providerOptions,
-            advancedOptions: advancedOpts,
             logContext: toolLog.context,
             updateToolCallById,
-            recordLlmUsage: (input) => recordLlmUsage(tabId, input),
-            configProvider: persistedToolGatewayConfigProvider,
             mcpTool,
             syntheticExecutors: {
               agent_subagent_call: async (args) => {
@@ -543,7 +494,7 @@ export async function agentLoop(
                 currentTurn,
                 toolCallId: tcId,
                 toolName: tc.function.name,
-                preArgs: args,
+                preArgs: rawArgs,
                 args,
                 logContext: toolLog.context,
                 updateToolCallById,

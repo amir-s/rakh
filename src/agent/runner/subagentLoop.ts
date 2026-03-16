@@ -32,10 +32,6 @@ import {
 } from "../tools/artifacts";
 import { buildConversationCard, type CardAddInput } from "../tools/agentControl";
 import type { ProviderInstance } from "../db";
-import {
-  persistedContextGatewayConfigProvider,
-  persistedToolGatewayConfigProvider,
-} from "../gatewayPolicySettings";
 import type { LogContext } from "@/logging/types";
 
 import {
@@ -45,6 +41,7 @@ import {
   buildPendingToolDisplay,
   executeLocalTool,
 } from "./executeLocalTool";
+import { executeToolCall } from "./executeToolCall";
 import {
   createToolLogContext,
   nextLogId,
@@ -69,8 +66,6 @@ import {
   RunAbortedError,
   serializeToolResultForModel,
 } from "./utils";
-import { executeThroughToolGateway } from "./toolGateway";
-import { executeThroughContextGateway } from "./contextGateway";
 
 type ToolFailureResult = Extract<ToolResult<unknown>, { ok: false }>;
 
@@ -585,44 +580,12 @@ export async function runSubagentLoop(
     if (signal.aborted) break;
     turns++;
 
-    const stateBeforeTurn = getAgentState(tabId);
-    const activeTodo = stateBeforeTurn.todos.find((todo) => todo.state === "doing");
-    const contextGateway = await executeThroughContextGateway({
-      messages: localApiMessages,
-      plan: stateBeforeTurn.plan,
-      todos: stateBeforeTurn.todos,
-      providers,
-      advancedOptions: stateBeforeTurn.config.advancedOptions,
-      debugEnabled: stateBeforeTurn.showDebug ?? false,
-      logContext: subagentContext,
-      stateSnapshot: {
-        tabId,
-        runId,
-        agentId: `agent_${subagentDef.id}`,
-        modelId,
-        currentTurn,
-        messageCount: localApiMessages.length,
-        ...(stateBeforeTurn.config.contextLength
-          ? { contextLength: stateBeforeTurn.config.contextLength }
-          : {}),
-        ...(activeTodo ? { activeTodoId: activeTodo.id } : {}),
-      },
-      configProvider: persistedContextGatewayConfigProvider,
-    });
-    if (contextGateway.replacementApiMessages) {
-      localApiMessages.splice(
-        0,
-        localApiMessages.length,
-        ...contextGateway.replacementApiMessages,
-      );
-    }
-
     const streamed = await streamTurn({
       tabId,
       signal,
       modelId,
       model: languageModel,
-      messages: contextGateway.messages,
+      messages: localApiMessages,
       tools: toolDefs,
       debugEnabled,
       logContext: subagentContext,
@@ -703,22 +666,11 @@ export async function runSubagentLoop(
         }
 
         const rawArgs = parseArgs(tc.function.arguments);
-        const toolResult = await executeThroughToolGateway({
-          tabId,
-          runId,
-          agentId: `agent_${subagentDef.id}`,
-          toolCallId: tcId,
+        const toolResult = await executeToolCall({
           toolName: tc.function.name,
           rawArgs,
-          currentModelId: modelId,
-          contextLength: getAgentState(tabId).config.contextLength,
-          apiMessages: localApiMessages,
-          providers,
           logContext: toolLog.context,
           updateToolCallById,
-          recordLlmUsage: (input) => recordLlmUsage(tabId, input),
-          advancedOptions: getAgentState(tabId).config.advancedOptions,
-          configProvider: persistedToolGatewayConfigProvider,
           syntheticExecutors: {
             user_input: async () => {
               updateToolCallById({ status: "awaiting_approval" });
@@ -778,7 +730,7 @@ export async function runSubagentLoop(
               currentTurn,
               toolCallId: tcId,
               toolName: tc.function.name,
-              preArgs: args,
+              preArgs: rawArgs,
               args: preparedArtifactCall.data.args,
               logContext: toolLog.context,
               updateToolCallById,

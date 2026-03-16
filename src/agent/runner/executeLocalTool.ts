@@ -27,12 +27,11 @@ import { serializeDiff } from "@/components/diffSerialization";
 import type { LogContext } from "@/logging/types";
 
 import { parseArgs } from "./utils";
+import type { ToolExecutorResult } from "./executeToolCall";
 import {
   ensureManagedWorktreeLease,
   isManagedWorktreeWriteTool,
 } from "./worktreeLease";
-import { stripToolGatewayInputFields } from "../toolGateway";
-import type { ToolGatewayExecutorResult } from "./toolGateway";
 import { recordTodoMutation, resolveTodoOwner } from "../tools/todos";
 
 function shouldStreamToolOutput(toolName: string): boolean {
@@ -56,7 +55,7 @@ interface ExecuteLocalToolOptions {
 
 export async function executeLocalTool(
   opts: ExecuteLocalToolOptions,
-): Promise<ToolGatewayExecutorResult> {
+): Promise<ToolExecutorResult> {
   const {
     tabId,
     runId,
@@ -247,11 +246,10 @@ export function buildPendingToolDisplay(
   rawArgs: unknown,
 ): ToolCallDisplay {
   const parsedArgs = parseArgs(rawArgs);
-  const { strippedArgs } = stripToolGatewayInputFields(parsedArgs);
   return {
     id: toolCallId,
     tool: toolName,
-    args: strippedArgs,
+    args: parsedArgs,
     status: "pending",
   };
 }

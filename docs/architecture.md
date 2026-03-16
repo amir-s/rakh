@@ -4,7 +4,6 @@
 
 - [`docs/architecture.md`](./architecture.md): system overview, runtime flow, and code map
 - [`docs/artifacts.md`](./artifacts.md): durable artifact model and validation flow
-- [`docs/context-gateway.md`](./context-gateway.md): pre-turn context policies, todo normalization, and API compaction
 - [`docs/logging.md`](./logging.md): structured log schema, storage, and query/export APIs
 - [`docs/subagents.md`](./subagents.md): subagent registry, contracts, and execution model
 
@@ -18,7 +17,7 @@ The agent runtime uses the Vercel AI SDK for streaming model output, tool
 calling, subagent delegation, MCP-backed dynamic tool registration, and
 approval-driven execution against the local workspace. Session/artifact
 persistence stays in SQLite, while session todos now live in a separate
-JSON-backed store so ContextGateway can treat them as durable working memory.
+JSON-backed store.
 
 ```mermaid
 graph TB
@@ -96,8 +95,7 @@ components subscribe with fine-grained derived atoms from `useAgents.ts`.
 `chatMessages` and `apiMessages` intentionally diverge:
 
 - `chatMessages` remain the durable user-visible transcript
-- `apiMessages` are runtime working memory and may be compacted or replaced by
-  ContextGateway policies without rewriting the visible conversation
+- `apiMessages` are runtime working memory used for the next model call
 
 ## Agent runtime
 
@@ -188,95 +186,9 @@ Review data is captured in two places:
 - `AgentState.reviewEdits`: per-file original-to-current diffs shown in the
   review pane
 
-### ToolGateway and output compaction
-
-All agent-visible tool calls now flow through one gateway entrypoint in
-[`src/agent/runner/toolGateway.ts`](../src/agent/runner/toolGateway.ts).
-That includes:
-
-- local built-in tools
-- MCP-backed tools after MCP-specific normalization
-- synthetic runner-owned tools such as subagent delegation and user input
-
-The gateway receives a per-call state snapshot with:
-
-- `tabId`, `runId`, `agentId`, and `toolCallId`
-- tool source kind (`local`, `mcp`, or `synthetic`)
-- execution origin (`agent` or `gateway`)
-- optional `intention` stripped from tool arguments before execution
-- estimated context pressure derived from current API messages
-
-Current V1 policies are post-execution only:
-
-- `huge-output`: replace oversized successful results with a temporary tool
-  artifact reference
-- `summary`: optionally summarize an artifactized tool result with an internal
-  model when the originating tool call included an `intention`
-
-Policy config is injected via `ToolGatewayConfigProvider`, but the current
-bootstrap defaults are still hard-coded beside gateway creation. This keeps the
-policy internals stable so future Settings-backed config only needs to replace
-the provider, not the policy implementations.
-
-Current default thresholds:
-
-- base threshold: `64 KiB`
-- `32 KiB` when estimated context usage is at least `75%`
-- `16 KiB` when estimated context usage is at least `90%`
-
-If the selected model does not have a known `contextLength`, the gateway cannot
-compute context usage percentage and falls back to the base threshold.
-
-The summary policy reuses the parent model by default. It can be switched to a
-dedicated override model through injected config, but that is not wired to user
-settings yet.
-
-#### Design choices
-
-- Artifactize instead of truncating: large tool output is preserved in full and
-  moved out of model context rather than being clipped inline.
-- Summarize only after artifactization: the raw output stays available for
-  follow-up inspection through tool-artifact helpers.
-- Require explicit intention for summaries: the internal summarizer only runs
-  when the parent agent tells the gateway what matters.
-- Restrict internal summary tools: the silent summarizer can only use
-  `agent_tool_artifact_get` and `agent_tool_artifact_search`, which limits
-  accidental side effects.
-- Keep compaction UI local to the tool row: when summary generation is in
-  flight, the affected tool call shows its own spinner and hover hint instead
-  of changing the entire tab status.
-
-### ContextGateway, todo normalization, and API compaction
-
-ContextGateway is the pre-turn boundary that decides what API message history
-the next model call should see. The entrypoints are:
-
-- [`src/agent/contextGateway.ts`](../src/agent/contextGateway.ts)
-- [`src/agent/runner/contextGateway.ts`](../src/agent/runner/contextGateway.ts)
-
-Current behavior:
-
-- every main-agent and subagent turn passes through the gateway before
-  `streamTurn()`
-- the v1 policy foundation introduced JSON-backed todos with tracked mutation
-  history
-- the v2 `todoNormalization` policy triggers only for the main agent when
-  estimated context usage crosses the configured threshold
-- on success, the gateway enriches todo notes, preserves the leading system
-  prompt, replaces only `apiMessages`, and leaves `chatMessages` untouched
-
 Todo state is now persisted outside the session DB in
 `~/.rakh/sessions/todos/<sessionId>.json` (or `~/.rakh-dev/...` in debug
 builds).
-
-Todo normalization is intentionally constrained. The policy may:
-
-- append `thingsLearned` or `criticalInfo` notes
-- mark notes verified
-- remove exact or near-exact duplicate notes
-
-It may not rewrite todo identity or lifecycle fields. Full policy details live
-in [`docs/context-gateway.md`](./context-gateway.md).
 
 ### Subagents and artifacts
 
@@ -310,7 +222,7 @@ Current backend modules:
   lifecycle used by the xterm.js terminal
 - [`src-tauri/src/git.rs`](../src-tauri/src/git.rs): worktree creation command
 - [`src-tauri/src/todos.rs`](../src-tauri/src/todos.rs): JSON-backed todo
-  store, tracked mutation history, and ContextGateway enrichment helpers
+  store and tracked mutation history
 - [`src-tauri/src/logging.rs`](../src-tauri/src/logging.rs): JSONL log store,
   rotation, query/export/clear commands, and `log_entry` event emission
 - [`src-tauri/src/mcp.rs`](../src-tauri/src/mcp.rs): global MCP config
@@ -376,7 +288,7 @@ Top-level folders worth knowing:
 - `src/agent/`: runner, atoms, persistence, providers, models, tools, subagents
 - `src/styles/`: tokens, themes, layout, and component styles
 - `src-tauri/src/`: Rust commands and platform integration
-- `docs/`: architecture, artifact, context-gateway, logging, and subagent documentation
+- `docs/`: architecture, artifact, logging, and subagent documentation
 
 ## Testing map
 

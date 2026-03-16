@@ -23,10 +23,6 @@ import {
   mcpServersAtom,
   mcpSettingsAtom,
 } from "@/agent/mcp";
-import {
-  gatewayPolicySettingsAtom,
-  loadGatewayPolicySettings,
-} from "@/agent/gatewayPolicySettings";
 import { hydratePersistedSession } from "@/agent/sessionRestore";
 import WorkspacePage from "@/WorkspacePage";
 import SettingsPage from "@/components/settings/SettingsPage";
@@ -224,7 +220,6 @@ export default function App() {
       loadProfiles(),
       loadMcpServers(),
       loadMcpSettings(),
-      loadGatewayPolicySettings(),
       loadCommandList(),
       loadSavedProjects(),
     ]).then(
@@ -234,7 +229,6 @@ export default function App() {
         profiles,
         mcpServers,
         mcpSettings,
-        gatewayPolicySettings,
         commandList,
         _savedProjects,
       ]) => {
@@ -260,7 +254,6 @@ export default function App() {
         }
         jotaiStore.set(mcpServersAtom, mcpServers);
         jotaiStore.set(mcpSettingsAtom, mcpSettings);
-        jotaiStore.set(gatewayPolicySettingsAtom, gatewayPolicySettings);
         jotaiStore.set(commandListAtom, commandList);
 
         // Hydrate Jotai atoms before first render of agent components
