@@ -12,12 +12,15 @@ interface UserMessageProps {
   name?: string;
   children: ReactNode;
   images?: AttachedImage[];
+  /** Optional header actions rendered on the top-right of the bubble */
+  actions?: ReactNode;
 }
 
 export default function UserMessage({
   name = "YOU",
   children,
   images,
+  actions,
 }: UserMessageProps) {
   const [previewImage, setPreviewImage] = useState<AttachedImage | null>(null);
 
@@ -25,6 +28,11 @@ export default function UserMessage({
     <div className="msg animate-fade-up">
       <div className="msg-header">
         <span className="msg-role msg-role--user">{name}</span>
+        {actions ? (
+          <div className="msg-header-actions">
+            <div className="msg-bubble-actions">{actions}</div>
+          </div>
+        ) : null}
       </div>
       <div className="msg-body">
         {images && images.length > 0 && (

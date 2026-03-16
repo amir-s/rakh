@@ -104,6 +104,23 @@ export async function loadSessionTodos(sessionId: string): Promise<TodoItem[]> {
   }
 }
 
+export async function replaceSessionTodos(
+  sessionId: string,
+  items: TodoItem[],
+): Promise<TodoItem[]> {
+  if (!sessionId.trim() || !isTauriRuntime()) return items;
+  try {
+    const nextItems = await invoke<TodoItem[]>("todo_store_replace", {
+      sessionId,
+      items,
+    });
+    syncTodos(sessionId, nextItems);
+    return nextItems;
+  } catch {
+    return items;
+  }
+}
+
 export async function getSessionTodoPath(sessionId: string): Promise<string | null> {
   if (!sessionId.trim() || !isTauriRuntime()) return null;
   try {

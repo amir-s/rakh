@@ -22,6 +22,7 @@ import {
   artifactGet,
   artifactList,
   artifactVersion,
+  cloneSessionArtifacts,
   listenForArtifactChanges,
 } from "./artifacts";
 
@@ -248,6 +249,18 @@ describe("artifact tools", () => {
       ok: true,
       data: { artifact: { version: 2 } },
     });
+  });
+
+  it("clones artifact manifests between sessions", async () => {
+    invokeMock.mockResolvedValueOnce(3);
+
+    const res = await cloneSessionArtifacts("tab-1", "tab-2");
+
+    expect(invokeMock).toHaveBeenCalledWith("db_artifact_clone_session", {
+      sourceSessionId: "tab-1",
+      targetSessionId: "tab-2",
+    });
+    expect(res).toEqual({ ok: true, data: { copiedCount: 3 } });
   });
 
   it("preserves prior framework metadata when versioning without content", async () => {

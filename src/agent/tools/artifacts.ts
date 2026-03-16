@@ -106,6 +106,10 @@ export interface ArtifactListInput {
   limit?: number;
 }
 
+export interface ArtifactCloneResult {
+  copiedCount: number;
+}
+
 const MAX_ARTIFACT_CONTENT_BYTES = 1_000_000;
 
 type ToolFailure = {
@@ -428,6 +432,37 @@ export async function artifactList(
       ...(logContext ? { logContext } : {}),
     });
     return { ok: true, data: { artifacts } };
+  } catch (err) {
+    const parsed = parseInvokeError(err);
+    return { ok: false, error: parsed };
+  }
+}
+
+export async function cloneSessionArtifacts(
+  sourceSessionId: string,
+  targetSessionId: string,
+  logContext?: LogContext,
+): Promise<ToolResult<ArtifactCloneResult>> {
+  if (!sourceSessionId.trim() || !targetSessionId.trim()) {
+    return makeError(
+      "INVALID_ARGUMENT",
+      "sourceSessionId and targetSessionId must not be empty",
+    );
+  }
+  if (sourceSessionId === targetSessionId) {
+    return makeError(
+      "INVALID_ARGUMENT",
+      "sourceSessionId and targetSessionId must differ",
+    );
+  }
+
+  try {
+    const copiedCount = await invoke<number>("db_artifact_clone_session", {
+      sourceSessionId,
+      targetSessionId,
+      ...(logContext ? { logContext } : {}),
+    });
+    return { ok: true, data: { copiedCount } };
   } catch (err) {
     const parsed = parseInvokeError(err);
     return { ok: false, error: parsed };

@@ -31,6 +31,8 @@ interface AgentMessageProps {
   collapsible?: boolean;
   /** Initial collapsed state when collapsible=true (default: false) */
   defaultCollapsed?: boolean;
+  /** Optional header actions rendered on the top-right of the bubble */
+  actions?: ReactNode;
   children: ReactNode;
 }
 
@@ -44,6 +46,7 @@ export default function AgentMessage({
   animated = true,
   collapsible = false,
   defaultCollapsed = false,
+  actions,
   children,
 }: AgentMessageProps) {
   const [collapsed, setCollapsed] = useState(collapsible && defaultCollapsed);
@@ -96,25 +99,30 @@ export default function AgentMessage({
         </span>
         {time && <span className="msg-time">{time}</span>}
         {badge && !collapsed && <span className="msg-badge">{badge}</span>}
-        {collapsible && (
-          <button
-            type="button"
-            className="ml-auto flex items-center gap-1 opacity-40 hover:opacity-80 transition-opacity cursor-pointer"
-            onClick={() => setCollapsed((v) => !v)}
-            aria-expanded={!collapsed}
-          >
-            {collapsed && streaming && (
-              <span className="inline-block w-1.5 h-1.5 rounded-full bg-current animate-pulse" />
+        {(actions || collapsible) && (
+          <div className="msg-header-actions">
+            {actions ? <div className="msg-bubble-actions">{actions}</div> : null}
+            {collapsible && (
+              <button
+                type="button"
+                className="msg-collapse-toggle"
+                onClick={() => setCollapsed((v) => !v)}
+                aria-expanded={!collapsed}
+              >
+                {collapsed && streaming && (
+                  <span className="inline-block w-1.5 h-1.5 rounded-full bg-current animate-pulse" />
+                )}
+                <span
+                  className={cn(
+                    "material-symbols-outlined msg-reasoning-chevron",
+                    !collapsed && "msg-reasoning-chevron--open",
+                  )}
+                >
+                  expand_more
+                </span>
+              </button>
             )}
-            <span
-              className={cn(
-                "material-symbols-outlined msg-reasoning-chevron",
-                !collapsed && "msg-reasoning-chevron--open",
-              )}
-            >
-              expand_more
-            </span>
-          </button>
+          </div>
         )}
       </div>
       <div
