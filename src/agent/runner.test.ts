@@ -59,7 +59,6 @@ const {
   providersAtomMock,
   mcpServersAtomMock,
   mcpSettingsAtomMock,
-  gatewayPolicySettingsAtomMock,
   globalCommunicationProfileAtomMock,
   profilesAtomMock,
   jotaiStoreMock,
@@ -72,7 +71,6 @@ const {
   consumeApprovalReasonMock,
   turns,
   streamTextMock,
-  generateObjectMock,
   createOpenAIMock,
   createAnthropicMock,
   createOpenAICompatibleMock,
@@ -82,20 +80,13 @@ const {
   callMcpToolMock,
   shutdownMcpRunMock,
   artifactCreateMock,
-  toolArtifactCreateMock,
-  toolArtifactGetMock,
-  toolArtifactSearchMock,
   switchToGitBranchMock,
   logFrontendSoonMock,
-  applyTodoContextEnrichmentMock,
-  defaultToolGatewayConfig,
-  defaultContextGatewayConfig,
 } = vi.hoisted(() => ({
   states: {} as Record<string, MockAgentState>,
   providersAtomMock: { kind: "providers-atom" },
   mcpServersAtomMock: { kind: "mcp-servers-atom" },
   mcpSettingsAtomMock: { kind: "mcp-settings-atom" },
-  gatewayPolicySettingsAtomMock: { kind: "gateway-policy-settings-atom" },
   globalCommunicationProfileAtomMock: { kind: "global-communication-profile-atom" },
   profilesAtomMock: { kind: "profiles-atom" },
   jotaiStoreMock: {
@@ -110,7 +101,6 @@ const {
   consumeApprovalReasonMock: vi.fn(),
   turns: [] as MockTurn[],
   streamTextMock: vi.fn(),
-  generateObjectMock: vi.fn(),
   createOpenAIMock: vi.fn(),
   createAnthropicMock: vi.fn(),
   execAbortMock: vi.fn(),
@@ -121,40 +111,7 @@ const {
   callMcpToolMock: vi.fn(),
   shutdownMcpRunMock: vi.fn(),
   artifactCreateMock: vi.fn(),
-  toolArtifactCreateMock: vi.fn(),
-  toolArtifactGetMock: vi.fn(),
-  toolArtifactSearchMock: vi.fn(),
   logFrontendSoonMock: vi.fn(),
-  applyTodoContextEnrichmentMock: vi.fn(),
-  defaultToolGatewayConfig: {
-    hugeOutput: {
-      enabled: true,
-      defaultThresholdBytes: 64 * 1024,
-      thresholdBands: [
-        { minContextUsagePct: 90, maxBytes: 16 * 1024 },
-        { minContextUsagePct: 75, maxBytes: 32 * 1024 },
-      ],
-    },
-    summary: {
-      enabled: true,
-      modelStrategy: "parent",
-      maxSummaryChars: 320,
-      maxSteps: 5,
-      toolArtifactGetMaxBytes: 12_000,
-      toolArtifactSearchMaxMatches: 8,
-      toolArtifactSearchContextLines: 1,
-    },
-  },
-  defaultContextGatewayConfig: {
-    enabled: true,
-    todoNormalization: {
-      enabled: true,
-      triggerMinContextUsagePct: 75,
-      replaceApiMessagesAfterCompaction: true,
-      modelStrategy: "override",
-      overrideModelId: "openai/gpt-5.2-codex",
-    },
-  },
 }));
 
 vi.mock("./atoms", () => ({
@@ -175,16 +132,6 @@ vi.mock("./db", () => ({
   providersAtom: providersAtomMock,
   profilesAtom: profilesAtomMock,
   commandListAtom: { kind: "command-list-atom" },
-}));
-
-vi.mock("./gatewayPolicySettings", () => ({
-  gatewayPolicySettingsAtom: gatewayPolicySettingsAtomMock,
-  persistedToolGatewayConfigProvider: {
-    getConfig: () => defaultToolGatewayConfig,
-  },
-  persistedContextGatewayConfigProvider: {
-    getConfig: () => defaultContextGatewayConfig,
-  },
 }));
 
 vi.mock("@ai-sdk/openai-compatible", () => ({
@@ -222,7 +169,6 @@ vi.mock("./tools/git", () => ({
 
 vi.mock("ai", () => ({
   streamText: (...args: unknown[]) => streamTextMock(...args),
-  generateObject: (...args: unknown[]) => generateObjectMock(...args),
   stepCountIs: (count: number) => count,
   tool: (input: unknown) => input,
 }));
@@ -331,23 +277,6 @@ vi.mock("./tools/artifacts", async () => {
   return {
     ...actual,
     artifactCreate: (...args: unknown[]) => artifactCreateMock(...args),
-  };
-});
-
-vi.mock("./tools/toolArtifacts", () => ({
-  createToolArtifact: (...args: unknown[]) => toolArtifactCreateMock(...args),
-  getToolArtifact: (...args: unknown[]) => toolArtifactGetMock(...args),
-  searchToolArtifact: (...args: unknown[]) => toolArtifactSearchMock(...args),
-}));
-
-vi.mock("./tools/todos", async () => {
-  const actual = await vi.importActual<typeof import("./tools/todos")>(
-    "./tools/todos",
-  );
-  return {
-    ...actual,
-    applyTodoContextEnrichment: (...args: unknown[]) =>
-      applyTodoContextEnrichmentMock(...args),
   };
 });
 
@@ -501,7 +430,6 @@ describe("runner", () => {
     cancelAllApprovalsMock.mockReset();
     consumeApprovalReasonMock.mockReset();
     streamTextMock.mockReset();
-    generateObjectMock.mockReset();
     createOpenAIMock.mockReset();
     createAnthropicMock.mockReset();
     execAbortMock.mockReset();
@@ -510,12 +438,8 @@ describe("runner", () => {
     callMcpToolMock.mockReset();
     shutdownMcpRunMock.mockReset();
     artifactCreateMock.mockReset();
-    toolArtifactCreateMock.mockReset();
-    toolArtifactGetMock.mockReset();
-    toolArtifactSearchMock.mockReset();
     switchToGitBranchMock.mockReset();
     logFrontendSoonMock.mockReset();
-    applyTodoContextEnrichmentMock.mockReset();
     jotaiStoreMock.get.mockReset();
 
     jotaiStoreMock.get.mockImplementation((atom: unknown) => {
@@ -578,47 +502,6 @@ describe("runner", () => {
     artifactCreateMock.mockResolvedValue({
       ok: true,
       data: { artifact: makeArtifact() },
-    });
-    toolArtifactCreateMock.mockResolvedValue({
-      ok: true,
-      data: {
-        artifactId: "toolart_1",
-        createdAtMs: 123,
-        sizeBytes: 0,
-        originalFormat: "json",
-        lineCount: 0,
-      },
-    });
-    toolArtifactGetMock.mockResolvedValue({
-      ok: true,
-      data: {
-        artifactId: "toolart_1",
-        originalFormat: "json",
-        content: "{}",
-        sizeBytes: 2,
-        truncated: false,
-        createdAtMs: 123,
-      },
-    });
-    toolArtifactSearchMock.mockResolvedValue({
-      ok: true,
-      data: {
-        artifactId: "toolart_1",
-        matches: [],
-        truncated: false,
-        matchCount: 0,
-        lineCount: 0,
-      },
-    });
-    generateObjectMock.mockResolvedValue({
-      object: {
-        summary: "Compacted context summary.",
-        todoUpdates: [],
-      },
-    });
-    applyTodoContextEnrichmentMock.mockResolvedValue({
-      ok: true,
-      data: { items: [] },
     });
 
     streamTextMock.mockImplementation(() => {
@@ -786,273 +669,6 @@ describe("runner", () => {
       },
     ]);
     expect(dispatchToolMock).not.toHaveBeenCalled();
-  });
-
-  it("replaces apiMessages with compacted context while leaving chat history intact", async () => {
-    const tabId = "tab-context-compaction";
-    setState(tabId, {
-      config: { cwd: "/workspace/app", model: "openai/gpt-5.2", contextLength: 100 },
-      chatMessages: [
-        { id: "chat-1", role: "user", content: "Earlier question", timestamp: 1 },
-        { id: "chat-2", role: "assistant", content: "Earlier answer", timestamp: 2 },
-      ],
-      apiMessages: [
-        { role: "system", content: "system prompt" },
-        { role: "user", content: "A".repeat(320) },
-        { role: "assistant", content: "B".repeat(320) },
-      ],
-      plan: {
-        markdown: "1. Compact the API history\n2. Continue implementation",
-        updatedAtMs: 10,
-        version: 1,
-      },
-      todos: [
-        {
-          id: "todo-ctx",
-          title: "Finish compaction",
-          state: "doing",
-          owner: "main",
-          createdTurn: 1,
-          updatedTurn: 1,
-          lastTouchedTurn: 1,
-          filesTouched: ["src/agent/runner/contextGateway.ts"],
-          thingsLearned: [
-            {
-              id: "note-agent",
-              text: "Preserve the leading system prompt.",
-              addedTurn: 1,
-              author: "main",
-              source: "agent",
-              verified: false,
-            },
-          ],
-          criticalInfo: [],
-          mutationLog: [],
-        },
-      ],
-    });
-    generateObjectMock.mockResolvedValue({
-      object: {
-        summary: "Use the compacted context and continue implementing the gateway.",
-        todoUpdates: [
-          {
-            todoId: "todo-ctx",
-            verifyThingsLearnedNoteIds: ["note-agent"],
-            verifyCriticalInfoNoteIds: [],
-            appendThingsLearned: [
-              "Compaction replaces apiMessages without touching chatMessages.",
-            ],
-            appendCriticalInfo: [],
-            removeDuplicateThingsLearnedNoteIds: [],
-            removeDuplicateCriticalInfoNoteIds: [],
-          },
-        ],
-      },
-    });
-    applyTodoContextEnrichmentMock.mockResolvedValue({
-      ok: true,
-      data: {
-        items: [
-          {
-            id: "todo-ctx",
-            title: "Finish compaction",
-            state: "doing",
-            owner: "main",
-            createdTurn: 1,
-            updatedTurn: 1,
-            lastTouchedTurn: 4,
-            filesTouched: ["src/agent/runner/contextGateway.ts"],
-            thingsLearned: [
-              {
-                id: "note-agent",
-                text: "Preserve the leading system prompt.",
-                addedTurn: 1,
-                author: "main",
-                source: "agent",
-                verified: true,
-              },
-              {
-                id: "note-cg",
-                text: "Compaction replaces apiMessages without touching chatMessages.",
-                addedTurn: 4,
-                author: "context_gateway",
-                source: "context_gateway",
-                verified: true,
-              },
-            ],
-            criticalInfo: [],
-            mutationLog: [],
-          },
-        ],
-      },
-    });
-    turns.push({ deltas: ["After compaction"], toolCalls: [] });
-
-    await runAgent(tabId, "Continue from the compacted context.");
-
-    const state = states[tabId];
-    expect(state.chatMessages).toHaveLength(4);
-    expect(state.chatMessages[0]).toMatchObject({ content: "Earlier question" });
-    expect(state.chatMessages[1]).toMatchObject({ content: "Earlier answer" });
-    expect(state.chatMessages[2]).toMatchObject({
-      role: "user",
-      content: "Continue from the compacted context.",
-    });
-    expect(state.chatMessages[3]).toMatchObject({
-      role: "assistant",
-      content: "After compaction",
-    });
-    expect(state.apiMessages).toHaveLength(4);
-    expect(state.apiMessages[0]).toMatchObject({ role: "system", content: "system prompt" });
-    expect(String(state.apiMessages[1]?.content)).toContain("COMPACTED SESSION CONTEXT");
-    expect(String(state.apiMessages[1]?.content)).toContain(
-      "Compaction replaces apiMessages without touching chatMessages.",
-    );
-    expect(state.apiMessages[2]).toMatchObject({
-      role: "user",
-      content: "Continue from the compacted context.",
-    });
-    expect(state.apiMessages[3]).toMatchObject({
-      role: "assistant",
-      content: "After compaction",
-    });
-  });
-
-  it("adds a debug summary card with before/after context when compaction runs in debug mode", async () => {
-    const tabId = "tab-context-compaction-debug";
-    setState(tabId, {
-      config: { cwd: "/workspace/app", model: "openai/gpt-5.2", contextLength: 100 },
-      showDebug: true,
-      chatMessages: [
-        { id: "chat-1", role: "user", content: "Earlier question", timestamp: 1 },
-        { id: "chat-2", role: "assistant", content: "Earlier answer", timestamp: 2 },
-      ],
-      apiMessages: [
-        { role: "system", content: "system prompt" },
-        { role: "user", content: "A".repeat(320) },
-        { role: "assistant", content: "B".repeat(320) },
-      ],
-      plan: {
-        markdown: "1. Compact the API history\n2. Continue implementation",
-        updatedAtMs: 10,
-        version: 1,
-      },
-      todos: [
-        {
-          id: "todo-ctx",
-          title: "Finish compaction",
-          state: "doing",
-          owner: "main",
-          createdTurn: 1,
-          updatedTurn: 1,
-          lastTouchedTurn: 1,
-          filesTouched: ["src/agent/runner/contextGateway.ts"],
-          thingsLearned: [
-            {
-              id: "note-agent",
-              text: "Preserve the leading system prompt.",
-              addedTurn: 1,
-              author: "main",
-              source: "agent",
-              verified: false,
-            },
-          ],
-          criticalInfo: [],
-          mutationLog: [],
-        },
-      ],
-    });
-    generateObjectMock.mockResolvedValue({
-      object: {
-        summary: "Use the compacted context and continue implementing the gateway.",
-        todoUpdates: [
-          {
-            todoId: "todo-ctx",
-            verifyThingsLearnedNoteIds: ["note-agent"],
-            verifyCriticalInfoNoteIds: [],
-            appendThingsLearned: [
-              "Compaction replaces apiMessages without touching chatMessages.",
-            ],
-            appendCriticalInfo: [],
-            removeDuplicateThingsLearnedNoteIds: [],
-            removeDuplicateCriticalInfoNoteIds: [],
-          },
-        ],
-      },
-    });
-    applyTodoContextEnrichmentMock.mockResolvedValue({
-      ok: true,
-      data: {
-        items: [
-          {
-            id: "todo-ctx",
-            title: "Finish compaction",
-            state: "doing",
-            owner: "main",
-            createdTurn: 1,
-            updatedTurn: 1,
-            lastTouchedTurn: 4,
-            filesTouched: ["src/agent/runner/contextGateway.ts"],
-            thingsLearned: [
-              {
-                id: "note-agent",
-                text: "Preserve the leading system prompt.",
-                addedTurn: 1,
-                author: "main",
-                source: "agent",
-                verified: true,
-              },
-              {
-                id: "note-cg",
-                text: "Compaction replaces apiMessages without touching chatMessages.",
-                addedTurn: 4,
-                author: "context_gateway",
-                source: "context_gateway",
-                verified: true,
-              },
-            ],
-            criticalInfo: [],
-            mutationLog: [],
-          },
-        ],
-      },
-    });
-    turns.push({ deltas: ["After compaction"], toolCalls: [] });
-
-    await runAgent(tabId, "Continue from the compacted context.");
-
-    const state = states[tabId];
-    expect(state.chatMessages).toHaveLength(5);
-    expect(state.chatMessages[2]).toMatchObject({
-      role: "user",
-      content: "Continue from the compacted context.",
-    });
-    expect(state.chatMessages[3]).toMatchObject({
-      role: "assistant",
-      badge: "DEBUG",
-      content: "ContextGateway compacted the API context. Debug snapshot below.",
-    });
-    expect(state.chatMessages[3]?.cards).toMatchObject([
-      {
-        kind: "summary",
-        title: "ContextGateway Compaction",
-      },
-    ]);
-    const debugCards = state.chatMessages[3]?.cards as
-      | Array<{ kind: string; markdown?: string; title?: string }>
-      | undefined;
-    expect(Array.isArray(debugCards)).toBe(true);
-    const debugCard = debugCards?.[0];
-    if (!debugCard || debugCard.kind !== "summary") {
-      throw new Error("expected a summary debug card");
-    }
-    expect(debugCard.markdown).toContain("### Before");
-    expect(debugCard.markdown).toContain("### After");
-    expect(debugCard.markdown).toContain('"todos"');
-    expect(state.chatMessages[4]).toMatchObject({
-      role: "assistant",
-      content: "After compaction",
-    });
   });
 
   it("merges discovered MCP tools into the main run and routes them through approval", async () => {
@@ -1793,7 +1409,7 @@ describe("runner", () => {
     });
   });
 
-  it("artifactizes oversized tool results returned by local tools", async () => {
+  it("keeps oversized tool results inline for local tools", async () => {
     const tabId = "tab-huge-output";
     setState(tabId, {
       config: {
@@ -1829,16 +1445,6 @@ describe("runner", () => {
         blob: "x".repeat(70 * 1024),
       },
     });
-    toolArtifactCreateMock.mockResolvedValue({
-      ok: true,
-      data: {
-        artifactId: "toolart_large",
-        createdAtMs: 123,
-        sizeBytes: 70 * 1024,
-        originalFormat: "json",
-        lineCount: 1,
-      },
-    });
 
     await runAgent(tabId, "find failures");
 
@@ -1851,113 +1457,10 @@ describe("runner", () => {
       undefined,
       expect.any(Object),
     );
-    expect(toolArtifactCreateMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        toolCallId: "tc-huge",
-        toolName: "workspace_search",
-      }),
-      expect.any(Object),
+    const toolMessage = states[tabId].apiMessages.find(
+      (msg) => msg.role === "tool" && msg.tool_call_id === "tc-huge",
     );
-
-    expect(parseToolMessageResult(tabId, "tc-huge")).toEqual({
-      ok: true,
-      data: {
-        __rakhToolGateway: expect.objectContaining({
-          kind: "artifact-ref",
-          artifactId: "toolart_large",
-          originalTool: "workspace_search",
-          sizeBytes: 70 * 1024,
-          appliedPolicies: ["huge-output"],
-        }),
-      },
-    });
-  });
-
-  it("adds a summary to artifactized tool results using the parent model by default", async () => {
-    const tabId = "tab-huge-summary";
-    setState(tabId, {
-      config: {
-        cwd: "",
-        model: "openai/gpt-5.2",
-        contextLength: 128_000,
-      },
-    });
-
-    turns.push(
-      {
-        deltas: [],
-        toolCalls: [
-          {
-            id: "tc-summary",
-            name: "exec_run",
-            arguments: {
-              command: "npm",
-              args: ["test"],
-              intention: "Summarize only the failing suites",
-              mutationIntent: "test",
-              todoHandling: {
-                mode: "skip",
-                skipReason: "Artifact summary test does not need todo tracking",
-              },
-            },
-          },
-        ],
-      },
-      { deltas: ["Failing suites in api and auth."], toolCalls: [] },
-      { deltas: ["done"], toolCalls: [] },
-    );
-
-    dispatchToolMock.mockResolvedValue({
-      ok: true,
-      data: {
-        command: "npm",
-        args: ["test"],
-        cwd: "/repo",
-        exitCode: 1,
-        durationMs: 1000,
-        stdout: "x".repeat(80 * 1024),
-        stderr: "",
-        truncatedStdout: false,
-        truncatedStderr: false,
-      },
-    });
-    toolArtifactCreateMock.mockResolvedValue({
-      ok: true,
-      data: {
-        artifactId: "toolart_summary",
-        createdAtMs: 123,
-        sizeBytes: 80 * 1024,
-        originalFormat: "json",
-        lineCount: 1,
-      },
-    });
-
-    await runAgent(tabId, "run tests");
-
-    expect(streamTextMock).toHaveBeenCalledTimes(3);
-    const summaryCall = streamTextMock.mock.calls.find(
-      ([input]) =>
-        typeof input === "object" &&
-        input !== null &&
-        "tools" in input &&
-        typeof input.tools === "object" &&
-        input.tools !== null &&
-        "agent_tool_artifact_get" in input.tools,
-    );
-    expect(summaryCall?.[0]).toMatchObject({
-      model: { provider: "openai", modelId: "gpt-5.2" },
-    });
-    expect(parseToolMessageResult(tabId, "tc-summary")).toEqual({
-      ok: true,
-      data: {
-        __rakhToolGateway: expect.objectContaining({
-          kind: "artifact-ref",
-          artifactId: "toolart_summary",
-          appliedPolicies: ["huge-output", "summary"],
-          summary: "Failing suites in api and auth.",
-        }),
-      },
-    });
+    expect(toolMessage?.content).toBe("Found 0 match(es) in 1 file(s)");
   });
 
   it("attaches conversation cards to the owning assistant message in tool declaration order", async () => {

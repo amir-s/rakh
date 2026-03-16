@@ -7,7 +7,6 @@ SQLite-backed session/artifact persistence, and JSON-backed todo storage.
 
 - `docs/architecture.md` - system overview, runtime flow, and code map
 - `docs/artifacts.md` - durable artifact model and validation flow
-- `docs/context-gateway.md` - ContextGateway policies, todo normalization, and API compaction
 - `docs/subagents.md` - subagent registry, contracts, and execution model
 - `src/DESIGN_SYSTEM.md` - UI primitives and token rules
 - `src/THEMING.md` - theme/token implementation notes
@@ -57,14 +56,13 @@ cd src-tauri && cargo test
 ### Agent runtime
 
 - `src/agent/atoms.ts` - shared Jotai store and per-tab atom families
-- `src/agent/contextGateway.ts` - gateway config defaults and policy contracts for pre-turn context handling
 - `src/agent/mutationPolicy.ts` - tracked-mutation metadata validation and todo linkage rules
 - `src/agent/useAgents.ts` - React hooks over per-tab agent state and actions
 - `src/agent/runner.ts` - public runner facade: queue/run lifecycle,
   retry/stop helpers, and compatibility exports
 - `src/agent/runner/*` - extracted runner internals: main/subagent loops,
   shared streaming/tool execution helpers, prompts, logging, MCP/worktree
-  helpers, ContextGateway/ToolGateway policies, and leaf unit tests
+  helpers, and leaf unit tests
 - `src/agent/types.ts` - shared API/tool/state types
 - `src/agent/persistence.ts` - frontend session snapshotting and restore helpers
 - `src/agent/subagents/*` - built-in subagents and artifact contracts
@@ -78,7 +76,7 @@ cd src-tauri && cargo test
 - `src/agent/tools/artifacts.ts` - durable artifact wrappers plus artifact
   change event subscription helpers
 - `src/agent/tools/agentControl.ts` - title and agent control tools
-- `src/agent/tools/todos.ts` - JSON-backed todo store wrappers and context-enrichment helpers
+- `src/agent/tools/todos.ts` - JSON-backed todo store wrappers and mutation tracking helpers
 - `src/agent/tools/definitions.ts` - tool schemas exposed to the model
 - `src/agent/tools/index.ts` - central dispatch for non-intercepted tools
 
@@ -106,7 +104,7 @@ the backend modules:
 - `src-tauri/src/exec.rs` - non-interactive command execution plus abort/stop
 - `src-tauri/src/pty.rs` - PTY lifecycle for the integrated terminal
 - `src-tauri/src/git.rs` - worktree creation
-- `src-tauri/src/todos.rs` - JSON-backed session todo store, mutation tracking, and ContextGateway enrichment
+- `src-tauri/src/todos.rs` - JSON-backed session todo store and mutation tracking
 - `src-tauri/src/whisper.rs` - Whisper model prep and WAV transcription
 - `src-tauri/src/shell_env.rs` / `src-tauri/src/utils.rs` - shared helpers
 
@@ -120,8 +118,7 @@ state.
 `chatMessages` and `apiMessages` now serve different purposes:
 
 - `chatMessages` are the durable visible transcript shown in the workspace UI
-- `apiMessages` are the live model-facing history and may be compacted or
-  replaced by ContextGateway policies when context pressure is high
+- `apiMessages` are the live model-facing history used for the next model call
 
 Storage locations:
 

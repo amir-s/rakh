@@ -35,10 +35,6 @@ import {
   artifactList,
   type ArtifactRuntimeContext,
 } from "./artifacts";
-import {
-  getToolArtifact,
-  searchToolArtifact,
-} from "./toolArtifacts";
 import type { ToolResult } from "../types";
 import { computeDiffFile } from "../patchToDiff";
 import { serializeDiff } from "@/components/diffSerialization";
@@ -269,12 +265,6 @@ export async function dispatchTool(
 
     case "agent_artifact_list":
       return artifactList(tabId, a, runtime?.logContext);
-
-    case "agent_tool_artifact_get":
-      return getToolArtifact(a, runtime?.logContext);
-
-    case "agent_tool_artifact_search":
-      return searchToolArtifact(a, runtime?.logContext);
 
     /* ── agent.title ─────────────────────────────────────────────────────────────── */
     case "agent_title_set":

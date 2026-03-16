@@ -12,7 +12,6 @@ const appMocks = vi.hoisted(() => ({
   loadSavedProjectsMock: vi.fn(),
   loadMcpServersMock: vi.fn(),
   loadMcpSettingsMock: vi.fn(),
-  loadGatewayPolicySettingsMock: vi.fn(),
   parseLogNavigatePayloadFromSearchMock: vi.fn(),
   logsWindowAppMock: vi.fn(),
   workspacePageMock: vi.fn(),
@@ -66,12 +65,6 @@ vi.mock("@/agent/mcp", () => ({
   loadMcpSettings: (...args: unknown[]) => appMocks.loadMcpSettingsMock(...args),
   mcpServersAtom: atom([]),
   mcpSettingsAtom: atom({}),
-}));
-
-vi.mock("@/agent/gatewayPolicySettings", () => ({
-  loadGatewayPolicySettings: (...args: unknown[]) =>
-    appMocks.loadGatewayPolicySettingsMock(...args),
-  gatewayPolicySettingsAtom: atom({}),
 }));
 
 vi.mock("@/agent/sessionRestore", () => ({
@@ -153,13 +146,11 @@ describe("App", () => {
     appMocks.loadSavedProjectsMock.mockReset();
     appMocks.loadMcpServersMock.mockReset();
     appMocks.loadMcpSettingsMock.mockReset();
-    appMocks.loadGatewayPolicySettingsMock.mockReset();
     appMocks.parseLogNavigatePayloadFromSearchMock.mockReset();
     appMocks.logsWindowAppMock.mockReset();
     appMocks.workspacePageMock.mockReset();
     appMocks.topChromeMock.mockReset();
     appMocks.loadSavedProjectsMock.mockResolvedValue([]);
-    appMocks.loadGatewayPolicySettingsMock.mockResolvedValue({});
     appMocks.parseLogNavigatePayloadFromSearchMock.mockReturnValue({
       origin: "manual",
       filter: { limit: 250 },

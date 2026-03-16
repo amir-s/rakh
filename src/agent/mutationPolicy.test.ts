@@ -79,7 +79,7 @@ describe("mutationPolicy", () => {
     });
   });
 
-  it("accepts valid metadata and strips gateway-only fields before dispatch", () => {
+  it("accepts valid metadata and strips mutation-policy fields before dispatch", () => {
     const args = {
       command: "npm",
       args: ["test"],

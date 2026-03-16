@@ -2,7 +2,6 @@ import { invoke } from "@tauri-apps/api/core";
 import { jsonSchema, tool as aiTool } from "ai";
 import { atom } from "jotai";
 import type { LogContext } from "@/logging/types";
-import { TOOL_GATEWAY_INTENTION_DESCRIPTION } from "./toolGateway";
 
 type JsonObject = Record<string, unknown>;
 
@@ -200,12 +199,6 @@ function normalizeInputSchema(schema: unknown): JsonObject {
       !Array.isArray(normalized.properties)
         ? { ...(normalized.properties as JsonObject) }
         : {};
-    if (!("intention" in properties)) {
-      properties.intention = {
-        type: "string",
-        description: TOOL_GATEWAY_INTENTION_DESCRIPTION,
-      };
-    }
     return {
       ...normalized,
       type: "object",
@@ -214,12 +207,7 @@ function normalizeInputSchema(schema: unknown): JsonObject {
   }
   return {
     type: "object",
-    properties: {
-      intention: {
-        type: "string",
-        description: TOOL_GATEWAY_INTENTION_DESCRIPTION,
-      },
-    },
+    properties: {},
     additionalProperties: true,
   };
 }

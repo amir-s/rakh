@@ -1,5 +1,4 @@
 import type { ReactNode } from "react";
-import { getToolGatewayArtifactRef } from "@/agent/toolGateway";
 import type { ToolCallDisplay } from "@/agent/types";
 import { getExecCommandBadge } from "@/components/compactToolCallStatus";
 import { getToolCallIcon, getToolCallLabel } from "@/components/toolDisplay";
@@ -67,40 +66,7 @@ function fallbackArgPreview(args: Record<string, unknown>): string | null {
   return firstKey;
 }
 
-function formatBytes(bytes: number): string {
-  if (!Number.isFinite(bytes) || bytes < 0) return `${bytes} B`;
-  if (bytes < 1024) return `${bytes} B`;
-  const units = ["KB", "MB", "GB", "TB"];
-  let value = bytes / 1024;
-  let unitIndex = 0;
-  while (value >= 1024 && unitIndex < units.length - 1) {
-    value /= 1024;
-    unitIndex += 1;
-  }
-  return `${value.toFixed(value >= 10 ? 0 : 1)} ${units[unitIndex]}`;
-}
-
-function getGatewayPhaseDetails(
-  tc: ToolCallDisplay,
-): { label: string; description: string } | null {
-  switch (tc.gatewayPhase) {
-    case "summarizing":
-      return {
-        label: "Compacting",
-        description: "Results are being summarized to save space.",
-      };
-    default:
-      return null;
-  }
-}
-
 export function buildCollapsedArgPreview(tc: ToolCallDisplay): string | null {
-  const gatewayRef = getToolGatewayArtifactRef(tc.result);
-  if (gatewayRef) {
-    if (gatewayRef.summary) return truncateText(gatewayRef.summary, 64);
-    return `${truncateText(gatewayRef.artifactId, 32)} (${formatBytes(gatewayRef.sizeBytes)})`;
-  }
-
   const { tool, args } = tc;
   switch (tool) {
     case "workspace_listDir": {
@@ -192,22 +158,6 @@ export function buildCollapsedArgPreview(tc: ToolCallDisplay): string | null {
     case "agent_artifact_list": {
       const kind = typeof args.kind === "string" ? args.kind : "any";
       return `kind: ${kind}`;
-    }
-    case "agent_tool_artifact_get": {
-      const artifactId =
-        typeof args.artifactId === "string" ? args.artifactId : "tool artifact";
-      const range = describeLineRange(args.range);
-      return range
-        ? `${truncateText(artifactId, 28)} (${range})`
-        : truncateText(artifactId, 36);
-    }
-    case "agent_tool_artifact_search": {
-      const artifactId =
-        typeof args.artifactId === "string" ? args.artifactId : "tool artifact";
-      const pattern =
-        typeof args.pattern === "string" ? truncateText(args.pattern, 24) : "";
-      if (!pattern) return truncateText(artifactId, 36);
-      return `${truncateText(artifactId, 20)} /${pattern}/`;
     }
     case "agent_todo_add": {
       const title = typeof args.title === "string" ? args.title : "";
@@ -335,7 +285,6 @@ export function CompactToolCallSummaryRow({
       ? buildCollapsedArgPreview(tc)
       : argPreviewOverride;
   const execBadge = getExecCommandBadge(tc);
-  const gatewayPhase = getGatewayPhaseDetails(tc);
 
   return (
     <div
@@ -355,23 +304,6 @@ export function CompactToolCallSummaryRow({
       <span className="material-symbols-outlined text-base opacity-65 shrink-0">
         {icon}
       </span>
-      {gatewayPhase && (
-        <span
-          className="chat-ctrl-info shrink-0"
-          aria-label={gatewayPhase.label}
-        >
-          <span
-            className="inline-tool-gateway-spinner"
-            role="status"
-            aria-hidden="true"
-          />
-          <span className="chat-ctrl-popover inline-tool-gateway-popover">
-            <strong>{gatewayPhase.label}</strong>
-            <br />
-            {gatewayPhase.description}
-          </span>
-        </span>
-      )}
 
       <div className="inline-tool-summary-main">
         <span
