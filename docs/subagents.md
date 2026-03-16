@@ -243,8 +243,11 @@ bubble in the parent tab.
 - it still streams its own internal subagent turns into chat when manually
   triggered
 - after the subagent finishes, the main runner rewrites `apiMessages` to the
-  original system prompt plus one synthetic assistant summary containing the
+  refreshed main-agent system prompt plus one synthetic assistant summary containing the
   compacted history block
+- during compaction it may append durable learned facts to the saved project
+  record, and those facts are immediately available to the refreshed system
+  prompt for the current session and future sessions
 - `chatMessages` are not replaced; the existing visible transcript remains,
   plus the compactor's visible turns and a final summary card
 
@@ -282,7 +285,7 @@ bubble in the parent tab.
 - `artifactType: "compact-state"`
 - `kind: "context-compaction"`
 - Manual trigger only through `/compact`
-- Tool allowlist is limited to `agent_artifact_create`
+- Tool allowlist is limited to `agent_artifact_create` and `agent_project_memory_add`
 - No schema validator; the runner performs a required-section markdown check
 - The runtime reinserts the real system prompt separately and never asks the
   compactor to rewrite it

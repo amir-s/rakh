@@ -421,6 +421,9 @@ export default function NewSession({ onSubmit }: NewSessionProps) {
         path: project.path,
         name: project.name,
         icon: project.icon || DEFAULT_PROJECT_ICON,
+        ...(project.learnedFacts?.length
+          ? { learnedFacts: project.learnedFacts }
+          : {}),
         ...(project.setupCommand ? { setupCommand: project.setupCommand } : {}),
         ...(project.commands?.length ? { commands: project.commands } : {}),
       };
@@ -453,6 +456,9 @@ export default function NewSession({ onSubmit }: NewSessionProps) {
         path: project.path,
         name: project.name,
         icon: project.icon || DEFAULT_PROJECT_ICON,
+        ...(project.learnedFacts?.length
+          ? { learnedFacts: project.learnedFacts }
+          : {}),
         ...(project.setupCommand ? { setupCommand: project.setupCommand } : {}),
         ...(project.commands?.length ? { commands: project.commands } : {}),
       };

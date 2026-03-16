@@ -1,4 +1,5 @@
 import { toJSONSchema } from "zod";
+import { normalizeLearnedFacts } from "@/projects";
 
 import {
   jotaiStore,
@@ -60,12 +61,26 @@ export function getCommunicationInstruction(
   return match ? match.promptSnippet : null;
 }
 
+function renderProjectMemorySection(
+  projectLearnedFacts: readonly string[] | undefined,
+): string {
+  const learnedFacts = normalizeLearnedFacts(projectLearnedFacts) ?? [];
+  if (learnedFacts.length === 0) return "";
+
+  return `
+
+PROJECT MEMORY
+These learned facts come from the saved project's long-term memory. Treat them as durable project context and standing user requirements unless newer user input corrects them.
+${learnedFacts.map((fact) => `- ${fact}`).join("\n")}`;
+}
+
 export function buildSystemPrompt(
   cwd: string,
   isGitRepo: boolean,
   hasAgentsFile: boolean,
   hasSkillsDir: boolean,
   runtimeContext: SystemPromptRuntimeContext,
+  projectLearnedFacts: readonly string[] | undefined,
   communicationProfile: string | undefined,
 ): string {
   const gitSection = isGitRepo
@@ -86,6 +101,7 @@ Timezone: ${runtimeContext.timeZone}
 Today's local date: ${runtimeContext.localDate}
 Current local time: ${runtimeContext.localTime}
 Current UTC timestamp: ${runtimeContext.utcIso}
+${renderProjectMemorySection(projectLearnedFacts)}
 
 You can read, write, modify, and execute code inside this workspace.
 

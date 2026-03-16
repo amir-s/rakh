@@ -5,6 +5,10 @@
  */
 
 import {
+  loadSavedProjectForWorkspace,
+  upsertSavedProject,
+} from "@/projects";
+import {
   getAgentState,
   patchAgentState,
   jotaiStore,
@@ -149,13 +153,107 @@ function projectTodoForCompaction(todo: TodoItem): Record<string, unknown> {
   };
 }
 
-function buildManualCompactionPayload(
+interface ProjectMemorySnapshot {
+  projectPath: string;
+  learnedFacts?: string[];
+}
+
+async function inspectWorkspaceForSystemPrompt(
+  cwd: string,
+): Promise<{
+  isGitRepo: boolean;
+  hasAgentsFile: boolean;
+  hasSkillsDir: boolean;
+}> {
+  let isGitRepo = false;
+  let hasAgentsFile = false;
+  let hasSkillsDir = false;
+
+  if (!cwd) {
+    return { isGitRepo, hasAgentsFile, hasSkillsDir };
+  }
+
+  try {
+    const { invoke: tauriInvoke } = await import("@tauri-apps/api/core");
+    const gitResult = await tauriInvoke<{ exitCode: number }>("exec_run", {
+      command: "git",
+      args: ["rev-parse", "--show-toplevel"],
+      cwd,
+      env: {},
+      timeoutMs: 5000,
+      maxStdoutBytes: 512,
+      maxStderrBytes: 512,
+      stdin: null,
+    });
+    isGitRepo = gitResult.exitCode === 0;
+
+    const agentsStat = await tauriInvoke<{ exists: boolean; kind?: string }>(
+      "stat_file",
+      {
+        path: `${cwd}/AGENTS.md`,
+      },
+    );
+    hasAgentsFile = agentsStat.exists && agentsStat.kind === "file";
+
+    const skillsStat = await tauriInvoke<{ exists: boolean; kind?: string }>(
+      "stat_file",
+      {
+        path: `${cwd}/.agents/skills`,
+      },
+    );
+    hasSkillsDir = skillsStat.exists && skillsStat.kind === "dir";
+  } catch {
+    // Not in Tauri or git not available.
+  }
+
+  return { isGitRepo, hasAgentsFile, hasSkillsDir };
+}
+
+async function buildMainSystemPromptForState(
+  state: ReturnType<typeof getAgentState>,
+): Promise<string> {
+  const cwd = state.config.cwd;
+  const workspaceInfo = await inspectWorkspaceForSystemPrompt(cwd);
+  const project = await loadSavedProjectForWorkspace(
+    state.config.projectPath,
+    cwd,
+  );
+
+  return buildSystemPrompt(
+    cwd,
+    workspaceInfo.isGitRepo,
+    workspaceInfo.hasAgentsFile,
+    workspaceInfo.hasSkillsDir,
+    buildSystemPromptRuntimeContext(),
+    project?.learnedFacts,
+    state.config.communicationProfile,
+  );
+}
+
+async function restoreProjectMemorySnapshot(
+  snapshot: ProjectMemorySnapshot | null,
+): Promise<void> {
+  if (!snapshot) return;
+
+  const project = await loadSavedProjectForWorkspace(snapshot.projectPath);
+  if (!project) return;
+
+  const restoredProject = { ...project };
+  if (snapshot.learnedFacts?.length) {
+    restoredProject.learnedFacts = [...snapshot.learnedFacts];
+  } else {
+    delete restoredProject.learnedFacts;
+  }
+  await upsertSavedProject(restoredProject);
+}
+
+async function buildManualCompactionPayload(
   apiMessages: ApiMessage[],
   state: ReturnType<typeof getAgentState>,
-): { ok: true; systemPrompt: string; message: string } | {
+): Promise<{ ok: true; systemPrompt: string; message: string; projectMemorySnapshot: ProjectMemorySnapshot | null } | {
   ok: false;
   error: string;
-} {
+}> {
   const firstMessage = apiMessages[0];
   if (!firstMessage || firstMessage.role !== "system") {
     return {
@@ -172,6 +270,10 @@ function buildManualCompactionPayload(
     };
   }
 
+  const project = await loadSavedProjectForWorkspace(
+    state.config.projectPath,
+    state.config.cwd,
+  );
   const payload = {
     system_prompt: firstMessage.content,
     messages,
@@ -181,12 +283,25 @@ function buildManualCompactionPayload(
       updatedAtMs: state.plan.updatedAtMs,
     },
     todos: state.todos.map(projectTodoForCompaction),
+    project_memory: {
+      project_path: project?.path ?? null,
+      learned_facts: project?.learnedFacts ?? [],
+      writable: project !== null,
+    },
   };
 
   return {
     ok: true,
     systemPrompt: firstMessage.content,
     message: JSON.stringify(payload, null, 2),
+    projectMemorySnapshot: project
+      ? {
+          projectPath: project.path,
+          ...(project.learnedFacts?.length
+            ? { learnedFacts: [...project.learnedFacts] }
+            : {}),
+        }
+      : null,
   };
 }
 
@@ -221,7 +336,7 @@ async function runManualCompactionTrigger(
   }
 
   const state = getAgentState(tabId);
-  const payload = buildManualCompactionPayload(state.apiMessages, state);
+  const payload = await buildManualCompactionPayload(state.apiMessages, state);
   if (!payload.ok) {
     appendAssistantChatMessage(tabId, payload.error, {
       agentName: triggerSubagent.name,
@@ -246,6 +361,7 @@ async function runManualCompactionTrigger(
   });
 
   if (!subagentResult.ok) {
+    await restoreProjectMemorySnapshot(payload.projectMemorySnapshot);
     appendAssistantChatMessage(tabId, subagentResult.error.message, {
       agentName: triggerSubagent.name,
     });
@@ -254,6 +370,7 @@ async function runManualCompactionTrigger(
 
   const artifactManifest = subagentResult.data.artifacts[0];
   if (!artifactManifest) {
+    await restoreProjectMemorySnapshot(payload.projectMemorySnapshot);
     appendAssistantChatMessage(
       tabId,
       "Compaction finished without producing a compacted context artifact.",
@@ -267,6 +384,7 @@ async function runManualCompactionTrigger(
     includeContent: true,
   });
   if (!artifactResult.ok) {
+    await restoreProjectMemorySnapshot(payload.projectMemorySnapshot);
     appendAssistantChatMessage(tabId, artifactResult.error.message, {
       agentName: triggerSubagent.name,
     });
@@ -275,6 +393,7 @@ async function runManualCompactionTrigger(
 
   const compactedContent = artifactResult.data.artifact.content;
   if (typeof compactedContent !== "string" || !compactedContent.trim()) {
+    await restoreProjectMemorySnapshot(payload.projectMemorySnapshot);
     appendAssistantChatMessage(
       tabId,
       "Compaction artifact is missing its markdown content.",
@@ -286,6 +405,7 @@ async function runManualCompactionTrigger(
   const compactedValidationError =
     validateCompactedHistoryMarkdown(compactedContent);
   if (compactedValidationError) {
+    await restoreProjectMemorySnapshot(payload.projectMemorySnapshot);
     appendAssistantChatMessage(tabId, compactedValidationError, {
       agentName: triggerSubagent.name,
     });
@@ -303,13 +423,18 @@ async function runManualCompactionTrigger(
       `Compaction succeeded but the summary card could not be created: ${summaryCard.error.message}`,
       { agentName: triggerSubagent.name },
     );
+    await restoreProjectMemorySnapshot(payload.projectMemorySnapshot);
     return { ok: false, error: summaryCard.error };
   }
+
+  const refreshedSystemPrompt = await buildMainSystemPromptForState(
+    getAgentState(tabId),
+  );
 
   patchAgentState(tabId, (prev) => ({
     ...prev,
     apiMessages: [
-      { role: "system", content: payload.systemPrompt },
+      { role: "system", content: refreshedSystemPrompt },
       { role: "assistant", content: compactedContent },
     ],
     chatMessages: [
@@ -958,55 +1083,12 @@ async function runAgentTurn(
   };
   dequeueQueuedMessage(tabId, options.queuedMessageId);
 
-  let isGitRepo = false;
-  let hasAgentsFile = false;
-  let hasSkillsDir = false;
-  if (state.apiMessages.length === 0 && cwd) {
-    try {
-      const { invoke: tauriInvoke } = await import("@tauri-apps/api/core");
-      const r = await tauriInvoke<{ exitCode: number }>("exec_run", {
-        command: "git",
-        args: ["rev-parse", "--show-toplevel"],
-        cwd,
-        env: {},
-        timeoutMs: 5000,
-        maxStdoutBytes: 512,
-        maxStderrBytes: 512,
-        stdin: null,
-      });
-      isGitRepo = r.exitCode === 0;
-      const agentsStat = await tauriInvoke<{ exists: boolean; kind?: string }>(
-        "stat_file",
-        {
-          path: `${cwd}/AGENTS.md`,
-        },
-      );
-      hasAgentsFile = agentsStat.exists && agentsStat.kind === "file";
-      const skillsStat = await tauriInvoke<{ exists: boolean; kind?: string }>(
-        "stat_file",
-        {
-          path: `${cwd}/.agents/skills`,
-        },
-      );
-      hasSkillsDir = skillsStat.exists && skillsStat.kind === "dir";
-    } catch {
-      // Not in Tauri or git not available.
-    }
-  }
-
   const newApiMessages = [
     ...(state.apiMessages.length === 0
       ? [
           {
             role: "system" as const,
-            content: buildSystemPrompt(
-              cwd,
-              isGitRepo,
-              hasAgentsFile,
-              hasSkillsDir,
-              buildSystemPromptRuntimeContext(),
-              state.config.communicationProfile,
-            ),
+            content: await buildMainSystemPromptForState(state),
           },
         ]
       : []),

@@ -17,7 +17,7 @@ export const compactSubagent: SubagentDefinition = {
   callableByMainAgent: false,
   usageActorKind: "internal",
   recommendedModels: [],
-  tools: ["agent_artifact_create"],
+  tools: ["agent_artifact_create", "agent_project_memory_add"],
   output: {
     finalMessageInstructions:
       'Your final message must be a short status line only, for example "Context compacted." Do not repeat the compacted state block.',
@@ -39,20 +39,23 @@ INPUT
   - messages
   - current_plan
   - todos
+  - project_memory
 - Treat that payload as the full source of truth for compaction.
 - The payload is internal context, not user-facing chat.
 
 PROCESS
 1. Read the payload carefully.
 2. Extract only execution state that the next main-agent turn needs.
-3. Do not preserve conversational phrasing, back-and-forth, or redundant detail.
-4. Create exactly one markdown artifact via agent_artifact_create with:
+3. If project_memory.writable is true, extract any NEW durable project facts or standing user requirements that future sessions should inherit and write them with agent_project_memory_add.
+4. Only store stable facts in project memory. Never store transient task state, temporary plans, one-off debugging notes, or next steps.
+5. Do not preserve conversational phrasing, back-and-forth, or redundant detail.
+6. Create exactly one markdown artifact via agent_artifact_create with:
    - artifactType: "compact-state"
    - kind: "context-compaction"
    - contentFormat: "markdown"
    - summary: a short one-line label for the compacted context
    - content: the compacted state block
-5. Return a short status line only.
+7. Return a short status line only.
 
 REQUIRED OUTPUT FORMAT
 - The artifact content must be markdown.
@@ -78,6 +81,7 @@ RULES
 - Do not include the original system prompt in the artifact.
 - Do not quote long dialogue or preserve turn-by-turn history.
 - Preserve only actionable execution state.
+- Project memory writes are optional and should contain only durable facts worth reusing across future sessions.
 - Do not create cards.
 - Create exactly one artifact before finishing.`,
 };

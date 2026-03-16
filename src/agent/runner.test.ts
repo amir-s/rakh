@@ -34,6 +34,8 @@ type MockAgentState = {
     model: string;
     contextLength?: number;
     advancedOptions?: Record<string, unknown>;
+    projectPath?: string;
+    communicationProfile?: string;
     worktreePath?: string;
     worktreeBranch?: string;
   };
@@ -74,6 +76,7 @@ const {
   createOpenAIMock,
   createAnthropicMock,
   createOpenAICompatibleMock,
+  tauriInvokeMock,
   execAbortMock,
   execStopMock,
   prepareMcpRunMock,
@@ -104,6 +107,7 @@ const {
   streamTextMock: vi.fn(),
   createOpenAIMock: vi.fn(),
   createAnthropicMock: vi.fn(),
+  tauriInvokeMock: vi.fn(),
   execAbortMock: vi.fn(),
   execStopMock: vi.fn(),
   switchToGitBranchMock: vi.fn(),
@@ -141,6 +145,10 @@ vi.mock("@ai-sdk/openai-compatible", () => ({
     createOpenAICompatibleMock(...args);
     return (modelId: string) => ({ provider: "openai-compatible", modelId });
   },
+}));
+
+vi.mock("@tauri-apps/api/core", () => ({
+  invoke: (...args: unknown[]) => tauriInvokeMock(...args),
 }));
 
 vi.mock("./tools", () => ({
@@ -301,6 +309,7 @@ import {
   stopAgent,
   stopRunningExecToolCall,
 } from "./runner";
+import { getSavedProjects, saveSavedProjects } from "@/projects";
 import { registerDynamicModels } from "./modelCatalog";
 
 function makeState(overrides: Partial<MockAgentState> = {}): MockAgentState {
@@ -437,7 +446,7 @@ async function flushAsyncWork(rounds = 6): Promise<void> {
 }
 
 describe("runner", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     registerDynamicModels([
       {
         id: "openai/gpt-5.2",
@@ -471,6 +480,7 @@ describe("runner", () => {
     streamTextMock.mockReset();
     createOpenAIMock.mockReset();
     createAnthropicMock.mockReset();
+    tauriInvokeMock.mockReset();
     execAbortMock.mockReset();
     execStopMock.mockReset();
     prepareMcpRunMock.mockReset();
@@ -536,6 +546,11 @@ describe("runner", () => {
     dispatchToolMock.mockResolvedValue({ ok: true, data: { ok: true } });
     validateToolMock.mockResolvedValue(null);
     execStopMock.mockResolvedValue(true);
+    tauriInvokeMock.mockImplementation(async (cmd: unknown) => {
+      if (cmd === "exec_run") return { exitCode: 1 };
+      if (cmd === "stat_file") return { exists: false };
+      return undefined;
+    });
     prepareMcpRunMock.mockResolvedValue({ tools: [], failures: [] });
     callMcpToolMock.mockResolvedValue({ content: [] });
     shutdownMcpRunMock.mockResolvedValue(undefined);
@@ -649,6 +664,8 @@ describe("runner", () => {
         ),
       };
     });
+
+    await saveSavedProjects([]);
   });
 
   it("sets an error when no provider is found", async () => {
@@ -3527,6 +3544,7 @@ describe("runner", () => {
         "Resume implementation from the compaction card.",
       );
       setState(tabId, {
+        config: { cwd: "/repo", model: "openai/gpt-5.2" },
         chatMessages: [
           { role: "user", content: "please investigate context usage" },
           { role: "assistant", content: "Looking into it." },
@@ -3653,14 +3671,114 @@ describe("runner", () => {
           },
         ],
       });
-      expect(state.apiMessages).toEqual([
-        { role: "system", content: "Original system prompt" },
-        { role: "assistant", content: compactedMarkdown },
-      ]);
+      expect(state.apiMessages[0]).toMatchObject({ role: "system" });
+      expect(String(state.apiMessages[0]?.content)).toContain("You are Rakh");
+      expect(state.apiMessages[1]).toEqual({
+        role: "assistant",
+        content: compactedMarkdown,
+      });
       expect(streamTextMock).toHaveBeenCalledTimes(2);
       expect(artifactGetMock).toHaveBeenCalledWith(tabId, {
         artifactId: "compact_artifact_1",
         includeContent: true,
+      });
+    });
+
+    it("includes saved project memory in the compaction payload", async () => {
+      const tabId = "tab-trigger-compact-memory-payload";
+      const compactedMarkdown = makeCompactedHistoryMarkdown("Resume work.");
+      await saveSavedProjects([
+        {
+          path: "/repo",
+          name: "Repo",
+          icon: "folder",
+          learnedFacts: ["Use pnpm in this repo."],
+        },
+      ]);
+      setState(tabId, {
+        config: {
+          cwd: "/repo",
+          model: "openai/gpt-5.2",
+          projectPath: "/repo",
+        },
+        apiMessages: [
+          { role: "system", content: "Original system prompt" },
+          { role: "user", content: "Investigate compaction." },
+        ],
+      });
+
+      turns.push({
+        deltas: ["Saving compacted context artifact."],
+        toolCalls: [
+          {
+            id: "tc-compact-memory-artifact",
+            name: "agent_artifact_create",
+            arguments: {
+              artifactType: "compact-state",
+              kind: "context-compaction",
+              contentFormat: "markdown",
+              summary: "Compacted context snapshot",
+              content: compactedMarkdown,
+            },
+          },
+        ],
+      });
+      turns.push({
+        deltas: ["Context compacted."],
+        toolCalls: [],
+      });
+
+      dispatchToolMock.mockImplementation(async (...args: unknown[]) => {
+        const toolName = args[2] as string;
+        const runtime = args[6] as Record<string, unknown>;
+        if (toolName === "agent_artifact_create") {
+          return {
+            ok: true,
+            data: {
+              artifact: makeArtifact({
+                sessionId: tabId,
+                runId: runtime.runId,
+                agentId: runtime.agentId,
+                artifactId: "compact_memory_payload_artifact",
+                kind: "context-compaction",
+                contentFormat: "markdown",
+                metadata: { __rakh: { artifactType: "compact-state" } },
+              }),
+            },
+          };
+        }
+        return { ok: true, data: { ok: true } };
+      });
+      artifactGetMock.mockResolvedValue({
+        ok: true,
+        data: {
+          artifact: makeArtifact({
+            sessionId: tabId,
+            artifactId: "compact_memory_payload_artifact",
+            kind: "context-compaction",
+            contentFormat: "markdown",
+            content: compactedMarkdown,
+            metadata: { __rakh: { artifactType: "compact-state" } },
+          }),
+        },
+      });
+
+      await runAgent(tabId, "/compact");
+
+      const firstSubagentCall = streamTextMock.mock.calls[0]?.[0] as {
+        messages?: Array<{ role?: string; content?: string }>;
+      };
+      const payload = JSON.parse(
+        String(
+          firstSubagentCall.messages?.find((message) => message.role === "user")
+            ?.content,
+        ),
+      );
+
+      expect(payload.project_memory).toEqual({
+        project_path: "/repo",
+        learned_facts: ["Use pnpm in this repo."],
+        writable: true,
       });
     });
 
@@ -3713,6 +3831,148 @@ describe("runner", () => {
       });
       expect(String(state.chatMessages[0]?.content)).toContain(
         "does not accept arguments",
+      );
+    });
+
+    it("persists learned facts during compaction and refreshes the active system prompt", async () => {
+      const tabId = "tab-trigger-compact-memory-write";
+      const compactedMarkdown = makeCompactedHistoryMarkdown(
+        "Resume from the learned facts.",
+      );
+      await saveSavedProjects([
+        {
+          path: "/repo",
+          name: "Repo",
+          icon: "folder",
+          learnedFacts: ["Existing fact."],
+        },
+      ]);
+      setState(tabId, {
+        config: {
+          cwd: "/repo",
+          model: "openai/gpt-5.2",
+          projectPath: "/repo",
+        },
+        apiMessages: [
+          { role: "system", content: "Original system prompt" },
+          { role: "user", content: "Compact the session." },
+          { role: "assistant", content: "Working on it." },
+        ],
+      });
+
+      turns.push({
+        deltas: ["Saving learned facts and compacted context artifact."],
+        toolCalls: [
+          {
+            id: "tc-project-memory-write",
+            name: "agent_project_memory_add",
+            arguments: {
+              facts: ["The backend uses Tauri.", "Use pnpm in this repo."],
+            },
+          },
+          {
+            id: "tc-compact-artifact-memory-write",
+            name: "agent_artifact_create",
+            arguments: {
+              artifactType: "compact-state",
+              kind: "context-compaction",
+              contentFormat: "markdown",
+              summary: "Compacted context snapshot",
+              content: compactedMarkdown,
+            },
+          },
+        ],
+      });
+      turns.push({
+        deltas: ["Context compacted."],
+        toolCalls: [],
+      });
+
+      dispatchToolMock.mockImplementation(async (...args: unknown[]) => {
+        const toolName = args[2] as string;
+        const toolArgs = args[3] as Record<string, unknown>;
+        const runtime = args[6] as Record<string, unknown>;
+        if (toolName === "agent_project_memory_add") {
+          await saveSavedProjects([
+            {
+              path: "/repo",
+              name: "Repo",
+              icon: "folder",
+              learnedFacts: [
+                "Existing fact.",
+                "The backend uses Tauri.",
+                "Use pnpm in this repo.",
+              ],
+            },
+          ]);
+          return {
+            ok: true,
+            data: {
+              projectPath: "/repo",
+              learnedFacts: [
+                "Existing fact.",
+                "The backend uses Tauri.",
+                "Use pnpm in this repo.",
+              ],
+              addedFacts: [
+                "The backend uses Tauri.",
+                "Use pnpm in this repo.",
+              ],
+              updated: true,
+            },
+          };
+        }
+        if (toolName === "agent_artifact_create") {
+          return {
+            ok: true,
+            data: {
+              artifact: makeArtifact({
+                sessionId: tabId,
+                runId: runtime.runId,
+                agentId: runtime.agentId,
+                artifactId: "compact_memory_write_artifact",
+                kind: "context-compaction",
+                summary: toolArgs.summary,
+                metadata: toolArgs.metadata,
+                contentFormat: "markdown",
+              }),
+            },
+          };
+        }
+        return { ok: true, data: { ok: true } };
+      });
+      artifactGetMock.mockResolvedValue({
+        ok: true,
+        data: {
+          artifact: makeArtifact({
+            sessionId: tabId,
+            artifactId: "compact_memory_write_artifact",
+            kind: "context-compaction",
+            contentFormat: "markdown",
+            content: compactedMarkdown,
+            metadata: { __rakh: { artifactType: "compact-state" } },
+          }),
+        },
+      });
+
+      await runAgent(tabId, "/compact");
+
+      expect(getSavedProjects()[0]?.learnedFacts).toEqual([
+        "Existing fact.",
+        "The backend uses Tauri.",
+        "Use pnpm in this repo.",
+      ]);
+      expect(String(states[tabId].apiMessages[0]?.content)).toContain(
+        "PROJECT MEMORY",
+      );
+      expect(String(states[tabId].apiMessages[0]?.content)).toContain(
+        "Existing fact.",
+      );
+      expect(String(states[tabId].apiMessages[0]?.content)).toContain(
+        "The backend uses Tauri.",
+      );
+      expect(String(states[tabId].apiMessages[0]?.content)).toContain(
+        "Use pnpm in this repo.",
       );
     });
 
@@ -3788,10 +4048,214 @@ describe("runner", () => {
 
       await runAgent(tabId, "/compact");
 
-      expect(states[tabId].apiMessages).toEqual([
-        { role: "system", content: "Original system prompt" },
-        { role: "assistant", content: newCompactedMarkdown },
+      expect(states[tabId].apiMessages[0]).toMatchObject({ role: "system" });
+      expect(String(states[tabId].apiMessages[0]?.content)).toContain("You are Rakh");
+      expect(states[tabId].apiMessages[1]).toEqual({
+        role: "assistant",
+        content: newCompactedMarkdown,
+      });
+    });
+
+    it("restores project memory when compaction fails after writing learned facts", async () => {
+      const tabId = "tab-trigger-compact-memory-rollback";
+      await saveSavedProjects([
+        {
+          path: "/repo",
+          name: "Repo",
+          icon: "folder",
+          learnedFacts: ["Existing fact."],
+        },
       ]);
+      setState(tabId, {
+        config: {
+          cwd: "/repo",
+          model: "openai/gpt-5.2",
+          projectPath: "/repo",
+        },
+        apiMessages: [
+          { role: "system", content: "Original system prompt" },
+          { role: "user", content: "Compact the session." },
+        ],
+      });
+
+      turns.push({
+        deltas: ["Saving learned facts and compacted context artifact."],
+        toolCalls: [
+          {
+            id: "tc-project-memory-rollback",
+            name: "agent_project_memory_add",
+            arguments: {
+              facts: ["The backend uses Tauri."],
+            },
+          },
+          {
+            id: "tc-compact-artifact-memory-rollback",
+            name: "agent_artifact_create",
+            arguments: {
+              artifactType: "compact-state",
+              kind: "context-compaction",
+              contentFormat: "markdown",
+              summary: "Compacted context snapshot",
+              content: "invalid compacted history",
+            },
+          },
+        ],
+      });
+      turns.push({
+        deltas: ["Context compacted."],
+        toolCalls: [],
+      });
+
+      dispatchToolMock.mockImplementation(async (...args: unknown[]) => {
+        const toolName = args[2] as string;
+        const runtime = args[6] as Record<string, unknown>;
+        if (toolName === "agent_project_memory_add") {
+          await saveSavedProjects([
+            {
+              path: "/repo",
+              name: "Repo",
+              icon: "folder",
+              learnedFacts: ["Existing fact.", "The backend uses Tauri."],
+            },
+          ]);
+          return {
+            ok: true,
+            data: {
+              projectPath: "/repo",
+              learnedFacts: ["Existing fact.", "The backend uses Tauri."],
+              addedFacts: ["The backend uses Tauri."],
+              updated: true,
+            },
+          };
+        }
+        if (toolName === "agent_artifact_create") {
+          return {
+            ok: true,
+            data: {
+              artifact: makeArtifact({
+                sessionId: tabId,
+                runId: runtime.runId,
+                agentId: runtime.agentId,
+                artifactId: "compact_memory_rollback_artifact",
+                kind: "context-compaction",
+                contentFormat: "markdown",
+                metadata: { __rakh: { artifactType: "compact-state" } },
+              }),
+            },
+          };
+        }
+        return { ok: true, data: { ok: true } };
+      });
+      artifactGetMock.mockResolvedValue({
+        ok: true,
+        data: {
+          artifact: makeArtifact({
+            sessionId: tabId,
+            artifactId: "compact_memory_rollback_artifact",
+            kind: "context-compaction",
+            contentFormat: "markdown",
+            content: "invalid compacted history",
+            metadata: { __rakh: { artifactType: "compact-state" } },
+          }),
+        },
+      });
+
+      await runAgent(tabId, "/compact");
+
+      expect(getSavedProjects()[0]?.learnedFacts).toEqual(["Existing fact."]);
+      expect(String(states[tabId].chatMessages.at(-1)?.content)).toContain(
+        "missing required sections",
+      );
+    });
+
+    it("marks project memory unwritable when no saved project record matches the session", async () => {
+      const tabId = "tab-trigger-compact-memory-untracked";
+      const compactedMarkdown = makeCompactedHistoryMarkdown("Resume work.");
+      setState(tabId, {
+        config: {
+          cwd: "/repo/untracked",
+          model: "openai/gpt-5.2",
+          projectPath: "/repo/untracked",
+        },
+        apiMessages: [
+          { role: "system", content: "Original system prompt" },
+          { role: "user", content: "Investigate compaction." },
+        ],
+      });
+
+      turns.push({
+        deltas: ["Saving compacted context artifact."],
+        toolCalls: [
+          {
+            id: "tc-compact-untracked-artifact",
+            name: "agent_artifact_create",
+            arguments: {
+              artifactType: "compact-state",
+              kind: "context-compaction",
+              contentFormat: "markdown",
+              summary: "Compacted context snapshot",
+              content: compactedMarkdown,
+            },
+          },
+        ],
+      });
+      turns.push({
+        deltas: ["Context compacted."],
+        toolCalls: [],
+      });
+
+      dispatchToolMock.mockImplementation(async (...args: unknown[]) => {
+        const toolName = args[2] as string;
+        const runtime = args[6] as Record<string, unknown>;
+        if (toolName === "agent_artifact_create") {
+          return {
+            ok: true,
+            data: {
+              artifact: makeArtifact({
+                sessionId: tabId,
+                runId: runtime.runId,
+                agentId: runtime.agentId,
+                artifactId: "compact_untracked_artifact",
+                kind: "context-compaction",
+                contentFormat: "markdown",
+                metadata: { __rakh: { artifactType: "compact-state" } },
+              }),
+            },
+          };
+        }
+        return { ok: true, data: { ok: true } };
+      });
+      artifactGetMock.mockResolvedValue({
+        ok: true,
+        data: {
+          artifact: makeArtifact({
+            sessionId: tabId,
+            artifactId: "compact_untracked_artifact",
+            kind: "context-compaction",
+            contentFormat: "markdown",
+            content: compactedMarkdown,
+            metadata: { __rakh: { artifactType: "compact-state" } },
+          }),
+        },
+      });
+
+      await runAgent(tabId, "/compact");
+
+      const firstSubagentCall = streamTextMock.mock.calls[0]?.[0] as {
+        messages?: Array<{ role?: string; content?: string }>;
+      };
+      const payload = JSON.parse(
+        String(
+          firstSubagentCall.messages?.find((message) => message.role === "user")
+            ?.content,
+        ),
+      );
+
+      expect(payload.project_memory).toEqual({
+        project_path: null,
+        learned_facts: [],
+        writable: false,
+      });
     });
   });
 

@@ -1961,6 +1961,8 @@ pub struct SavedProjectRecord {
     pub setup_command: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub commands: Option<Vec<ProjectCommandRecord>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub learned_facts: Option<Vec<String>>,
 }
 
 #[tauri::command]
@@ -2533,6 +2535,10 @@ mod tests {
                 icon: Some("play_arrow".to_string()),
                 show_label: Some(false),
             }]),
+            learned_facts: Some(vec![
+                "The desktop app uses Tauri for backend commands.".to_string(),
+                "Saved project memory is stored in the project config JSON.".to_string(),
+            ]),
         }];
 
         projects_save(projects.clone()).expect("projects_save should succeed");
@@ -2544,6 +2550,7 @@ mod tests {
         let raw = std::fs::read_to_string(&config_path).unwrap();
         assert!(raw.contains("\"icon\": \"folder_code\""));
         assert!(raw.contains("\"setupCommand\": \"pnpm install\""));
+        assert!(raw.contains("\"learnedFacts\""));
 
         match prev_home {
             Some(v) => std::env::set_var("HOME", v),
