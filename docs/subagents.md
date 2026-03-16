@@ -22,6 +22,7 @@ Current built-in subagents:
 - Code Reviewer
 - Security Auditor
 - GitHub Operator
+- Context Compaction
 
 ## Definition Shape
 
@@ -39,9 +40,19 @@ Important fields on `SubagentDefinition`:
 - `recommendedModels`
 - `tools`
 - `requiresApproval`
+- `callableByMainAgent`
+- `usageActorKind`
 - `triggerCommand`
 - `whenToUse`
 - `output`
+
+`callableByMainAgent` defaults to `true`. Set it to `false` for
+trigger-command-only internal helpers that should not appear in the main
+agent's delegatable subagent list.
+
+`usageActorKind` defaults to `"subagent"`. Internal maintenance flows such as
+manual context compaction use `"internal"` so usage accounting can distinguish
+them from normal delegated subagent work.
 
 ## Output Contract
 
@@ -215,6 +226,7 @@ Some subagents can be invoked directly from the user message:
 - `/security`
 - `/copywrite`
 - `/github`
+- `/compact`
 
 Trigger resolution happens in
 [`findSubagentByTrigger()`](../src/agent/subagents/index.ts).
@@ -222,6 +234,19 @@ Trigger resolution happens in
 Direct trigger routing still uses the same artifact contract enforcement as
 parent-initiated delegation and still renders as a single threaded subagent
 bubble in the parent tab.
+
+`/compact` is special:
+
+- it is manual-trigger-only and sets `callableByMainAgent: false`
+- it is omitted from the main agent system prompt's delegatable subagent list
+- `agent_subagent_call("compact", ...)` is rejected by the runner
+- it still streams its own internal subagent turns into chat when manually
+  triggered
+- after the subagent finishes, the main runner rewrites `apiMessages` to the
+  original system prompt plus one synthetic assistant summary containing the
+  compacted history block
+- `chatMessages` are not replaced; the existing visible transcript remains,
+  plus the compactor's visible turns and a final summary card
 
 ## Adding a New Subagent
 
@@ -250,6 +275,17 @@ bubble in the parent tab.
 - No schema validator
 - Does not receive any `agent_todo_*` tools
 - The main agent owns todo creation, note capture, and todo state transitions
+
+### Context Compaction
+
+- Produces one required markdown artifact
+- `artifactType: "compact-state"`
+- `kind: "context-compaction"`
+- Manual trigger only through `/compact`
+- Tool allowlist is limited to `agent_artifact_create`
+- No schema validator; the runner performs a required-section markdown check
+- The runtime reinserts the real system prompt separately and never asks the
+  compactor to rewrite it
 
 ### Reviewer
 
