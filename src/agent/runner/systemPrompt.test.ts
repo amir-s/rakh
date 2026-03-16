@@ -50,6 +50,7 @@ describe("buildSystemPrompt", () => {
       false,
       runtimeContext,
       undefined,
+      undefined,
     );
 
     expect(systemPrompt).toContain(
@@ -67,6 +68,7 @@ describe("buildSystemPrompt", () => {
       false,
       false,
       runtimeContext,
+      undefined,
       undefined,
     );
 
@@ -86,6 +88,7 @@ describe("buildSystemPrompt", () => {
       false,
       runtimeContext,
       undefined,
+      undefined,
     );
 
     expect(systemPrompt).toContain(
@@ -103,6 +106,7 @@ describe("buildSystemPrompt", () => {
       false,
       false,
       runtimeContext,
+      undefined,
       undefined,
     );
 
@@ -122,9 +126,40 @@ describe("buildSystemPrompt", () => {
       false,
       runtimeContext,
       undefined,
+      undefined,
     );
 
     expect(systemPrompt).not.toContain("/compact");
     expect(systemPrompt).not.toContain("Compacts the main agent's internal context");
+  });
+
+  it("renders learned project facts when provided", () => {
+    const systemPrompt = buildSystemPrompt(
+      "/workspace",
+      false,
+      false,
+      false,
+      runtimeContext,
+      ["Use pnpm in this repo.", "The backend is a Tauri app."],
+      undefined,
+    );
+
+    expect(systemPrompt).toContain("PROJECT MEMORY");
+    expect(systemPrompt).toContain("Use pnpm in this repo.");
+    expect(systemPrompt).toContain("The backend is a Tauri app.");
+  });
+
+  it("omits the project memory section when no learned facts exist", () => {
+    const systemPrompt = buildSystemPrompt(
+      "/workspace",
+      false,
+      false,
+      false,
+      runtimeContext,
+      [],
+      undefined,
+    );
+
+    expect(systemPrompt).not.toContain("PROJECT MEMORY");
   });
 });

@@ -118,7 +118,7 @@ Manual context compaction relies on that split. `/compact` preserves the
 visible `chatMessages` transcript, but after the compactor succeeds it rewrites
 `apiMessages` down to:
 
-1. the original main-agent system prompt
+1. a freshly rebuilt main-agent system prompt, including any saved project learned facts
 2. one synthetic assistant message containing the compacted execution-state
    block
 
@@ -170,11 +170,12 @@ Manual `/compact` follows a separate trigger path in the same runner facade:
    - `messages`
    - `current_plan`
    - `todos`
+   - `project_memory`
 4. run the `compact` subagent with that payload as its only input
 5. require exactly one markdown `compact-state` artifact
 6. read the artifact body back from durable storage and verify the required
    compacted-history sections
-7. atomically replace `apiMessages` with the original system prompt plus the
+7. atomically replace `apiMessages` with the refreshed system prompt plus the
    compacted assistant summary
 8. append a visible assistant chat message with a summary card that renders the
    compacted markdown

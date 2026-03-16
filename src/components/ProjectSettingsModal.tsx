@@ -132,9 +132,12 @@ function buildProjectPayload(
   const normalizedIcon = projectIcon.trim() || DEFAULT_PROJECT_ICON;
   const nextCommands = buildCommands(commands);
   return {
-    path: project.path,
     name: normalizedName,
+    path: project.path,
     icon: normalizedIcon,
+    ...(project.learnedFacts?.length
+      ? { learnedFacts: project.learnedFacts }
+      : {}),
     ...(setupCommand.trim() ? { setupCommand: setupCommand.trim() } : {}),
     ...(nextCommands.length > 0 ? { commands: nextCommands } : {}),
   };

@@ -7,6 +7,7 @@ import {
 import { logFrontendSoon } from "@/logging/client";
 
 export const DEFAULT_PROJECT_ICON = "folder";
+export const MAX_PROJECT_LEARNED_FACTS = 50;
 
 export interface SavedProject {
   path: string;
@@ -14,6 +15,7 @@ export interface SavedProject {
   icon?: string;
   setupCommand?: string;
   commands?: ProjectCommandConfig[];
+  learnedFacts?: string[];
   hasProjectConfigFile?: boolean;
 }
 
@@ -40,6 +42,10 @@ export function inferProjectName(path: string): string {
   return path.split("/").filter(Boolean).pop() ?? path;
 }
 
+function normalizeProjectLookupPath(value: string | undefined): string {
+  return typeof value === "string" ? value.trim() : "";
+}
+
 function normalizeSetupCommand(value: unknown): string | undefined {
   if (typeof value !== "string") return undefined;
   const trimmed = value.trim();
@@ -58,6 +64,76 @@ function normalizeProjectIcon(value: unknown): string {
   return trimmed.length > 0 ? trimmed : DEFAULT_PROJECT_ICON;
 }
 
+export function normalizeLearnedFacts(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+
+  const facts: string[] = [];
+  const seen = new Set<string>();
+  for (const entry of value) {
+    if (typeof entry !== "string") continue;
+    const trimmed = entry.trim();
+    if (!trimmed || seen.has(trimmed)) continue;
+    seen.add(trimmed);
+    facts.push(trimmed);
+  }
+
+  if (facts.length === 0) return undefined;
+  return facts.slice(-MAX_PROJECT_LEARNED_FACTS);
+}
+
+export function mergeProjectLearnedFacts(
+  existing: readonly string[] | undefined,
+  incoming: readonly string[] | undefined,
+): {
+  learnedFacts?: string[];
+  addedFacts: string[];
+  updated: boolean;
+} {
+  const current = normalizeLearnedFacts(existing) ?? [];
+  const nextCandidates = normalizeLearnedFacts(incoming) ?? [];
+  if (nextCandidates.length === 0) {
+    return {
+      ...(current.length > 0 ? { learnedFacts: current } : {}),
+      addedFacts: [],
+      updated: false,
+    };
+  }
+
+  const merged = [...current];
+  const seen = new Set(current);
+  const addedFacts: string[] = [];
+  for (const fact of nextCandidates) {
+    if (seen.has(fact)) continue;
+    seen.add(fact);
+    merged.push(fact);
+    addedFacts.push(fact);
+  }
+
+  const learnedFacts = merged.slice(-MAX_PROJECT_LEARNED_FACTS);
+  return {
+    ...(learnedFacts.length > 0 ? { learnedFacts } : {}),
+    addedFacts,
+    updated: addedFacts.length > 0,
+  };
+}
+
+function findSavedProjectInList(
+  projects: SavedProject[],
+  projectPath: string | undefined,
+  cwd?: string,
+): SavedProject | null {
+  const normalizedProjectPath = normalizeProjectLookupPath(projectPath);
+  if (normalizedProjectPath) {
+    const match =
+      projects.find((project) => project.path === normalizedProjectPath) ?? null;
+    if (match) return match;
+  }
+
+  const normalizedCwd = normalizeProjectLookupPath(cwd);
+  if (!normalizedCwd) return null;
+  return projects.find((project) => project.path === normalizedCwd) ?? null;
+}
+
 export function normalizeSavedProject(value: unknown): SavedProject | null {
   if (!isRecord(value)) return null;
 
@@ -74,6 +150,9 @@ export function normalizeSavedProject(value: unknown): SavedProject | null {
       : {}),
     ...(normalizeCommands(value.commands)
       ? { commands: normalizeCommands(value.commands) }
+      : {}),
+    ...(normalizeLearnedFacts(value.learnedFacts)
+      ? { learnedFacts: normalizeLearnedFacts(value.learnedFacts) }
       : {}),
   };
 }
@@ -95,6 +174,9 @@ export function applyProjectScriptsConfig(
     path: normalized.path,
     name: normalized.name,
     icon: normalized.icon,
+    ...(normalized.learnedFacts?.length
+      ? { learnedFacts: normalized.learnedFacts }
+      : {}),
     hasProjectConfigFile: true,
     ...(configState.config?.setupCommand
       ? { setupCommand: configState.config.setupCommand }
@@ -142,6 +224,9 @@ function serializeSavedProject(project: SavedProject): SavedProject {
     path: normalized.path,
     name: normalized.name,
     icon: normalized.icon,
+    ...(normalized.learnedFacts?.length
+      ? { learnedFacts: normalized.learnedFacts }
+      : {}),
     ...(normalized.setupCommand
       ? { setupCommand: normalized.setupCommand }
       : {}),
@@ -241,4 +326,19 @@ export function findSavedProject(projectPath: string): SavedProject | null {
   return (
     savedProjectsCache.find((project) => project.path === projectPath) ?? null
   );
+}
+
+export function findSavedProjectForWorkspace(
+  projectPath?: string,
+  cwd?: string,
+): SavedProject | null {
+  return findSavedProjectInList(savedProjectsCache, projectPath, cwd);
+}
+
+export async function loadSavedProjectForWorkspace(
+  projectPath?: string,
+  cwd?: string,
+): Promise<SavedProject | null> {
+  const projects = await loadSavedProjects();
+  return findSavedProjectInList(projects, projectPath, cwd);
 }

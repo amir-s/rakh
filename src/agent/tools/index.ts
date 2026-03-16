@@ -28,6 +28,7 @@ import {
   todoRemove,
   todoNoteAdd,
 } from "./todos";
+import { projectMemoryAdd } from "./projectMemory";
 import {
   artifactCreate,
   artifactVersion,
@@ -249,6 +250,9 @@ export async function dispatchTool(
 
     case "agent_todo_remove":
       return todoRemove(tabId, a);
+
+    case "agent_project_memory_add":
+      return projectMemoryAdd(tabId, runtime, a);
 
     case "agent_card_add":
       return cardAdd(tabId, a);

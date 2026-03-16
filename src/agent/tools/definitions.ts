@@ -369,6 +369,18 @@ path/to/other.ts
     }),
   }),
   tool({
+    name: "agent_project_memory_add",
+    description:
+      "Append durable learned facts to the current saved project's long-term memory. " +
+      "Use only for stable repo facts or standing user requirements that future sessions should inherit. " +
+      "Do not store transient task state, temporary plans, or next steps.",
+    inputSchema: z.object({
+      facts: z
+        .array(z.string())
+        .describe("New learned facts to append to project memory"),
+    }),
+  }),
+  tool({
     name: "agent_card_add",
     description:
       "Add a user-visible conversation card directly below the current assistant message. " +

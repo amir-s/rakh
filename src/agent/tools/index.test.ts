@@ -27,6 +27,7 @@ const {
   todoListMock,
   todoRemoveMock,
   todoNoteAddMock,
+  projectMemoryAddMock,
   cardAddMock,
   titleSetMock,
   titleGetMock,
@@ -56,6 +57,7 @@ const {
   todoListMock: vi.fn(),
   todoRemoveMock: vi.fn(),
   todoNoteAddMock: vi.fn(),
+  projectMemoryAddMock: vi.fn(),
   cardAddMock: vi.fn(),
   titleSetMock: vi.fn(),
   titleGetMock: vi.fn(),
@@ -104,6 +106,10 @@ vi.mock("./todos", () => ({
   todoNoteAdd: (...args: unknown[]) => todoNoteAddMock(...args),
 }));
 
+vi.mock("./projectMemory", () => ({
+  projectMemoryAdd: (...args: unknown[]) => projectMemoryAddMock(...args),
+}));
+
 vi.mock("./artifacts", () => ({
   artifactCreate: (...args: unknown[]) => artifactCreateMock(...args),
   artifactVersion: (...args: unknown[]) => artifactVersionMock(...args),
@@ -148,6 +154,7 @@ describe("tools/index dispatchTool", () => {
     todoListMock.mockReset();
     todoRemoveMock.mockReset();
     todoNoteAddMock.mockReset();
+    projectMemoryAddMock.mockReset();
     cardAddMock.mockReset();
     titleSetMock.mockReset();
     titleGetMock.mockReset();
@@ -278,6 +285,36 @@ describe("tools/index dispatchTool", () => {
       ok: true,
       data: { cardId: "card_1", kind: "summary" },
     });
+  });
+
+  it("routes agent_project_memory_add with runtime context", async () => {
+    projectMemoryAddMock.mockResolvedValue({
+      ok: true,
+      data: {
+        projectPath: "/repo",
+        learnedFacts: ["Use pnpm."],
+        addedFacts: ["Use pnpm."],
+        updated: true,
+      },
+    });
+
+    const runtime = { runId: "run_1", agentId: "agent_compact" };
+    const result = await dispatchTool(
+      "tab",
+      "/cwd",
+      "agent_project_memory_add",
+      { facts: ["Use pnpm."] },
+      "tc-project-memory",
+      undefined,
+      runtime,
+    );
+
+    expect(projectMemoryAddMock).toHaveBeenCalledWith(
+      "tab",
+      runtime,
+      { facts: ["Use pnpm."] },
+    );
+    expect(result).toMatchObject({ ok: true });
   });
 
   it("handles workspace_editFile success and updates reviewEdits", async () => {
