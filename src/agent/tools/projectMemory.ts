@@ -21,18 +21,23 @@ export interface ProjectMemoryAddOutput {
   updated: boolean;
 }
 
+function canWriteProjectMemory(agentId: string | undefined): boolean {
+  const callerId = agentId?.trim() || "agent_main";
+  return callerId === "agent_main" || callerId === "agent_compact";
+}
+
 export async function projectMemoryAdd(
   tabId: string,
   runtime: ProjectMemoryRuntimeContext | undefined,
   input: ProjectMemoryAddInput,
 ): Promise<ToolResult<ProjectMemoryAddOutput>> {
-  if (runtime?.agentId !== "agent_compact") {
+  if (!canWriteProjectMemory(runtime?.agentId)) {
     return {
       ok: false,
       error: {
         code: "PERMISSION_DENIED",
         message:
-          "Project memory can only be updated by the context compaction subagent.",
+          "Project memory can only be updated by the main agent or context compaction subagent.",
       },
     };
   }

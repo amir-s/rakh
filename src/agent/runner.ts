@@ -346,111 +346,123 @@ async function runManualCompactionTrigger(
 
   const triggerProviders = jotaiStore.get(providersAtom);
   const triggerDebug = state.showDebug ?? false;
-  const subagentResult = await runSubagentLoop({
-    tabId,
-    signal: controller.signal,
-    runId,
-    currentTurn,
-    subagentDef: triggerSubagent,
-    message: payload.message,
-    parentModelId: state.config.model,
-    providers: triggerProviders,
-    debugEnabled: triggerDebug,
-    logContext: runLogContext,
-    suppressChatOutput: false,
-  });
-
-  if (!subagentResult.ok) {
+  let restoredProjectMemory = false;
+  const maybeRestoreProjectMemory = async (): Promise<void> => {
+    if (restoredProjectMemory) return;
+    restoredProjectMemory = true;
     await restoreProjectMemorySnapshot(payload.projectMemorySnapshot);
-    appendAssistantChatMessage(tabId, subagentResult.error.message, {
-      agentName: triggerSubagent.name,
-    });
-    return { ok: false, error: subagentResult.error };
-  }
+  };
 
-  const artifactManifest = subagentResult.data.artifacts[0];
-  if (!artifactManifest) {
-    await restoreProjectMemorySnapshot(payload.projectMemorySnapshot);
-    appendAssistantChatMessage(
+  try {
+    const subagentResult = await runSubagentLoop({
       tabId,
-      "Compaction finished without producing a compacted context artifact.",
-      { agentName: triggerSubagent.name },
-    );
-    return { ok: false };
-  }
-
-  const artifactResult = await artifactGet(tabId, {
-    artifactId: artifactManifest.artifactId,
-    includeContent: true,
-  });
-  if (!artifactResult.ok) {
-    await restoreProjectMemorySnapshot(payload.projectMemorySnapshot);
-    appendAssistantChatMessage(tabId, artifactResult.error.message, {
-      agentName: triggerSubagent.name,
+      signal: controller.signal,
+      runId,
+      currentTurn,
+      subagentDef: triggerSubagent,
+      message: payload.message,
+      parentModelId: state.config.model,
+      providers: triggerProviders,
+      debugEnabled: triggerDebug,
+      logContext: runLogContext,
+      suppressChatOutput: false,
     });
-    return { ok: false, error: artifactResult.error };
-  }
 
-  const compactedContent = artifactResult.data.artifact.content;
-  if (typeof compactedContent !== "string" || !compactedContent.trim()) {
-    await restoreProjectMemorySnapshot(payload.projectMemorySnapshot);
-    appendAssistantChatMessage(
-      tabId,
-      "Compaction artifact is missing its markdown content.",
-      { agentName: triggerSubagent.name },
-    );
-    return { ok: false };
-  }
-
-  const compactedValidationError =
-    validateCompactedHistoryMarkdown(compactedContent);
-  if (compactedValidationError) {
-    await restoreProjectMemorySnapshot(payload.projectMemorySnapshot);
-    appendAssistantChatMessage(tabId, compactedValidationError, {
-      agentName: triggerSubagent.name,
-    });
-    return { ok: false };
-  }
-
-  const summaryCard = buildConversationCard({
-    kind: "summary",
-    title: COMPACT_SUMMARY_CARD_TITLE,
-    markdown: compactedContent,
-  });
-  if (!summaryCard.ok) {
-    appendAssistantChatMessage(
-      tabId,
-      `Compaction succeeded but the summary card could not be created: ${summaryCard.error.message}`,
-      { agentName: triggerSubagent.name },
-    );
-    await restoreProjectMemorySnapshot(payload.projectMemorySnapshot);
-    return { ok: false, error: summaryCard.error };
-  }
-
-  const refreshedSystemPrompt = await buildMainSystemPromptForState(
-    getAgentState(tabId),
-  );
-
-  patchAgentState(tabId, (prev) => ({
-    ...prev,
-    apiMessages: [
-      { role: "system", content: refreshedSystemPrompt },
-      { role: "assistant", content: compactedContent },
-    ],
-    chatMessages: [
-      ...prev.chatMessages,
-      {
-        id: msgId(),
-        role: "assistant",
-        content: subagentResult.data.rawText.trim() || "Context compacted.",
-        timestamp: Date.now(),
+    if (!subagentResult.ok) {
+      await maybeRestoreProjectMemory();
+      appendAssistantChatMessage(tabId, subagentResult.error.message, {
         agentName: triggerSubagent.name,
-        cards: [summaryCard.data.card],
-      },
-    ],
-  }));
+      });
+      return { ok: false, error: subagentResult.error };
+    }
 
-  return { ok: true };
+    const artifactManifest = subagentResult.data.artifacts[0];
+    if (!artifactManifest) {
+      await maybeRestoreProjectMemory();
+      appendAssistantChatMessage(
+        tabId,
+        "Compaction finished without producing a compacted context artifact.",
+        { agentName: triggerSubagent.name },
+      );
+      return { ok: false };
+    }
+
+    const artifactResult = await artifactGet(tabId, {
+      artifactId: artifactManifest.artifactId,
+      includeContent: true,
+    });
+    if (!artifactResult.ok) {
+      await maybeRestoreProjectMemory();
+      appendAssistantChatMessage(tabId, artifactResult.error.message, {
+        agentName: triggerSubagent.name,
+      });
+      return { ok: false, error: artifactResult.error };
+    }
+
+    const compactedContent = artifactResult.data.artifact.content;
+    if (typeof compactedContent !== "string" || !compactedContent.trim()) {
+      await maybeRestoreProjectMemory();
+      appendAssistantChatMessage(
+        tabId,
+        "Compaction artifact is missing its markdown content.",
+        { agentName: triggerSubagent.name },
+      );
+      return { ok: false };
+    }
+
+    const compactedValidationError =
+      validateCompactedHistoryMarkdown(compactedContent);
+    if (compactedValidationError) {
+      await maybeRestoreProjectMemory();
+      appendAssistantChatMessage(tabId, compactedValidationError, {
+        agentName: triggerSubagent.name,
+      });
+      return { ok: false };
+    }
+
+    const summaryCard = buildConversationCard({
+      kind: "summary",
+      title: COMPACT_SUMMARY_CARD_TITLE,
+      markdown: compactedContent,
+    });
+    if (!summaryCard.ok) {
+      appendAssistantChatMessage(
+        tabId,
+        `Compaction succeeded but the summary card could not be created: ${summaryCard.error.message}`,
+        { agentName: triggerSubagent.name },
+      );
+      await maybeRestoreProjectMemory();
+      return { ok: false, error: summaryCard.error };
+    }
+
+    const refreshedSystemPrompt = await buildMainSystemPromptForState(
+      getAgentState(tabId),
+    );
+
+    patchAgentState(tabId, (prev) => ({
+      ...prev,
+      apiMessages: [
+        { role: "system", content: refreshedSystemPrompt },
+        { role: "assistant", content: compactedContent },
+      ],
+      chatMessages: [
+        ...prev.chatMessages,
+        {
+          id: msgId(),
+          role: "assistant",
+          content: subagentResult.data.rawText.trim() || "Context compacted.",
+          timestamp: Date.now(),
+          agentName: triggerSubagent.name,
+          cards: [summaryCard.data.card],
+        },
+      ],
+    }));
+
+    return { ok: true };
+  } catch (error) {
+    await maybeRestoreProjectMemory();
+    throw error;
+  }
 }
 
 function findRunningExecToolCallIds(tabId: string): string[] {

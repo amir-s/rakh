@@ -23,7 +23,7 @@ describe("projectMemoryAdd", () => {
     await saveSavedProjects([]);
   });
 
-  it("rejects non-compactor callers", async () => {
+  it("allows the main agent to append learned facts", async () => {
     await saveSavedProjects([
       {
         path: "/repo",
@@ -35,6 +35,33 @@ describe("projectMemoryAdd", () => {
     const result = await projectMemoryAdd(
       "tab",
       { agentId: "agent_main" },
+      { facts: ["Use pnpm."] },
+    );
+
+    expect(result).toEqual({
+      ok: true,
+      data: {
+        projectPath: "/repo",
+        learnedFacts: ["Use pnpm."],
+        addedFacts: ["Use pnpm."],
+        updated: true,
+      },
+    });
+    expect(getSavedProjects()[0]?.learnedFacts).toEqual(["Use pnpm."]);
+  });
+
+  it("rejects unrelated subagent callers", async () => {
+    await saveSavedProjects([
+      {
+        path: "/repo",
+        name: "Repo",
+        icon: "folder",
+      },
+    ]);
+
+    const result = await projectMemoryAdd(
+      "tab",
+      { agentId: "agent_reviewer" },
       { facts: ["Use pnpm."] },
     );
 

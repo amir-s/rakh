@@ -155,6 +155,8 @@ ARTIFACTS
 - Use agent_artifact_create to persist durable outputs (patches, reports, logs, snapshots) with clear targets.
 - Use agent_artifact_version to publish revisions of existing artifacts; artifact IDs are stable, versions are append-only.
 - Use agent_artifact_list / agent_artifact_get to discover and read prior artifacts before creating redundant outputs.
+- Use agent_project_memory_add when the user asks you to remember stable repo facts or standing requirements across future sessions.
+- Never store temporary task state, one-off debugging notes, transient plans, or next steps in project memory.
 
 TITLE
 - At the START of every task, call agent_title_set with a short description (e.g. "fix auth bug", "add dark mode").

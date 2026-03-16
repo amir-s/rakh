@@ -162,4 +162,24 @@ describe("buildSystemPrompt", () => {
 
     expect(systemPrompt).not.toContain("PROJECT MEMORY");
   });
+
+  it("tells the main agent when project memory writes are appropriate", () => {
+    const systemPrompt = buildSystemPrompt(
+      "/workspace",
+      false,
+      false,
+      false,
+      runtimeContext,
+      undefined,
+      undefined,
+    );
+
+    expect(systemPrompt).toContain("agent_project_memory_add");
+    expect(systemPrompt).toContain(
+      "remember stable repo facts or standing requirements across future sessions",
+    );
+    expect(systemPrompt).toContain(
+      "Never store temporary task state, one-off debugging notes, transient plans, or next steps in project memory.",
+    );
+  });
 });

@@ -7,6 +7,7 @@ import {
   normalizeSavedProject,
   saveSavedProjects,
   upsertSavedProject,
+  upsertSavedProjectPreservingLearnedFacts,
 } from "./projects";
 
 describe("projects", () => {
@@ -117,6 +118,34 @@ describe("projects", () => {
       name: "Repo Renamed",
       icon: "folder_open",
       learnedFacts: ["Use pnpm in this repo."],
+      setupCommand: "pnpm install",
+    });
+
+    expect(getSavedProjects()).toEqual([
+      {
+        path: "/repo",
+        name: "Repo Renamed",
+        icon: "folder_open",
+        learnedFacts: ["Use pnpm in this repo."],
+        setupCommand: "pnpm install",
+      },
+    ]);
+  });
+
+  it("preserves the latest learned facts when other project fields are saved", async () => {
+    await saveSavedProjects([
+      {
+        path: "/repo",
+        name: "Repo",
+        icon: "folder_code",
+        learnedFacts: ["Use pnpm in this repo."],
+      },
+    ]);
+
+    await upsertSavedProjectPreservingLearnedFacts({
+      path: "/repo",
+      name: "Repo Renamed",
+      icon: "folder_open",
       setupCommand: "pnpm install",
     });
 

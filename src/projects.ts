@@ -315,6 +315,29 @@ export async function upsertSavedProject(
   return saveSavedProjects(next);
 }
 
+export async function upsertSavedProjectPreservingLearnedFacts(
+  project: SavedProject,
+): Promise<SavedProject[]> {
+  const normalized = normalizeSavedProject(project);
+  if (!normalized) return loadSavedProjects();
+
+  const projects = await loadSavedProjects();
+  const existing =
+    projects.find((entry) => entry.path === normalized.path) ?? null;
+  const nextProject =
+    !normalized.learnedFacts && existing?.learnedFacts?.length
+      ? {
+          ...normalized,
+          learnedFacts: [...existing.learnedFacts],
+        }
+      : normalized;
+  const next = [
+    ...projects.filter((entry) => entry.path !== normalized.path),
+    nextProject,
+  ];
+  return saveSavedProjects(next);
+}
+
 export async function removeSavedProject(projectPath: string): Promise<SavedProject[]> {
   const next = (await loadSavedProjects()).filter(
     (project) => project.path !== projectPath,
