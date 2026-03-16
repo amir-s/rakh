@@ -565,51 +565,6 @@ export default function WorkspacePage() {
     },
     [activeTab, activeTabId, addTab],
   );
-  const renderBubbleActions = useCallback(
-    (group: ChatBubbleGroup) => {
-      const forkDisabled = bubbleGroupContainsStreaming(group);
-
-      return (
-        <>
-          <IconButton
-            type="button"
-            className="msg-header-action-btn"
-            title="Copy bubble as markdown"
-            aria-label="Copy bubble as markdown"
-            onClick={(event) => {
-              event.stopPropagation();
-              void handleCopyBubbleMarkdown(group);
-            }}
-          >
-            <span className="material-symbols-outlined text-sm" aria-hidden="true">
-              content_copy
-            </span>
-          </IconButton>
-          <IconButton
-            type="button"
-            className="msg-header-action-btn"
-            title={
-              forkDisabled
-                ? "Wait for the message to finish streaming before forking."
-                : "Fork from this bubble"
-            }
-            aria-label="Fork from this bubble"
-            disabled={forkDisabled}
-            onClick={(event) => {
-              event.stopPropagation();
-              void handleForkBubble(group);
-            }}
-          >
-            <span className="material-symbols-outlined text-sm" aria-hidden="true">
-              fork_right
-            </span>
-          </IconButton>
-        </>
-      );
-    },
-    [handleCopyBubbleMarkdown, handleForkBubble],
-  );
-
   const textareaRef = useRef<MentionTextareaHandle>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const isDragging = useRef(false);
@@ -699,6 +654,76 @@ export default function WorkspacePage() {
       filter: { traceId },
     });
   }, []);
+  const renderBubbleActions = useCallback(
+    (group: ChatBubbleGroup) => {
+      const forkDisabled = bubbleGroupContainsStreaming(group);
+      const traceId =
+        group.kind === "assistant" && (agent.showDebug ?? false)
+          ? [...group.messages]
+              .reverse()
+              .find(
+                (message) =>
+                  typeof message.traceId === "string" &&
+                  message.traceId.length > 0,
+              )?.traceId
+          : null;
+
+      return (
+        <>
+          {traceId ? (
+            <IconButton
+              type="button"
+              className="msg-header-action-btn"
+              title="View trace logs"
+              aria-label="View trace logs"
+              onClick={(event) => {
+                event.stopPropagation();
+                handleOpenAssistantLogs(traceId);
+              }}
+            >
+              <span className="material-symbols-outlined text-sm" aria-hidden="true">
+                timeline
+              </span>
+            </IconButton>
+          ) : null}
+          <IconButton
+            type="button"
+            className="msg-header-action-btn"
+            title="Copy bubble as markdown"
+            aria-label="Copy bubble as markdown"
+            onClick={(event) => {
+              event.stopPropagation();
+              void handleCopyBubbleMarkdown(group);
+            }}
+          >
+            <span className="material-symbols-outlined text-sm" aria-hidden="true">
+              content_copy
+            </span>
+          </IconButton>
+          <IconButton
+            type="button"
+            className="msg-header-action-btn"
+            title={
+              forkDisabled
+                ? "Wait for the message to finish streaming before forking."
+                : "Fork from this bubble"
+            }
+            aria-label="Fork from this bubble"
+            disabled={forkDisabled}
+            onClick={(event) => {
+              event.stopPropagation();
+              void handleForkBubble(group);
+            }}
+          >
+            <span className="material-symbols-outlined text-sm" aria-hidden="true">
+              fork_right
+            </span>
+          </IconButton>
+        </>
+      );
+    },
+    [agent.showDebug, handleCopyBubbleMarkdown, handleForkBubble, handleOpenAssistantLogs],
+  );
   const handleOpenToolLogs = useCallback((toolCall: ToolCallDisplay) => {
     void openLogViewerWindow({
       origin: "tool-call",
@@ -1460,7 +1485,6 @@ export default function WorkspacePage() {
                     actions={renderBubbleActions(group)}
                   >
                     {(() => {
-                      const seenTraceIds = new Set<string>();
                       return groupMessages.map((msg) => {
                         const visibleToolCalls = msg.toolCalls ?? [];
                         const toolCallRenderItems =
@@ -1476,38 +1500,19 @@ export default function WorkspacePage() {
                           visibleToolCalls.length === 0;
                         const showStreamingCursor =
                           !!msg.streaming && !showThinkingDots;
-                        const showTraceAction =
-                          (agent.showDebug ?? false) &&
-                          typeof msg.traceId === "string" &&
-                          msg.traceId.length > 0 &&
-                          !seenTraceIds.has(msg.traceId);
-                        if (
-                          typeof msg.traceId === "string" &&
-                          msg.traceId.length > 0
-                        ) {
-                          seenTraceIds.add(msg.traceId);
-                        }
                         const hasRenderableSegmentContent =
                           showReasoning ||
                           !!msg.content ||
                           showThinkingDots ||
                           showStreamingCursor ||
-                          toolCallRenderItems.length > 0 ||
-                          ((agent.showDebug ?? false) && !!msg.traceId);
+                          toolCallRenderItems.length > 0;
 
                         if (!hasRenderableSegmentContent) {
                           return null;
                         }
 
                         return (
-                          <div
-                            key={msg.id}
-                            className={cn(
-                              "agent-message-segment",
-                              showTraceAction &&
-                                "agent-message-segment--with-trace-action",
-                            )}
-                          >
+                          <div key={msg.id} className="agent-message-segment">
                             {/* Reasoning content */}
                             {showReasoning && (
                               <ReasoningThought
@@ -1578,26 +1583,6 @@ export default function WorkspacePage() {
                                 )}
                               </div>
                             )}
-
-                            {showTraceAction ? (
-                              <Button
-                                variant="ghost"
-                                size="xxs"
-                                className="msg-trace-action"
-                                aria-label="View trace logs"
-                                title="View trace logs"
-                                onClick={() =>
-                                  handleOpenAssistantLogs(msg.traceId as string)
-                                }
-                              >
-                                <span
-                                  className="material-symbols-outlined text-xs"
-                                  aria-hidden="true"
-                                >
-                                  timeline
-                                </span>
-                              </Button>
-                            ) : null}
                           </div>
                         );
                       });
