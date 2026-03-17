@@ -5,6 +5,7 @@ import {
   getSavedProjects,
   mergeProjectLearnedFacts,
   normalizeSavedProject,
+  removeProjectLearnedFacts,
   saveSavedProjects,
   upsertSavedProject,
   upsertSavedProjectPreservingLearnedFacts,
@@ -99,6 +100,19 @@ describe("projects", () => {
         (_, index) => `Fact ${index + 2}`,
       ),
       addedFacts: ["Fact 50", "Fact 51"],
+      updated: true,
+    });
+  });
+
+  it("removes learned facts by exact normalized match", () => {
+    expect(
+      removeProjectLearnedFacts(
+        ["Use pnpm in this repo.", "The backend uses Tauri."],
+        [" Use pnpm in this repo. ", "Missing fact"],
+      ),
+    ).toEqual({
+      learnedFacts: ["The backend uses Tauri."],
+      removedFacts: ["Use pnpm in this repo."],
       updated: true,
     });
   });

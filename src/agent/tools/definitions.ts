@@ -382,6 +382,18 @@ path/to/other.ts
     }),
   }),
   tool({
+    name: "agent_project_memory_remove",
+    description:
+      "Remove durable learned facts from the current saved project's long-term memory. " +
+      "Use this when the user asks you to forget stale or incorrect project memory, or when compaction confirms an existing learned fact is no longer true. " +
+      "Removal uses exact normalized string matches against the stored facts, so pass the actual fact text you want removed.",
+    inputSchema: z.object({
+      facts: z
+        .array(z.string())
+        .describe("Stored learned facts to remove from project memory"),
+    }),
+  }),
+  tool({
     name: "agent_card_add",
     description:
       "Add a user-visible conversation card directly below the current assistant message. " +

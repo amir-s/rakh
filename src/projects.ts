@@ -117,6 +117,34 @@ export function mergeProjectLearnedFacts(
   };
 }
 
+export function removeProjectLearnedFacts(
+  existing: readonly string[] | undefined,
+  removals: readonly string[] | undefined,
+): {
+  learnedFacts?: string[];
+  removedFacts: string[];
+  updated: boolean;
+} {
+  const current = normalizeLearnedFacts(existing) ?? [];
+  const nextRemovals = normalizeLearnedFacts(removals) ?? [];
+  if (current.length === 0 || nextRemovals.length === 0) {
+    return {
+      ...(current.length > 0 ? { learnedFacts: current } : {}),
+      removedFacts: [],
+      updated: false,
+    };
+  }
+
+  const toRemove = new Set(nextRemovals);
+  const learnedFacts = current.filter((fact) => !toRemove.has(fact));
+  const removedFacts = current.filter((fact) => toRemove.has(fact));
+  return {
+    ...(learnedFacts.length > 0 ? { learnedFacts } : {}),
+    removedFacts,
+    updated: removedFacts.length > 0,
+  };
+}
+
 function findSavedProjectInList(
   projects: SavedProject[],
   projectPath: string | undefined,

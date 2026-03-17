@@ -22,6 +22,7 @@ const TOOL_ICON: Record<string, string> = {
   agent_todo_list: "checklist",
   agent_todo_remove: "checklist",
   agent_project_memory_add: "psychology",
+  agent_project_memory_remove: "psychology_alt",
 };
 
 const TOOL_LABEL: Record<string, string> = {
@@ -46,6 +47,7 @@ const TOOL_LABEL: Record<string, string> = {
   agent_todo_list: "LIST TODOS",
   agent_todo_remove: "REMOVE TODO",
   agent_project_memory_add: "UPDATE PROJECT MEMORY",
+  agent_project_memory_remove: "REMOVE PROJECT MEMORY",
 };
 
 export function getToolCallIcon(tc: Pick<ToolCallDisplay, "tool" | "mcp">): string {
