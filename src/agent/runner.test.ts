@@ -319,6 +319,7 @@ import {
   stopAgent,
   stopRunningExecToolCall,
 } from "./runner";
+import { hasOnlyCompactedHistory } from "./runner/mainContextCompaction";
 import { getSavedProjects, saveSavedProjects } from "@/projects";
 import { registerDynamicModels } from "./modelCatalog";
 
@@ -395,13 +396,22 @@ function makeCompactedHistoryMarkdown(nextStep = "..."): string {
     "Created one context-compaction artifact.",
     "",
     "Decisions already made",
-    "Use a single assistant summary message after compaction.",
+    "Use a single compacted-history handoff message after compaction.",
     "",
     "Unresolved issues",
     "None.",
     "",
     "Exact next step",
     nextStep,
+  ].join("\n");
+}
+
+function makeCompactedHistoryApiContent(markdown: string): string {
+  return [
+    "Synthetic compacted-history handoff for context management.",
+    "Treat this as runner-provided state, not as a new user request.",
+    "",
+    markdown,
   ].join("\n");
 }
 
@@ -458,6 +468,34 @@ async function flushAsyncWork(rounds = 6): Promise<void> {
     await Promise.resolve();
   }
 }
+
+describe("hasOnlyCompactedHistory", () => {
+  it("accepts the synthetic user handoff message", () => {
+    expect(
+      hasOnlyCompactedHistory([
+        { role: "system", content: "system prompt" },
+        {
+          role: "user",
+          content: makeCompactedHistoryApiContent(
+            makeCompactedHistoryMarkdown("Resume work."),
+          ),
+        },
+      ]),
+    ).toBe(true);
+  });
+
+  it("accepts legacy assistant compacted history", () => {
+    expect(
+      hasOnlyCompactedHistory([
+        { role: "system", content: "system prompt" },
+        {
+          role: "assistant",
+          content: makeCompactedHistoryMarkdown("Resume work."),
+        },
+      ]),
+    ).toBe(true);
+  });
+});
 
 describe("runner", () => {
   beforeEach(async () => {
@@ -4249,8 +4287,8 @@ describe("runner", () => {
       expect(state.apiMessages[0]).toMatchObject({ role: "system" });
       expect(String(state.apiMessages[0]?.content)).toContain("You are Rakh");
       expect(state.apiMessages[1]).toEqual({
-        role: "assistant",
-        content: compactedMarkdown,
+        role: "user",
+        content: makeCompactedHistoryApiContent(compactedMarkdown),
       });
       expect(streamTextMock).toHaveBeenCalledTimes(2);
       expect(artifactGetMock).toHaveBeenCalledWith(tabId, {
@@ -4629,8 +4667,8 @@ describe("runner", () => {
       expect(states[tabId].apiMessages[0]).toMatchObject({ role: "system" });
       expect(String(states[tabId].apiMessages[0]?.content)).toContain("You are Rakh");
       expect(states[tabId].apiMessages[1]).toEqual({
-        role: "assistant",
-        content: newCompactedMarkdown,
+        role: "user",
+        content: makeCompactedHistoryApiContent(newCompactedMarkdown),
       });
     });
 
@@ -5011,8 +5049,8 @@ describe("runner", () => {
       expect(streamTextMock).toHaveBeenCalledTimes(3);
       expect(states[tabId].status).toBe("idle");
       expect(states[tabId].apiMessages[1]).toEqual({
-        role: "assistant",
-        content: compactedMarkdown,
+        role: "user",
+        content: makeCompactedHistoryApiContent(compactedMarkdown),
       });
       expect(states[tabId].apiMessages[2]).toEqual({
         role: "user",
@@ -5159,8 +5197,8 @@ describe("runner", () => {
       expect(streamTextMock).toHaveBeenCalledTimes(4);
       expect(states[tabId].status).toBe("idle");
       expect(states[tabId].apiMessages[1]).toEqual({
-        role: "assistant",
-        content: compactedMarkdown,
+        role: "user",
+        content: makeCompactedHistoryApiContent(compactedMarkdown),
       });
       expect(
         states[tabId].apiMessages.some((message) => message.role === "tool"),

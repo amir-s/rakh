@@ -286,9 +286,9 @@ function createCompactionSummaryChatMessage(
   };
 }
 
-function isCompactedHistoryAssistantMessage(message: ApiMessage | undefined): boolean {
+function isCompactedHistoryApiMessage(message: ApiMessage | undefined): boolean {
   return (
-    message?.role === "assistant" &&
+    (message?.role === "assistant" || message?.role === "user") &&
     typeof message.content === "string" &&
     message.content.includes("[COMPACTED HISTORY]")
   );
@@ -298,7 +298,7 @@ export function hasOnlyCompactedHistory(apiMessages: ApiMessage[]): boolean {
   return (
     apiMessages.length <= 2 &&
     apiMessages[0]?.role === "system" &&
-    isCompactedHistoryAssistantMessage(apiMessages[1])
+    isCompactedHistoryApiMessage(apiMessages[1])
   );
 }
 
@@ -417,7 +417,13 @@ export async function executeMainContextCompaction(opts: {
       ...prev,
       apiMessages: [
         { role: "system", content: refreshedSystemPrompt },
-        { role: "assistant", content: compactedContent },
+        {
+          role: "user",
+          content:
+            "Synthetic compacted-history handoff for context management.\n" +
+            "Treat this as runner-provided state, not as a new user request.\n\n" +
+            compactedContent,
+        },
       ],
     }));
     appendChatMessage(opts.tabId, summaryMessage.message);

@@ -229,7 +229,8 @@ Manual context compaction is slightly different:
    `agent_artifact_get`.
 4. The runner performs a required-section markdown check on the artifact body.
 5. If validation succeeds, the runner rewrites the main agent's `apiMessages`
-   to the original system prompt plus one assistant compacted-history block.
+   to the original system prompt plus one synthetic compacted-history handoff
+   message.
 
 The artifact remains durable in the shared artifact store and is also shown to
 the user through a runtime-generated summary card. The compacted markdown
