@@ -5,7 +5,9 @@
  */
 
 import {
+  cloneLearnedFacts,
   loadSavedProjectForWorkspace,
+  type ProjectLearnedFact,
   upsertSavedProject,
 } from "@/projects";
 import {
@@ -155,7 +157,7 @@ function projectTodoForCompaction(todo: TodoItem): Record<string, unknown> {
 
 interface ProjectMemorySnapshot {
   projectPath: string;
-  learnedFacts?: string[];
+  learnedFacts?: ProjectLearnedFact[];
 }
 
 async function inspectWorkspaceForSystemPrompt(
@@ -240,7 +242,7 @@ async function restoreProjectMemorySnapshot(
 
   const restoredProject = { ...project };
   if (snapshot.learnedFacts?.length) {
-    restoredProject.learnedFacts = [...snapshot.learnedFacts];
+    restoredProject.learnedFacts = cloneLearnedFacts(snapshot.learnedFacts);
   } else {
     delete restoredProject.learnedFacts;
   }
@@ -298,7 +300,7 @@ async function buildManualCompactionPayload(
       ? {
           projectPath: project.path,
           ...(project.learnedFacts?.length
-            ? { learnedFacts: [...project.learnedFacts] }
+            ? { learnedFacts: cloneLearnedFacts(project.learnedFacts) }
             : {}),
         }
       : null,

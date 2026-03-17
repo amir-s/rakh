@@ -140,11 +140,15 @@ describe("buildSystemPrompt", () => {
       false,
       false,
       runtimeContext,
-      ["Use pnpm in this repo.", "The backend is a Tauri app."],
+      [
+        { id: "fact_pnpm", text: "Use pnpm in this repo." },
+        { id: "fact_tauri", text: "The backend is a Tauri app." },
+      ],
       undefined,
     );
 
     expect(systemPrompt).toContain("PROJECT MEMORY");
+    expect(systemPrompt).toContain("fact_pnpm");
     expect(systemPrompt).toContain("Use pnpm in this repo.");
     expect(systemPrompt).toContain("The backend is a Tauri app.");
   });
@@ -176,6 +180,7 @@ describe("buildSystemPrompt", () => {
 
     expect(systemPrompt).toContain("agent_project_memory_add");
     expect(systemPrompt).toContain("agent_project_memory_remove");
+    expect(systemPrompt).toContain("agent_project_memory_edit");
     expect(systemPrompt).toContain(
       "remember stable repo facts or standing requirements across future sessions",
     );
@@ -186,7 +191,7 @@ describe("buildSystemPrompt", () => {
       "Never store temporary task state, one-off debugging notes, transient plans, or next steps in project memory.",
     );
     expect(systemPrompt).toContain(
-      "remove the stored fact text itself rather than a paraphrase",
+      "remove the stored fact ID itself rather than paraphrasing the fact text",
     );
   });
 });

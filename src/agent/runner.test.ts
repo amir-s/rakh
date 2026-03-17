@@ -395,6 +395,10 @@ function makeCompactedHistoryMarkdown(nextStep = "..."): string {
   ].join("\n");
 }
 
+function fact(id: string, text: string) {
+  return { id, text };
+}
+
 function makeSummaryCardToolCall(
   id: string,
   markdown: string,
@@ -3692,7 +3696,7 @@ describe("runner", () => {
           path: "/repo",
           name: "Repo",
           icon: "folder",
-          learnedFacts: ["Use pnpm in this repo."],
+          learnedFacts: [fact("fact_pnpm", "Use pnpm in this repo.")],
         },
       ]);
       setState(tabId, {
@@ -3777,7 +3781,7 @@ describe("runner", () => {
 
       expect(payload.project_memory).toEqual({
         project_path: "/repo",
-        learned_facts: ["Use pnpm in this repo."],
+        learned_facts: [fact("fact_pnpm", "Use pnpm in this repo.")],
         writable: true,
       });
     });
@@ -3844,7 +3848,7 @@ describe("runner", () => {
           path: "/repo",
           name: "Repo",
           icon: "folder",
-          learnedFacts: ["Existing fact."],
+          learnedFacts: [fact("fact_existing", "Existing fact.")],
         },
       ]);
       setState(tabId, {
@@ -3899,9 +3903,9 @@ describe("runner", () => {
               name: "Repo",
               icon: "folder",
               learnedFacts: [
-                "Existing fact.",
-                "The backend uses Tauri.",
-                "Use pnpm in this repo.",
+                fact("fact_existing", "Existing fact."),
+                fact("fact_tauri", "The backend uses Tauri."),
+                fact("fact_pnpm", "Use pnpm in this repo."),
               ],
             },
           ]);
@@ -3910,13 +3914,13 @@ describe("runner", () => {
             data: {
               projectPath: "/repo",
               learnedFacts: [
-                "Existing fact.",
-                "The backend uses Tauri.",
-                "Use pnpm in this repo.",
+                fact("fact_existing", "Existing fact."),
+                fact("fact_tauri", "The backend uses Tauri."),
+                fact("fact_pnpm", "Use pnpm in this repo."),
               ],
               addedFacts: [
-                "The backend uses Tauri.",
-                "Use pnpm in this repo.",
+                fact("fact_tauri", "The backend uses Tauri."),
+                fact("fact_pnpm", "Use pnpm in this repo."),
               ],
               updated: true,
             },
@@ -3958,12 +3962,15 @@ describe("runner", () => {
       await runAgent(tabId, "/compact");
 
       expect(getSavedProjects()[0]?.learnedFacts).toEqual([
-        "Existing fact.",
-        "The backend uses Tauri.",
-        "Use pnpm in this repo.",
+        fact("fact_existing", "Existing fact."),
+        fact("fact_tauri", "The backend uses Tauri."),
+        fact("fact_pnpm", "Use pnpm in this repo."),
       ]);
       expect(String(states[tabId].apiMessages[0]?.content)).toContain(
         "PROJECT MEMORY",
+      );
+      expect(String(states[tabId].apiMessages[0]?.content)).toContain(
+        "fact_existing",
       );
       expect(String(states[tabId].apiMessages[0]?.content)).toContain(
         "Existing fact.",
@@ -4063,7 +4070,7 @@ describe("runner", () => {
           path: "/repo",
           name: "Repo",
           icon: "folder",
-          learnedFacts: ["Existing fact."],
+          learnedFacts: [fact("fact_existing", "Existing fact.")],
         },
       ]);
       setState(tabId, {
@@ -4115,15 +4122,21 @@ describe("runner", () => {
               path: "/repo",
               name: "Repo",
               icon: "folder",
-              learnedFacts: ["Existing fact.", "The backend uses Tauri."],
+              learnedFacts: [
+                fact("fact_existing", "Existing fact."),
+                fact("fact_tauri", "The backend uses Tauri."),
+              ],
             },
           ]);
           return {
             ok: true,
             data: {
               projectPath: "/repo",
-              learnedFacts: ["Existing fact.", "The backend uses Tauri."],
-              addedFacts: ["The backend uses Tauri."],
+              learnedFacts: [
+                fact("fact_existing", "Existing fact."),
+                fact("fact_tauri", "The backend uses Tauri."),
+              ],
+              addedFacts: [fact("fact_tauri", "The backend uses Tauri.")],
               updated: true,
             },
           };
@@ -4162,7 +4175,9 @@ describe("runner", () => {
 
       await runAgent(tabId, "/compact");
 
-      expect(getSavedProjects()[0]?.learnedFacts).toEqual(["Existing fact."]);
+      expect(getSavedProjects()[0]?.learnedFacts).toEqual([
+        fact("fact_existing", "Existing fact."),
+      ]);
       expect(String(states[tabId].chatMessages.at(-1)?.content)).toContain(
         "missing required sections",
       );
@@ -4175,7 +4190,7 @@ describe("runner", () => {
           path: "/repo",
           name: "Repo",
           icon: "folder",
-          learnedFacts: ["Existing fact."],
+          learnedFacts: [fact("fact_existing", "Existing fact.")],
         },
       ]);
       setState(tabId, {
@@ -4214,15 +4229,21 @@ describe("runner", () => {
               path: "/repo",
               name: "Repo",
               icon: "folder",
-              learnedFacts: ["Existing fact.", "The backend uses Tauri."],
+              learnedFacts: [
+                fact("fact_existing", "Existing fact."),
+                fact("fact_tauri", "The backend uses Tauri."),
+              ],
             },
           ]);
           return {
             ok: true,
             data: {
               projectPath: "/repo",
-              learnedFacts: ["Existing fact.", "The backend uses Tauri."],
-              addedFacts: ["The backend uses Tauri."],
+              learnedFacts: [
+                fact("fact_existing", "Existing fact."),
+                fact("fact_tauri", "The backend uses Tauri."),
+              ],
+              addedFacts: [fact("fact_tauri", "The backend uses Tauri.")],
               updated: true,
             },
           };
@@ -4232,7 +4253,9 @@ describe("runner", () => {
 
       await runAgent(tabId, "/compact");
 
-      expect(getSavedProjects()[0]?.learnedFacts).toEqual(["Existing fact."]);
+      expect(getSavedProjects()[0]?.learnedFacts).toEqual([
+        fact("fact_existing", "Existing fact."),
+      ]);
     });
 
     it("marks project memory unwritable when no saved project record matches the session", async () => {

@@ -11,6 +11,10 @@ import {
   upsertSavedProjectPreservingLearnedFacts,
 } from "./projects";
 
+function fact(id: string, text: string) {
+  return { id, text };
+}
+
 describe("projects", () => {
   beforeEach(async () => {
     await saveSavedProjects([]);
@@ -31,7 +35,7 @@ describe("projects", () => {
               command: "npm run local",
             },
           ],
-          learnedFacts: ["Use pnpm in this repo."],
+          learnedFacts: [fact("fact_pnpm", "Use pnpm in this repo.")],
         },
         {
           exists: true,
@@ -60,11 +64,11 @@ describe("projects", () => {
           command: "npm run repo",
         },
       ],
-      learnedFacts: ["Use pnpm in this repo."],
+      learnedFacts: [fact("fact_pnpm", "Use pnpm in this repo.")],
     });
   });
 
-  it("normalizes learned facts by trimming, deduping, and capping to the newest 50", () => {
+  it("migrates legacy learned facts by trimming, assigning IDs, deduping, and capping to the newest 50", () => {
     const normalized = normalizeSavedProject({
       path: "/repo",
       name: "Repo",
@@ -80,39 +84,49 @@ describe("projects", () => {
     });
 
     expect(normalized?.learnedFacts).toHaveLength(MAX_PROJECT_LEARNED_FACTS);
-    expect(normalized?.learnedFacts?.[0]).toBe("Fact 2");
-    expect(normalized?.learnedFacts?.at(-1)).toBe(
-      `Fact ${MAX_PROJECT_LEARNED_FACTS + 1}`,
-    );
+    expect(normalized?.learnedFacts?.[0]).toMatchObject({ text: "Fact 2" });
+    expect(normalized?.learnedFacts?.[0]?.id).toMatch(/^fact_/);
+    expect(normalized?.learnedFacts?.at(-1)).toMatchObject({
+      text: `Fact ${MAX_PROJECT_LEARNED_FACTS + 1}`,
+    });
   });
 
   it("merges new learned facts without duplicates and keeps the newest 50", () => {
     const existing = Array.from(
       { length: MAX_PROJECT_LEARNED_FACTS },
-      (_, index) => `Fact ${index}`,
+      (_, index) => fact(`fact_${index}`, `Fact ${index}`),
     );
 
-    expect(
-      mergeProjectLearnedFacts(existing, [" Fact 49 ", "Fact 50", "", "Fact 51"]),
-    ).toEqual({
-      learnedFacts: Array.from(
-        { length: MAX_PROJECT_LEARNED_FACTS },
-        (_, index) => `Fact ${index + 2}`,
-      ),
-      addedFacts: ["Fact 50", "Fact 51"],
-      updated: true,
-    });
+    const result = mergeProjectLearnedFacts(existing, [
+      " Fact 49 ",
+      "Fact 50",
+      "",
+      "Fact 51",
+    ]);
+
+    expect(result.updated).toBe(true);
+    expect(result.addedFacts).toHaveLength(2);
+    expect(result.addedFacts.map((entry) => entry.text)).toEqual([
+      "Fact 50",
+      "Fact 51",
+    ]);
+    expect(result.learnedFacts).toHaveLength(MAX_PROJECT_LEARNED_FACTS);
+    expect(result.learnedFacts?.[0]).toMatchObject({ text: "Fact 2" });
+    expect(result.learnedFacts?.at(-1)).toMatchObject({ text: "Fact 51" });
   });
 
-  it("removes learned facts by exact normalized match", () => {
+  it("removes learned facts by stable ID", () => {
     expect(
       removeProjectLearnedFacts(
-        ["Use pnpm in this repo.", "The backend uses Tauri."],
-        [" Use pnpm in this repo. ", "Missing fact"],
+        [
+          fact("fact_pnpm", "Use pnpm in this repo."),
+          fact("fact_tauri", "The backend uses Tauri."),
+        ],
+        [" fact_pnpm ", "fact_missing"],
       ),
     ).toEqual({
-      learnedFacts: ["The backend uses Tauri."],
-      removedFacts: ["Use pnpm in this repo."],
+      learnedFacts: [fact("fact_tauri", "The backend uses Tauri.")],
+      removedFacts: [fact("fact_pnpm", "Use pnpm in this repo.")],
       updated: true,
     });
   });
@@ -123,7 +137,7 @@ describe("projects", () => {
         path: "/repo",
         name: "Repo",
         icon: "folder_code",
-        learnedFacts: ["Use pnpm in this repo."],
+        learnedFacts: [fact("fact_pnpm", "Use pnpm in this repo.")],
       },
     ]);
 
@@ -131,7 +145,7 @@ describe("projects", () => {
       path: "/repo",
       name: "Repo Renamed",
       icon: "folder_open",
-      learnedFacts: ["Use pnpm in this repo."],
+      learnedFacts: [fact("fact_pnpm", "Use pnpm in this repo.")],
       setupCommand: "pnpm install",
     });
 
@@ -140,7 +154,7 @@ describe("projects", () => {
         path: "/repo",
         name: "Repo Renamed",
         icon: "folder_open",
-        learnedFacts: ["Use pnpm in this repo."],
+        learnedFacts: [fact("fact_pnpm", "Use pnpm in this repo.")],
         setupCommand: "pnpm install",
       },
     ]);
@@ -152,7 +166,7 @@ describe("projects", () => {
         path: "/repo",
         name: "Repo",
         icon: "folder_code",
-        learnedFacts: ["Use pnpm in this repo."],
+        learnedFacts: [fact("fact_pnpm", "Use pnpm in this repo.")],
       },
     ]);
 
@@ -168,7 +182,7 @@ describe("projects", () => {
         path: "/repo",
         name: "Repo Renamed",
         icon: "folder_open",
-        learnedFacts: ["Use pnpm in this repo."],
+        learnedFacts: [fact("fact_pnpm", "Use pnpm in this repo.")],
         setupCommand: "pnpm install",
       },
     ]);
