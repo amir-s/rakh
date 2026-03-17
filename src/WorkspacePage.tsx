@@ -1716,6 +1716,7 @@ export default function WorkspacePage() {
               contextCurrentKb={contextWindowKb?.currentKb ?? null}
               contextMaxKb={contextWindowKb?.maxKb ?? null}
               sessionUsageSummary={agent.sessionUsageSummary ?? null}
+              sessionCostSeries={agent.sessionCostSeries}
               onOpenProvidersSettings={() => openSettingsTab("providers")}
             />
             <VoiceInputStateProvider value={voiceInput}>

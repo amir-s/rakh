@@ -13,9 +13,11 @@ import { useAtom, useAtomValue } from "jotai";
 import { useCallback } from "react";
 import { logFrontendSoon } from "@/logging/client";
 import {
+  buildSessionCostSeries,
   estimateCurrentContextStats,
   summarizeSessionUsage,
   type CurrentContextStats,
+  type SessionCostSeriesPoint,
   type SessionUsageSummary,
 } from "./sessionStats";
 
@@ -60,6 +62,7 @@ export interface ContextWindowKbUsage {
 }
 
 export type { CurrentContextStats, SessionUsageSummary };
+export type { SessionCostSeriesPoint };
 
 /* ── Full atom for a tab (use when you need to write to it) ──────────────── */
 
@@ -305,6 +308,11 @@ export function useSessionUsageSummary(tabId: string): SessionUsageSummary | nul
   return summarizeSessionUsage(llmUsageLedger);
 }
 
+export function useSessionCostSeries(tabId: string): SessionCostSeriesPoint[] {
+  const llmUsageLedger = useAtomValue(agentAtomFamily(tabId)).llmUsageLedger;
+  return buildSessionCostSeries(llmUsageLedger);
+}
+
 /* ── Convenience: everything for one tab in a single hook ────────────────── */
 
 export function useAgent(tabId: string) {
@@ -339,6 +347,7 @@ export function useAgent(tabId: string) {
   const contextWindowPct = useContextWindowPct(tabId);
   const contextWindowKb = useContextWindowKb(tabId);
   const sessionUsageSummary = useSessionUsageSummary(tabId);
+  const sessionCostSeries = useSessionCostSeries(tabId);
 
   return {
     status,
@@ -355,6 +364,7 @@ export function useAgent(tabId: string) {
     contextWindowPct,
     contextWindowKb,
     sessionUsageSummary,
+    sessionCostSeries,
     autoApproveEdits,
     autoApproveCommands,
     groupInlineToolCalls,

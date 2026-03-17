@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  buildSessionCostSeries,
   estimateCurrentContextStats,
   summarizeSessionUsage,
 } from "./sessionStats";
@@ -128,6 +129,55 @@ describe("sessionStats", () => {
       missingPricingModels: [{ modelId: "custom/missing", label: "custom/missing" }],
     });
     expect(summary?.knownCostUsd).toBeCloseTo(0.0024, 6);
+  });
+
+  it("builds a cost series in timestamp order with cumulative known cost", () => {
+    const series = buildSessionCostSeries(
+      [
+        makeUsageRecord({
+          id: "usage-2",
+          timestamp: 20,
+          modelId: "custom/missing",
+          inputTokens: 500,
+          noCacheInputTokens: 500,
+          outputTokens: 100,
+          totalTokens: 600,
+        }),
+        makeUsageRecord({
+          id: "usage-1",
+          timestamp: 10,
+        }),
+      ],
+      (modelId) =>
+        modelId === "openai/gpt-5.2"
+          ? {
+              id: modelId,
+              name: "GPT 5.2",
+              providerId: "provider-openai",
+              owned_by: "openai",
+              tags: [],
+              sdk_id: "gpt-5.2",
+              pricing: { prompt: 1, completion: 4 },
+            }
+          : null,
+    );
+
+    expect(series).toEqual([
+      expect.objectContaining({
+        id: "usage-1",
+        index: 0,
+        costStatus: "complete",
+        callCostUsd: 0.0024,
+        cumulativeKnownCostUsd: 0.0024,
+      }),
+      expect.objectContaining({
+        id: "usage-2",
+        index: 1,
+        costStatus: "missing",
+        callCostUsd: null,
+        cumulativeKnownCostUsd: 0.0024,
+      }),
+    ]);
   });
 
   it("estimates current context from live api messages", () => {
