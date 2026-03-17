@@ -185,15 +185,16 @@ Context Compaction settings enable threshold-based auto-triggering. The runner
 checks the live `apiMessages` size before a new main turn starts and between
 main-agent iterations. When the configured percentage or KB threshold is
 crossed, it runs the internal compactor, rewrites `apiMessages` to the
-refreshed system prompt plus one compacted-history assistant message, appends a
-single summary card to `chatMessages`, and then resumes the main loop. Those
+refreshed system prompt plus one compacted-history assistant message, keeps the
+compactor's streamed turns visible in `chatMessages`, appends a final summary
+card, and then resumes the main loop. Those
 global settings are loaded at app startup from `config/compaction.json` and
 include both the tool-IO compaction toggle and the automatic compactor
 thresholds.
 
-Because `/compact` is currently run with visible subagent output enabled, the
-chat transcript also shows the compactor's internal streaming/tool activity
-before the final summary card is appended.
+The compactor runs with visible subagent output enabled, so the chat transcript
+shows its internal streaming/tool activity before the final summary card is
+appended in both manual and automatic compaction flows.
 
 The runner supports multiple concurrent tabs by keeping a separate abort
 controller and run counter per tab.

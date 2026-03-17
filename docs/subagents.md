@@ -246,8 +246,8 @@ bubble in the parent tab.
   (or `~/.rakh-dev/config/compaction.json` in debug builds)
 - it still streams its own internal subagent turns into chat when manually
   triggered
-- automatic runs suppress the internal streamed turns and append a single
-  context-compaction summary card instead
+- automatic runs keep the internal streamed turns visible in chat and still
+  append the final context-compaction summary card
 - after the subagent finishes, the main runner rewrites `apiMessages` to the
   refreshed main-agent system prompt plus one synthetic assistant summary containing the
   compacted history block

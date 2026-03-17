@@ -346,7 +346,7 @@ export async function executeMainContextCompaction(opts: {
       providers: triggerProviders,
       debugEnabled: triggerDebug,
       logContext: opts.logContext,
-      suppressChatOutput: opts.mode === "automatic",
+      suppressChatOutput: false,
     });
 
     if (!subagentResult.ok) {
