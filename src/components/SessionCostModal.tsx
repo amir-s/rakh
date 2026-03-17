@@ -88,7 +88,7 @@ function buildLinePath(points: Array<{ x: number; y: number }>): string {
     .join(" ");
 }
 
-function buildSeriesTitle(point: SessionCostSeriesPoint): string {
+function buildPerCallTooltipContent(point: SessionCostSeriesPoint): string {
   const costLabel =
     point.callCostUsd == null ? "Pricing unavailable" : formatUsd(point.callCostUsd);
   return [
@@ -99,8 +99,22 @@ function buildSeriesTitle(point: SessionCostSeriesPoint): string {
   ].join("\n");
 }
 
+function buildCumulativeTooltipContent(point: SessionCostSeriesPoint): string {
+  const pointCostLabel =
+    point.callCostUsd == null
+      ? "Call pricing unavailable"
+      : `Call cost ${formatUsd(point.callCostUsd)}`;
+  return [
+    `Call ${point.index + 1}`,
+    `${formatDateTime(point.timestamp)}`,
+    `${point.actorLabel} - ${point.operation}`,
+    `Total so far ${formatUsd(point.cumulativeKnownCostUsd)}`,
+    `${pointCostLabel} - ${formatTokens(point.totalTokens)} tok`,
+  ].join("\n");
+}
+
 function buildTooltipState(
-  point: SessionCostSeriesPoint,
+  content: string,
   x: number,
   y: number,
 ): ChartTooltipState {
@@ -109,7 +123,7 @@ function buildTooltipState(
   return {
     leftPct,
     topPct,
-    content: buildSeriesTitle(point),
+    content,
   };
 }
 
@@ -270,6 +284,9 @@ function SessionActorCostLineChart({
                 {positioned.map(({ point, x, y }) =>
                   y === null ? (
                     showMissingMarkers ? (
+                      (() => {
+                        const tooltipContent = buildPerCallTooltipContent(point);
+                        return (
                       <circle
                         key={point.id}
                         className="session-cost-chart-dot session-cost-chart-dot--missing"
@@ -277,23 +294,27 @@ function SessionActorCostLineChart({
                         cx={x}
                         cy={chartBottom}
                         r={3.5}
-                        aria-label={buildSeriesTitle(point).replaceAll("\n", " ")}
+                        aria-label={tooltipContent.replaceAll("\n", " ")}
                         tabIndex={0}
                         onMouseEnter={() =>
-                          setTooltip(buildTooltipState(point, x, chartBottom))
+                          setTooltip(buildTooltipState(tooltipContent, x, chartBottom))
                         }
                         onMouseMove={() =>
-                          setTooltip(buildTooltipState(point, x, chartBottom))
+                          setTooltip(buildTooltipState(tooltipContent, x, chartBottom))
                         }
                         onMouseLeave={() => setTooltip(null)}
                         onFocus={() =>
-                          setTooltip(buildTooltipState(point, x, chartBottom))
+                          setTooltip(buildTooltipState(tooltipContent, x, chartBottom))
                         }
                         onBlur={() => setTooltip(null)}
-                      >
-                      </circle>
+                      />
+                        );
+                      })()
                     ) : null
                   ) : (
+                    (() => {
+                      const tooltipContent = buildPerCallTooltipContent(point);
+                      return (
                     <circle
                       key={point.id}
                       className="session-cost-chart-dot"
@@ -302,15 +323,20 @@ function SessionActorCostLineChart({
                       cy={y}
                       r={4}
                       fill={seriesEntry.color}
-                      aria-label={buildSeriesTitle(point).replaceAll("\n", " ")}
+                      aria-label={tooltipContent.replaceAll("\n", " ")}
                       tabIndex={0}
-                      onMouseEnter={() => setTooltip(buildTooltipState(point, x, y))}
-                      onMouseMove={() => setTooltip(buildTooltipState(point, x, y))}
+                      onMouseEnter={() =>
+                        setTooltip(buildTooltipState(tooltipContent, x, y))
+                      }
+                      onMouseMove={() =>
+                        setTooltip(buildTooltipState(tooltipContent, x, y))
+                      }
                       onMouseLeave={() => setTooltip(null)}
-                      onFocus={() => setTooltip(buildTooltipState(point, x, y))}
+                      onFocus={() => setTooltip(buildTooltipState(tooltipContent, x, y))}
                       onBlur={() => setTooltip(null)}
-                    >
-                    </circle>
+                    />
+                      );
+                    })()
                   ),
                 )}
               </g>
@@ -346,6 +372,7 @@ function SessionCostLineChart({
   latestValueLabel,
   showMissingMarkers = false,
   chartId,
+  buildTooltipContent = buildPerCallTooltipContent,
 }: {
   title: string;
   description: string;
@@ -356,6 +383,7 @@ function SessionCostLineChart({
   latestValueLabel: string;
   showMissingMarkers?: boolean;
   chartId?: string;
+  buildTooltipContent?: (point: SessionCostSeriesPoint) => string;
 }) {
   const [tooltip, setTooltip] = useState<ChartTooltipState | null>(null);
   const pointsWithValues = points.map((point) => ({
@@ -452,6 +480,9 @@ function SessionCostLineChart({
           {positioned.map(({ point, value, x, y }) =>
             y === null ? (
               showMissingMarkers ? (
+                (() => {
+                  const tooltipContent = buildTooltipContent(point);
+                  return (
                 <circle
                   key={point.id}
                   className="session-cost-chart-dot session-cost-chart-dot--missing"
@@ -459,23 +490,27 @@ function SessionCostLineChart({
                   cx={x}
                   cy={chartBottom}
                   r={3.5}
-                  aria-label={buildSeriesTitle(point).replaceAll("\n", " ")}
+                  aria-label={tooltipContent.replaceAll("\n", " ")}
                   tabIndex={0}
                   onMouseEnter={() =>
-                    setTooltip(buildTooltipState(point, x, chartBottom))
+                    setTooltip(buildTooltipState(tooltipContent, x, chartBottom))
                   }
                   onMouseMove={() =>
-                    setTooltip(buildTooltipState(point, x, chartBottom))
+                    setTooltip(buildTooltipState(tooltipContent, x, chartBottom))
                   }
                   onMouseLeave={() => setTooltip(null)}
                   onFocus={() =>
-                    setTooltip(buildTooltipState(point, x, chartBottom))
+                    setTooltip(buildTooltipState(tooltipContent, x, chartBottom))
                   }
                   onBlur={() => setTooltip(null)}
-                >
-                </circle>
+                />
+                  );
+                })()
               ) : null
             ) : (
+              (() => {
+                const tooltipContent = buildTooltipContent(point);
+                return (
               <circle
                 key={point.id}
                 className="session-cost-chart-dot"
@@ -484,15 +519,20 @@ function SessionCostLineChart({
                 cy={y}
                 r={4}
                 fill={lineColor}
-                aria-label={buildSeriesTitle(point).replaceAll("\n", " ")}
+                aria-label={tooltipContent.replaceAll("\n", " ")}
                 tabIndex={0}
-                onMouseEnter={() => setTooltip(buildTooltipState(point, x, y))}
-                onMouseMove={() => setTooltip(buildTooltipState(point, x, y))}
+                onMouseEnter={() =>
+                  setTooltip(buildTooltipState(tooltipContent, x, y))
+                }
+                onMouseMove={() =>
+                  setTooltip(buildTooltipState(tooltipContent, x, y))
+                }
                 onMouseLeave={() => setTooltip(null)}
-                onFocus={() => setTooltip(buildTooltipState(point, x, y))}
+                onFocus={() => setTooltip(buildTooltipState(tooltipContent, x, y))}
                 onBlur={() => setTooltip(null)}
-              >
-              </circle>
+              />
+                );
+              })()
             ),
           )}
         </svg>
@@ -631,6 +671,7 @@ export default function SessionCostModal({
                 ? "Unavailable"
                 : formatUsd(summary.knownCostUsd)
             }
+            buildTooltipContent={buildCumulativeTooltipContent}
           />
 
           <section className="session-cost-section">
