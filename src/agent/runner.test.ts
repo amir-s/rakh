@@ -483,18 +483,6 @@ describe("hasOnlyCompactedHistory", () => {
       ]),
     ).toBe(true);
   });
-
-  it("accepts legacy assistant compacted history", () => {
-    expect(
-      hasOnlyCompactedHistory([
-        { role: "system", content: "system prompt" },
-        {
-          role: "assistant",
-          content: makeCompactedHistoryMarkdown("Resume work."),
-        },
-      ]),
-    ).toBe(true);
-  });
 });
 
 describe("runner", () => {
@@ -4600,7 +4588,12 @@ describe("runner", () => {
       setState(tabId, {
         apiMessages: [
           { role: "system", content: "Original system prompt" },
-          { role: "assistant", content: makeCompactedHistoryMarkdown("Older next step.") },
+          {
+            role: "user",
+            content: makeCompactedHistoryApiContent(
+              makeCompactedHistoryMarkdown("Older next step."),
+            ),
+          },
           { role: "user", content: "Continue with the implementation." },
           { role: "assistant", content: "I updated the tests." },
         ],

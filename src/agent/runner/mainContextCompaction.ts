@@ -286,9 +286,11 @@ function createCompactionSummaryChatMessage(
   };
 }
 
-function isCompactedHistoryApiMessage(message: ApiMessage | undefined): boolean {
+function isCompactedHistoryHandoffMessage(
+  message: ApiMessage | undefined,
+): boolean {
   return (
-    (message?.role === "assistant" || message?.role === "user") &&
+    message?.role === "user" &&
     typeof message.content === "string" &&
     message.content.includes("[COMPACTED HISTORY]")
   );
@@ -298,7 +300,7 @@ export function hasOnlyCompactedHistory(apiMessages: ApiMessage[]): boolean {
   return (
     apiMessages.length <= 2 &&
     apiMessages[0]?.role === "system" &&
-    isCompactedHistoryApiMessage(apiMessages[1])
+    isCompactedHistoryHandoffMessage(apiMessages[1])
   );
 }
 
