@@ -1,4 +1,9 @@
-import { getAgentState, patchAgentState } from "../atoms";
+import {
+  getAgentState,
+  jotaiStore,
+  patchAgentState,
+  toolContextCompactionEnabledAtom,
+} from "../atoms";
 import { getToolDefinitionsByNames } from "../tools";
 import {
   requestUserInput,
@@ -66,8 +71,16 @@ import {
   RunAbortedError,
   serializeToolResultForModel,
 } from "./utils";
+import {
+  buildToolContextCompactedInput,
+  buildToolContextCompactedOutput,
+  mergeToolContextCompactionDisplay,
+  prepareToolContextCompaction,
+} from "./toolContextCompaction";
 
 type ToolFailureResult = Extract<ToolResult<unknown>, { ok: false }>;
+
+const SUBAGENT_SYNTHETIC_TOOL_NAMES = new Set(["user_input", "agent_card_add"]);
 
 interface PreparedSubagentArtifactToolCall {
   args: Record<string, unknown>;
@@ -261,6 +274,8 @@ export async function runSubagentLoop(
 
   const toolDefs = getToolDefinitionsByNames(subagentDef.tools);
   const communicationProfile = getAgentState(tabId).config.communicationProfile;
+  const toolContextCompactionEnabled =
+    jotaiStore.get(toolContextCompactionEnabledAtom) !== false;
   const systemPromptText = buildSubagentSystemPrompt(subagentDef, communicationProfile);
 
   const localApiMessages: ApiMessage[] = [
@@ -613,7 +628,90 @@ export async function runSubagentLoop(
     });
 
     finalText = streamed.text;
-    localApiMessages.push(streamed.assistantApiMsg);
+    const preparedToolCalls = new Map(
+      streamed.parsedToolCalls.map((tc) => {
+        const prepared = prepareToolContextCompaction(
+          tc.function.name,
+          parseArgs(tc.function.arguments),
+          SUBAGENT_SYNTHETIC_TOOL_NAMES.has(tc.function.name)
+            ? "synthetic"
+            : "local",
+          { enabled: toolContextCompactionEnabled },
+        );
+        if (prepared.warnings.length > 0) {
+          writeRunnerLog({
+            level: "warn",
+            tags: ["frontend", "agent-loop", "tool-calls"],
+            event: "runner.subagent.tool.context-compaction.ignored",
+            message: `Ignored tool context compaction metadata on ${tc.function.name}`,
+            data: {
+              toolName: tc.function.name,
+              warnings: prepared.warnings,
+              subagentId: subagentDef.id,
+            },
+            context: {
+              ...subagentContext,
+              correlationId: tc.id,
+              depth: subagentContext.depth,
+            },
+          });
+        }
+        return [tc.id, prepared] as const;
+      }),
+    );
+
+    const assistantApiMsg = {
+      ...streamed.assistantApiMsg,
+      ...(streamed.assistantApiMsg.tool_calls
+        ? {
+            tool_calls: streamed.assistantApiMsg.tool_calls.map((toolCall) => {
+              const prepared = preparedToolCalls.get(toolCall.id);
+              if (!prepared) return toolCall;
+              const compacted = buildToolContextCompactedInput(
+                toolCall.function.name,
+                prepared,
+              );
+              return {
+                ...toolCall,
+                function: {
+                  ...toolCall.function,
+                  arguments: compacted.argumentsJson,
+                },
+              };
+            }),
+          }
+        : {}),
+    };
+
+    localApiMessages.push(assistantApiMsg);
+
+    patchAgentState(tabId, (prev) => ({
+      ...prev,
+      chatMessages: prev.chatMessages.map((message) =>
+        message.toolCalls
+          ? {
+              ...message,
+              toolCalls: message.toolCalls.map((toolCall) => {
+                const prepared = preparedToolCalls.get(toolCall.id);
+                if (!prepared) return toolCall;
+                const compacted = buildToolContextCompactedInput(
+                  toolCall.tool,
+                  prepared,
+                );
+                return compacted.display
+                  ? {
+                      ...toolCall,
+                      contextCompaction: mergeToolContextCompactionDisplay(
+                        toolCall.contextCompaction,
+                        compacted.display,
+                      ),
+                    }
+                  : toolCall;
+              }),
+            }
+          : message,
+      ),
+    }));
 
     if (streamed.parsedToolCalls.length === 0) break;
 
@@ -626,6 +724,8 @@ export async function runSubagentLoop(
     const toolResults = await Promise.all(
       streamed.parsedToolCalls.map(async (tc) => {
         const tcId = tc.id;
+        const preparedCompaction = preparedToolCalls.get(tcId);
+        const rawArgs = preparedCompaction?.strippedArgs ?? parseArgs(tc.function.arguments);
         const toolLog = createToolLogContext(
           subagentContext,
           tcId,
@@ -641,7 +741,7 @@ export async function runSubagentLoop(
           expandable: true,
           data: {
             toolName: tc.function.name,
-            args: parseArgs(tc.function.arguments),
+            args: rawArgs,
             subagentId: subagentDef.id,
           },
           context: {
@@ -660,7 +760,21 @@ export async function runSubagentLoop(
                 ? {
                     ...m,
                     toolCalls: m.toolCalls.map((t) =>
-                      t.id === tcId ? { ...t, ...patch } : t,
+                      t.id === tcId
+                        ? {
+                            ...t,
+                            ...patch,
+                            ...(patch.contextCompaction
+                              ? {
+                                  contextCompaction:
+                                    mergeToolContextCompactionDisplay(
+                                      t.contextCompaction,
+                                      patch.contextCompaction,
+                                    ),
+                                }
+                              : {}),
+                          }
+                        : t,
                     ),
                   }
                 : m,
@@ -668,7 +782,6 @@ export async function runSubagentLoop(
           }));
         }
 
-        const rawArgs = parseArgs(tc.function.arguments);
         const toolResult = await executeToolCall({
           toolName: tc.function.name,
           rawArgs,
@@ -764,7 +877,34 @@ export async function runSubagentLoop(
           },
         });
 
-        return { tool_call_id: tcId, result: toolResult };
+        const fallbackContent = serializeToolResultForModel(
+          tcId,
+          streamed.parsedToolCalls,
+          toolResult,
+        );
+        const compactedOutput = preparedCompaction
+          ? buildToolContextCompactedOutput(
+              tc.function.name,
+              toolResult,
+              preparedCompaction,
+              fallbackContent,
+            )
+          : { content: fallbackContent };
+
+        if (compactedOutput.display) {
+          updateToolCallById({
+            contextCompaction: mergeToolContextCompactionDisplay(
+              preparedCompaction?.display,
+              compactedOutput.display,
+            ),
+          });
+        }
+
+        return {
+          tool_call_id: tcId,
+          result: toolResult,
+          content: compactedOutput.content,
+        };
       }),
     );
     if (signal.aborted || !isCurrentRunId(tabId, runId)) {
@@ -777,14 +917,10 @@ export async function runSubagentLoop(
     }
 
     const toolApiMessages: ApiMessage[] = toolResults.map(
-      ({ tool_call_id, result }) => ({
+      ({ tool_call_id, content }) => ({
         role: "tool" as const,
         tool_call_id,
-        content: serializeToolResultForModel(
-          tool_call_id,
-          streamed.parsedToolCalls,
-          result,
-        ),
+        content,
       }),
     );
     localApiMessages.push(...toolApiMessages);

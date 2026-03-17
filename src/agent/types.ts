@@ -179,6 +179,7 @@ export interface ToolCallDisplay {
   id: string;
   tool: string;
   args: Record<string, unknown>;
+  contextCompaction?: ToolContextCompactionDisplay;
   mcp?: {
     serverId: string;
     serverName: string;
@@ -204,11 +205,34 @@ export interface ToolCallDisplay {
     | "awaiting_approval"
     | "awaiting_worktree"
     | "awaiting_branch_release"
-    | "awaiting_setup_action"
-    | "running"
-    | "done"
-    | "error"
-    | "denied";
+  | "awaiting_setup_action"
+  | "running"
+  | "done"
+  | "error"
+  | "denied";
+}
+
+export type ToolContextCompactionOutputMode = "always" | "on_success";
+
+export interface ToolContextCompactionRequest {
+  inputNote?: string;
+  outputNote?: string;
+  outputMode?: ToolContextCompactionOutputMode;
+}
+
+export interface ToolContextCompactionSideDisplay {
+  status: "full" | "compacted";
+  note?: string;
+  reason?: string;
+  mode?: ToolContextCompactionOutputMode;
+  modelValue?: unknown;
+}
+
+export interface ToolContextCompactionDisplay {
+  request: ToolContextCompactionRequest;
+  input?: ToolContextCompactionSideDisplay;
+  output?: ToolContextCompactionSideDisplay;
+  warnings?: string[];
 }
 
 export type ConversationCardKind = "summary" | "artifact";

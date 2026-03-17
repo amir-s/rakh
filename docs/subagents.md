@@ -51,7 +51,7 @@ trigger-command-only internal helpers that should not appear in the main
 agent's delegatable subagent list.
 
 `usageActorKind` defaults to `"subagent"`. Internal maintenance flows such as
-manual context compaction use `"internal"` so usage accounting can distinguish
+manual or automatic context compaction use `"internal"` so usage accounting can distinguish
 them from normal delegated subagent work.
 
 ## Output Contract
@@ -240,8 +240,12 @@ bubble in the parent tab.
 - it is manual-trigger-only and sets `callableByMainAgent: false`
 - it is omitted from the main agent system prompt's delegatable subagent list
 - `agent_subagent_call("compact", ...)` is rejected by the runner
+- the runner may also invoke it automatically when the global Context
+  Compaction settings enable threshold-based auto-compaction
 - it still streams its own internal subagent turns into chat when manually
   triggered
+- automatic runs suppress the internal streamed turns and append a single
+  context-compaction summary card instead
 - after the subagent finishes, the main runner rewrites `apiMessages` to the
   refreshed main-agent system prompt plus one synthetic assistant summary containing the
   compacted history block
@@ -284,7 +288,8 @@ bubble in the parent tab.
 - Produces one required markdown artifact
 - `artifactType: "compact-state"`
 - `kind: "context-compaction"`
-- Manual trigger only through `/compact`
+- Manual trigger through `/compact`
+- Optional automatic trigger from the global Context Compaction settings
 - Tool allowlist is limited to `agent_artifact_create` and `agent_project_memory_add`
 - No schema validator; the runner performs a required-section markdown check
 - The runtime reinserts the real system prompt separately and never asks the

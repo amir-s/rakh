@@ -1,4 +1,9 @@
-import { getAgentState, jotaiStore, patchAgentState } from "../atoms";
+import {
+  getAgentState,
+  jotaiStore,
+  patchAgentState,
+  toolContextCompactionEnabledAtom,
+} from "../atoms";
 import {
   mcpSettingsAtom,
   callMcpTool,
@@ -43,12 +48,34 @@ import { buildProviderOptions, resolveLanguageModel } from "./providerOptions";
 import { streamTurn } from "./streamTurn";
 import { runSubagentLoop } from "./subagentLoop";
 import {
-  isRecord,
   isRunAbortedToolResult,
   parseArgs,
   RunAbortedError,
   serializeToolResultForModel,
 } from "./utils";
+import {
+  buildToolContextCompactedInput,
+  buildToolContextCompactedOutput,
+  mergeToolContextCompactionDisplay,
+  prepareToolContextCompaction,
+  type ToolContextCompactionSourceKind,
+} from "./toolContextCompaction";
+import { maybeRunAutomaticMainContextCompaction } from "./mainContextCompaction";
+
+const SYNTHETIC_TOOL_NAMES = new Set([
+  "agent_subagent_call",
+  "user_input",
+  "agent_card_add",
+]);
+
+function resolveToolContextCompactionSourceKind(
+  toolName: string,
+  mcpToolsByName: MainAgentMcpRuntime["toolsByName"],
+): ToolContextCompactionSourceKind {
+  if (mcpToolsByName[toolName]) return "mcp";
+  if (SYNTHETIC_TOOL_NAMES.has(toolName)) return "synthetic";
+  return "local";
+}
 
 function buildToolCallDisplay(
   toolCallId: string,
@@ -138,8 +165,52 @@ export async function agentLoop(
     for (let iteration = 0; iteration < 50; iteration++) {
       if (signal.aborted) return;
 
+      if (iteration > 0) {
+        const autoCompactionResult =
+          await maybeRunAutomaticMainContextCompaction({
+            tabId,
+            signal,
+            runId,
+            currentTurn,
+            logContext: runLogContext,
+          });
+        if (autoCompactionResult.status === "compacted") {
+          writeRunnerLog({
+            level: "info",
+            tags: ["frontend", "agent-loop", "system"],
+            event: "runner.context-compaction.auto.triggered",
+            message:
+              "Automatic context compaction ran before the next assistant iteration",
+            data: {
+              source: "iteration",
+              iteration,
+              trigger: autoCompactionResult.trigger,
+            },
+            context: runLogContext,
+          });
+        } else if (autoCompactionResult.status === "failed") {
+          writeRunnerLog({
+            level: "warn",
+            tags: ["frontend", "agent-loop", "system"],
+            event: "runner.context-compaction.auto.failed",
+            message:
+              "Automatic context compaction failed before the next assistant iteration",
+            data: {
+              source: "iteration",
+              iteration,
+              trigger: autoCompactionResult.trigger,
+              error:
+                autoCompactionResult.error ?? autoCompactionResult.message,
+            },
+            context: runLogContext,
+          });
+        }
+      }
+
       const turnStartedAtMs = Date.now();
       const currentApiMessages = getAgentState(tabId).apiMessages;
+      const toolContextCompactionEnabled =
+        jotaiStore.get(toolContextCompactionEnabledAtom) !== false;
       const turnStartId = nextLogId(`turn:${runId}:${iteration}`);
       const turnContext: LogContext = {
         ...runLogContext,
@@ -216,9 +287,88 @@ export async function agentLoop(
         context: turnContext,
       });
 
+      const preparedToolCalls = new Map(
+        streamed.parsedToolCalls.map((tc) => {
+          const prepared = prepareToolContextCompaction(
+            tc.function.name,
+            parseArgs(tc.function.arguments),
+            resolveToolContextCompactionSourceKind(
+              tc.function.name,
+              mcpRuntime.toolsByName,
+            ),
+            { enabled: toolContextCompactionEnabled },
+          );
+          if (prepared.warnings.length > 0) {
+            writeRunnerLog({
+              level: "warn",
+              tags: ["frontend", "agent-loop", "tool-calls"],
+              event: "runner.tool.context-compaction.ignored",
+              message: `Ignored tool context compaction metadata on ${tc.function.name}`,
+              data: {
+                toolName: tc.function.name,
+                warnings: prepared.warnings,
+              },
+              context: {
+                ...turnContext,
+                correlationId: tc.id,
+                depth: turnContext.depth ?? 2,
+              },
+            });
+          }
+          return [tc.id, prepared] as const;
+        }),
+      );
+
+      const assistantApiMsg = {
+        ...streamed.assistantApiMsg,
+        ...(streamed.assistantApiMsg.tool_calls
+          ? {
+              tool_calls: streamed.assistantApiMsg.tool_calls.map((toolCall) => {
+                const prepared = preparedToolCalls.get(toolCall.id);
+                if (!prepared) return toolCall;
+                const compacted = buildToolContextCompactedInput(
+                  toolCall.function.name,
+                  prepared,
+                );
+                return {
+                  ...toolCall,
+                  function: {
+                    ...toolCall.function,
+                    arguments: compacted.argumentsJson,
+                  },
+                };
+              }),
+            }
+          : {}),
+      };
+
       patchAgentState(tabId, (prev) => ({
         ...prev,
-        apiMessages: [...prev.apiMessages, streamed.assistantApiMsg],
+        apiMessages: [...prev.apiMessages, assistantApiMsg],
+        chatMessages: prev.chatMessages.map((message) =>
+          message.toolCalls
+            ? {
+                ...message,
+                toolCalls: message.toolCalls.map((toolCall) => {
+                  const prepared = preparedToolCalls.get(toolCall.id);
+                  if (!prepared) return toolCall;
+                  const compacted = buildToolContextCompactedInput(
+                    toolCall.tool,
+                    prepared,
+                  );
+                  return compacted.display
+                    ? {
+                        ...toolCall,
+                        contextCompaction: mergeToolContextCompactionDisplay(
+                          toolCall.contextCompaction,
+                          compacted.display,
+                        ),
+                      }
+                    : toolCall;
+                }),
+              }
+            : message,
+        ),
       }));
 
       if (streamed.parsedToolCalls.length === 0) {
@@ -237,6 +387,8 @@ export async function agentLoop(
       const toolResults = await Promise.all(
         streamed.parsedToolCalls.map(async (tc) => {
           const tcId = tc.id;
+          const preparedCompaction = preparedToolCalls.get(tcId);
+          const rawArgs = preparedCompaction?.strippedArgs ?? parseArgs(tc.function.arguments);
           const toolLog = createToolLogContext(turnContext, tcId, tc.function.name);
           writeRunnerLog({
             id: toolLog.startId,
@@ -248,7 +400,7 @@ export async function agentLoop(
             expandable: true,
             data: {
               toolName: tc.function.name,
-              args: parseArgs(tc.function.arguments),
+              args: rawArgs,
             },
             context: {
               ...turnContext,
@@ -266,7 +418,21 @@ export async function agentLoop(
                   ? {
                       ...m,
                       toolCalls: m.toolCalls.map((t) =>
-                        t.id === tcId ? { ...t, ...patch } : t,
+                        t.id === tcId
+                          ? {
+                              ...t,
+                              ...patch,
+                              ...(patch.contextCompaction
+                                ? {
+                                    contextCompaction:
+                                      mergeToolContextCompactionDisplay(
+                                        t.contextCompaction,
+                                        patch.contextCompaction,
+                                      ),
+                                  }
+                                : {}),
+                            }
+                          : t,
                       ),
                     }
                   : m,
@@ -274,7 +440,6 @@ export async function agentLoop(
             }));
           }
 
-          const rawArgs = parseArgs(tc.function.arguments);
           const mcpTool = mcpRuntime.toolsByName[tc.function.name];
           const artifactizeReturnedFiles =
             jotaiStore.get(mcpSettingsAtom)?.artifactizeReturnedFiles === true;
@@ -520,7 +685,34 @@ export async function agentLoop(
               }),
           });
 
-          return { tool_call_id: tcId, result };
+          const fallbackContent = serializeToolResultForModel(
+            tcId,
+            streamed.parsedToolCalls,
+            result,
+          );
+          const compactedOutput = preparedCompaction
+            ? buildToolContextCompactedOutput(
+                tc.function.name,
+                result,
+                preparedCompaction,
+                fallbackContent,
+              )
+            : { content: fallbackContent };
+
+          if (compactedOutput.display) {
+            updateToolCallById({
+              contextCompaction: mergeToolContextCompactionDisplay(
+                preparedCompaction?.display,
+                compactedOutput.display,
+              ),
+            });
+          }
+
+          return {
+            tool_call_id: tcId,
+            result,
+            content: compactedOutput.content,
+          };
         }),
       );
       if (signal.aborted || !isCurrentRunId(tabId, runId)) return;
@@ -529,14 +721,10 @@ export async function agentLoop(
       }
 
       const toolApiMessages: ApiMessage[] = toolResults.map(
-        ({ tool_call_id, result }) => ({
+        ({ tool_call_id, content }) => ({
           role: "tool" as const,
           tool_call_id,
-          content: serializeToolResultForModel(
-            tool_call_id,
-            streamed.parsedToolCalls,
-            result,
-          ),
+          content,
         }),
       );
 

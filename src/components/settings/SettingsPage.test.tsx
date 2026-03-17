@@ -6,12 +6,15 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import { Provider } from "jotai";
 import { TabsProvider, useTabs } from "@/contexts/TabsContext";
 import {
+  autoContextCompactionSettingsAtom,
   appUpdaterStateAtom,
   debugModeEnabledAtom,
   defaultAppUpdaterState,
   groupInlineToolCallsAtom,
   jotaiStore,
+  toolContextCompactionEnabledAtom,
 } from "@/agent/atoms";
+import { DEFAULT_AUTO_CONTEXT_COMPACTION_SETTINGS } from "@/agent/contextCompaction";
 import { providersAtom } from "@/agent/db";
 import { mcpServersAtom, mcpSettingsAtom } from "@/agent/mcp";
 import SettingsPage from "./SettingsPage";
@@ -150,6 +153,7 @@ function SettingsPageHarness({
 }: {
   initialSection?:
     | "appearance"
+    | "context-compaction"
     | "updates"
     | "mcp"
     | "developer"
@@ -167,6 +171,7 @@ function SettingsPageHarness({
 function renderSettingsPage(
   initialSection:
     | "appearance"
+    | "context-compaction"
     | "updates"
     | "mcp"
     | "developer"
@@ -190,6 +195,11 @@ describe("SettingsPage", () => {
     jotaiStore.set(mcpSettingsAtom, { artifactizeReturnedFiles: false });
     jotaiStore.set(debugModeEnabledAtom, false);
     jotaiStore.set(groupInlineToolCallsAtom, true);
+    jotaiStore.set(toolContextCompactionEnabledAtom, true);
+    jotaiStore.set(
+      autoContextCompactionSettingsAtom,
+      DEFAULT_AUTO_CONTEXT_COMPACTION_SETTINGS,
+    );
     jotaiStore.set(appUpdaterStateAtom, {
       ...defaultAppUpdaterState,
       status: "available",
@@ -377,6 +387,37 @@ describe("SettingsPage", () => {
       expect(screen.getByTitle("Debug mode")).not.toBeNull();
     });
     expect(jotaiStore.get(debugModeEnabledAtom)).toBe(true);
+  });
+
+  it("updates the context compaction settings", async () => {
+    renderSettingsPage("context-compaction");
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("heading", { name: "Context Compaction" }),
+      ).not.toBeNull();
+    });
+
+    fireEvent.click(screen.getByTitle("Tool context compaction"));
+    expect(jotaiStore.get(toolContextCompactionEnabledAtom)).toBe(false);
+
+    fireEvent.click(screen.getByTitle("Automatic context compaction"));
+    expect(jotaiStore.get(autoContextCompactionSettingsAtom)).toMatchObject({
+      enabled: true,
+    });
+
+    fireEvent.change(screen.getByLabelText("Auto-compaction trigger mode"), {
+      target: { value: "kb" },
+    });
+    fireEvent.change(screen.getByLabelText("Auto-compaction threshold"), {
+      target: { value: "384" },
+    });
+
+    expect(jotaiStore.get(autoContextCompactionSettingsAtom)).toMatchObject({
+      enabled: true,
+      thresholdMode: "kb",
+      thresholdKb: 384,
+    });
   });
 
   it("renders the MCP settings section under AI and saves a tested server", async () => {

@@ -69,7 +69,7 @@ export default function ToolCallDetailsModal({
   toolCall,
   onClose,
 }: ToolCallDetailsModalProps) {
-  const { tool, args, result, status } = toolCall;
+  const { tool, args, result, status, contextCompaction } = toolCall;
 
   const icon = getToolCallIcon(toolCall);
   const label = getToolCallLabel(toolCall);
@@ -86,6 +86,17 @@ export default function ToolCallDetailsModal({
 
   const rawArgs = stringify(args);
   const rawResult = result !== undefined ? stringify(result) : null;
+  const modelInput = contextCompaction?.input;
+  const modelOutput = contextCompaction?.output;
+
+  const modelInputText =
+    modelInput?.modelValue !== undefined
+      ? stringify(modelInput.modelValue)
+      : null;
+  const modelOutputText =
+    modelOutput?.modelValue !== undefined
+      ? stringify(modelOutput.modelValue)
+      : null;
 
   const handleCopy = () => {
     const text = [
@@ -93,6 +104,9 @@ export default function ToolCallDetailsModal({
       `STATUS: ${status}`,
       `\nPARAMETERS:\n${rawArgs}`,
       rawResult != null ? `\nRESULT:\n${rawResult}` : "",
+      contextCompaction
+        ? `\nMODEL-FACING CONTEXT:\n${stringify(contextCompaction)}`
+        : "",
     ]
       .filter(Boolean)
       .join("\n");
@@ -167,6 +181,75 @@ export default function ToolCallDetailsModal({
               </pre>
             </div>
           )}
+
+          <div className="tool-modal-section">
+            <div className="tool-modal-section-label">Model-Facing Context</div>
+            <div className="space-y-3 text-xs leading-[1.6] text-text">
+              <div className="rounded-md border border-border-subtle bg-surface px-3 py-2">
+                <div className="font-semibold">Input</div>
+                <div className="text-muted">
+                  {modelInput?.status === "compacted"
+                    ? "Compacted before this tool call was appended to apiMessages."
+                    : "Parameters were kept full in apiMessages."}
+                </div>
+                {modelInput?.note ? (
+                  <div className="mt-1">
+                    <span className="text-muted">Note:</span> {modelInput.note}
+                  </div>
+                ) : null}
+                {modelInput?.reason ? (
+                  <div className="mt-1">
+                    <span className="text-muted">Reason:</span> {modelInput.reason}
+                  </div>
+                ) : null}
+                {modelInputText ? (
+                  <pre className="m-0 mt-2 p-[8px_10px] bg-[color-mix(in_srgb,var(--color-surface)_82%,black)] border border-border-subtle rounded-md text-xs leading-[1.6] whitespace-pre-wrap break-all text-text">
+                    {modelInputText}
+                  </pre>
+                ) : null}
+              </div>
+
+              <div className="rounded-md border border-border-subtle bg-surface px-3 py-2">
+                <div className="font-semibold">Output</div>
+                <div className="text-muted">
+                  {modelOutput?.status === "compacted"
+                    ? "Compacted before the tool result was appended to apiMessages."
+                    : "Tool output was kept full in apiMessages."}
+                </div>
+                {modelOutput?.mode ? (
+                  <div className="mt-1">
+                    <span className="text-muted">Mode:</span> {modelOutput.mode}
+                  </div>
+                ) : null}
+                {modelOutput?.note ? (
+                  <div className="mt-1">
+                    <span className="text-muted">Note:</span> {modelOutput.note}
+                  </div>
+                ) : null}
+                {modelOutput?.reason ? (
+                  <div className="mt-1">
+                    <span className="text-muted">Reason:</span> {modelOutput.reason}
+                  </div>
+                ) : null}
+                {modelOutputText ? (
+                  <pre className="m-0 mt-2 p-[8px_10px] bg-[color-mix(in_srgb,var(--color-surface)_82%,black)] border border-border-subtle rounded-md text-xs leading-[1.6] whitespace-pre-wrap break-all text-text">
+                    {modelOutputText}
+                  </pre>
+                ) : null}
+              </div>
+
+              {contextCompaction?.warnings && contextCompaction.warnings.length > 0 ? (
+                <div className="rounded-md border border-border-subtle bg-surface px-3 py-2">
+                  <div className="font-semibold">Warnings</div>
+                  <ul className="m-0 mt-1 list-disc pl-5 text-muted">
+                    {contextCompaction.warnings.map((warning) => (
+                      <li key={warning}>{warning}</li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+            </div>
+          </div>
         </div>
 
         {/* ── Footer ──────────────────────────────────────────────────────── */}

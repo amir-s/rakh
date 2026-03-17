@@ -61,6 +61,8 @@ const {
   providersAtomMock,
   mcpServersAtomMock,
   mcpSettingsAtomMock,
+  toolContextCompactionEnabledAtomMock,
+  autoContextCompactionSettingsAtomMock,
   globalCommunicationProfileAtomMock,
   profilesAtomMock,
   jotaiStoreMock,
@@ -91,6 +93,12 @@ const {
   providersAtomMock: { kind: "providers-atom" },
   mcpServersAtomMock: { kind: "mcp-servers-atom" },
   mcpSettingsAtomMock: { kind: "mcp-settings-atom" },
+  toolContextCompactionEnabledAtomMock: {
+    kind: "tool-context-compaction-enabled-atom",
+  },
+  autoContextCompactionSettingsAtomMock: {
+    kind: "auto-context-compaction-settings-atom",
+  },
   globalCommunicationProfileAtomMock: { kind: "global-communication-profile-atom" },
   profilesAtomMock: { kind: "profiles-atom" },
   jotaiStoreMock: {
@@ -132,6 +140,8 @@ vi.mock("./atoms", () => ({
   },
   jotaiStore: jotaiStoreMock,
   globalCommunicationProfileAtom: globalCommunicationProfileAtomMock,
+  toolContextCompactionEnabledAtom: toolContextCompactionEnabledAtomMock,
+  autoContextCompactionSettingsAtom: autoContextCompactionSettingsAtomMock,
 }));
 
 vi.mock("./db", () => ({
@@ -525,6 +535,17 @@ describe("runner", () => {
       }
       if (atom === mcpSettingsAtomMock) {
         return { artifactizeReturnedFiles: false };
+      }
+      if (atom === toolContextCompactionEnabledAtomMock) {
+        return true;
+      }
+      if (atom === autoContextCompactionSettingsAtomMock) {
+        return {
+          enabled: false,
+          thresholdMode: "percentage",
+          thresholdPercent: 85,
+          thresholdKb: 256,
+        };
       }
       if (atom === profilesAtomMock) {
         return [];
@@ -1533,6 +1554,410 @@ describe("runner", () => {
     expect(toolMessage?.content).toBe("Found 0 match(es) in 1 file(s)");
   });
 
+  it("compacts model-facing tool-call input while keeping visible args raw", async () => {
+    const tabId = "tab-context-compaction-input";
+    setState(tabId);
+
+    turns.push(
+      {
+        deltas: [],
+        toolCalls: [
+          {
+            id: "tc-write-compact",
+            name: "workspace_writeFile",
+            arguments: {
+              path: "src/foo.ts",
+              content: "export const foo = 1;\n",
+              overwrite: true,
+              mutationIntent: "fix",
+              todoHandling: {
+                mode: "skip",
+                skipReason: "Context-compaction runner test",
+              },
+              __contextCompaction: {
+                inputNote:
+                  "Wrote src/foo.ts with the requested implementation; exact file body omitted from context.",
+              },
+            },
+          },
+        ],
+      },
+      { deltas: ["done"], toolCalls: [] },
+    );
+
+    dispatchToolMock.mockResolvedValue({
+      ok: true,
+      data: {
+        path: "src/foo.ts",
+        bytesWritten: 22,
+        created: false,
+        overwritten: true,
+      },
+    });
+
+    await runAgent(tabId, "write the file");
+
+    expect(dispatchToolMock).toHaveBeenCalledWith(
+      tabId,
+      "",
+      "workspace_writeFile",
+      {
+        path: "src/foo.ts",
+        content: "export const foo = 1;\n",
+        overwrite: true,
+      },
+      "tc-write-compact",
+      undefined,
+      expect.any(Object),
+    );
+
+    const state = states[tabId];
+    const assistantMessage = state.apiMessages.find(
+      (message) =>
+        message.role === "assistant" &&
+        Array.isArray(message.tool_calls) &&
+        message.tool_calls.length > 0,
+    ) as { tool_calls: Array<{ function: { arguments: string } }> } | undefined;
+    const assistantArgs = JSON.parse(
+      String(assistantMessage?.tool_calls[0]?.function.arguments),
+    );
+    expect(assistantArgs).toMatchObject({
+      __rakhCompactToolIO: {
+        tool: "workspace_writeFile",
+        side: "input",
+        compacted: true,
+        kept: {
+          path: "src/foo.ts",
+          overwrite: true,
+        },
+        omitted: {
+          fields: ["content"],
+        },
+      },
+    });
+
+    const toolCall = state.chatMessages
+      .flatMap(
+        (message) =>
+          (message.toolCalls as Array<Record<string, unknown>> | undefined) ?? [],
+      )
+      .find((entry) => entry.id === "tc-write-compact");
+    expect(toolCall).toMatchObject({
+      args: {
+        path: "src/foo.ts",
+        content: "export const foo = 1;\n",
+        overwrite: true,
+        mutationIntent: "fix",
+        todoHandling: {
+          mode: "skip",
+          skipReason: "Context-compaction runner test",
+        },
+      },
+      contextCompaction: {
+        input: {
+          status: "compacted",
+          note:
+            "Wrote src/foo.ts with the requested implementation; exact file body omitted from context.",
+        },
+      },
+    });
+    expect(toolCall?.args).not.toHaveProperty("__contextCompaction");
+
+    const secondTurnMessages = (
+      streamTextMock.mock.calls[1]?.[0] as
+        | { messages?: Array<Record<string, unknown>> }
+        | undefined
+    )?.messages;
+    const mappedAssistant = secondTurnMessages?.find(
+      (message) => message.role === "assistant",
+    ) as { content?: Array<Record<string, unknown>> } | undefined;
+    const toolCallPart = mappedAssistant?.content?.find(
+      (part) => part.type === "tool-call",
+    );
+    expect(toolCallPart).toMatchObject({
+      toolName: "workspace_writeFile",
+      input: {
+        __rakhCompactToolIO: {
+          tool: "workspace_writeFile",
+          side: "input",
+        },
+      },
+    });
+  });
+
+  it("compacts model-facing tool output while keeping visible results raw", async () => {
+    const tabId = "tab-context-compaction-output";
+    setState(tabId);
+
+    turns.push(
+      {
+        deltas: [],
+        toolCalls: [
+          {
+            id: "tc-read-compact",
+            name: "workspace_readFile",
+            arguments: {
+              path: "src/runner.ts",
+              __contextCompaction: {
+                outputNote:
+                  "Read src/runner.ts for context; exact file contents omitted from model history.",
+              },
+            },
+          },
+        ],
+      },
+      { deltas: ["done"], toolCalls: [] },
+    );
+
+    dispatchToolMock.mockResolvedValue({
+      ok: true,
+      data: {
+        path: "src/runner.ts",
+        encoding: "utf8",
+        content: "export const runner = true;\n",
+        fileSizeBytes: 28,
+        lineCount: 1,
+        truncated: false,
+      },
+    });
+
+    await runAgent(tabId, "read the runner");
+
+    const state = states[tabId];
+    const toolMessage = state.apiMessages.find(
+      (message) =>
+        message.role === "tool" && message.tool_call_id === "tc-read-compact",
+    );
+    expect(JSON.parse(String(toolMessage?.content))).toMatchObject({
+      __rakhCompactToolIO: {
+        tool: "workspace_readFile",
+        side: "output",
+        compacted: true,
+        kept: {
+          path: "src/runner.ts",
+          fileSizeBytes: 28,
+          lineCount: 1,
+          truncated: false,
+        },
+        omitted: {
+          fields: ["content"],
+        },
+      },
+    });
+
+    const toolCall = state.chatMessages
+      .flatMap(
+        (message) =>
+          (message.toolCalls as Array<Record<string, unknown>> | undefined) ?? [],
+      )
+      .find((entry) => entry.id === "tc-read-compact");
+    expect(toolCall).toMatchObject({
+      result: {
+        path: "src/runner.ts",
+        content: "export const runner = true;\n",
+        fileSizeBytes: 28,
+      },
+      contextCompaction: {
+        output: {
+          status: "compacted",
+          note:
+            "Read src/runner.ts for context; exact file contents omitted from model history.",
+          mode: "always",
+        },
+      },
+    });
+
+    const secondTurnMessages = (
+      streamTextMock.mock.calls[1]?.[0] as
+        | { messages?: Array<Record<string, unknown>> }
+        | undefined
+    )?.messages;
+    const mappedTool = secondTurnMessages?.find(
+      (message) => message.role === "tool",
+    ) as { content?: Array<Record<string, unknown>> } | undefined;
+    const toolResultPart = mappedTool?.content?.find(
+      (part) => part.type === "tool-result",
+    );
+    expect(toolResultPart).toMatchObject({
+      toolName: "workspace_readFile",
+      output: {
+        type: "json",
+        value: {
+          __rakhCompactToolIO: {
+            tool: "workspace_readFile",
+            side: "output",
+          },
+        },
+      },
+    });
+  });
+
+  it("keeps full exec_run output when output compaction is requested on_success and the command fails", async () => {
+    const tabId = "tab-context-compaction-on-success-failure";
+    setState(tabId);
+
+    turns.push(
+      {
+        deltas: [],
+        toolCalls: [
+          {
+            id: "tc-exec-compact",
+            name: "exec_run",
+            arguments: {
+              command: "npm",
+              args: ["test"],
+              reason: "Run tests",
+              mutationIntent: "test",
+              todoHandling: {
+                mode: "skip",
+                skipReason: "Context-compaction runner test",
+              },
+              __contextCompaction: {
+                outputNote: "Tests passed; full stdout omitted.",
+                outputMode: "on_success",
+              },
+            },
+          },
+        ],
+      },
+      { deltas: ["done"], toolCalls: [] },
+    );
+
+    const execFailure = {
+      ok: true as const,
+      data: {
+        command: "npm",
+        args: ["test"],
+        cwd: "",
+        exitCode: 1,
+        durationMs: 12,
+        stdout: "failing output\n",
+        stderr: "stack trace\n",
+        truncatedStdout: false,
+        truncatedStderr: false,
+      },
+    };
+    dispatchToolMock.mockResolvedValue(execFailure);
+
+    await runAgent(tabId, "run tests");
+
+    expect(parseToolMessageResult(tabId, "tc-exec-compact")).toEqual(execFailure);
+
+    const toolCall = states[tabId].chatMessages
+      .flatMap(
+        (message) =>
+          (message.toolCalls as Array<Record<string, unknown>> | undefined) ?? [],
+      )
+      .find((entry) => entry.id === "tc-exec-compact");
+    expect(toolCall).toMatchObject({
+      contextCompaction: {
+        output: {
+          status: "full",
+          mode: "on_success",
+          reason: "Kept full because exec_run exited with code 1.",
+        },
+      },
+    });
+
+    const secondTurnMessages = (
+      streamTextMock.mock.calls[1]?.[0] as
+        | { messages?: Array<Record<string, unknown>> }
+        | undefined
+    )?.messages;
+    const mappedTool = secondTurnMessages?.find(
+      (message) => message.role === "tool",
+    ) as { content?: Array<Record<string, unknown>> } | undefined;
+    const toolResultPart = mappedTool?.content?.find(
+      (part) => part.type === "tool-result",
+    );
+    expect(toolResultPart).toMatchObject({
+      toolName: "exec_run",
+      output: {
+        type: "json",
+        value: execFailure,
+      },
+    });
+  });
+
+  it("ignores unsupported tool-context compaction requests without changing execution", async () => {
+    const tabId = "tab-context-compaction-unsupported";
+    setState(tabId);
+
+    turns.push(
+      {
+        deltas: [],
+        toolCalls: [
+          {
+            id: "tc-stat-compact",
+            name: "workspace_stat",
+            arguments: {
+              path: "README.md",
+              __contextCompaction: {
+                inputNote: "Stat call args omitted.",
+                outputNote: "Stat call output omitted.",
+              },
+            },
+          },
+        ],
+      },
+      { deltas: ["done"], toolCalls: [] },
+    );
+
+    dispatchToolMock.mockResolvedValue({
+      ok: true,
+      data: { exists: true, path: "README.md", kind: "file", sizeBytes: 64 },
+    });
+
+    await runAgent(tabId, "stat the readme");
+
+    expect(dispatchToolMock).toHaveBeenCalledWith(
+      tabId,
+      "",
+      "workspace_stat",
+      { path: "README.md" },
+      "tc-stat-compact",
+      undefined,
+      expect.any(Object),
+    );
+
+    const assistantMessage = states[tabId].apiMessages.find(
+      (message) =>
+        message.role === "assistant" &&
+        Array.isArray(message.tool_calls) &&
+        message.tool_calls.length > 0,
+    ) as { tool_calls: Array<{ function: { arguments: string } }> } | undefined;
+    expect(
+      JSON.parse(String(assistantMessage?.tool_calls[0]?.function.arguments)),
+    ).toEqual({ path: "README.md" });
+
+    const toolCall = states[tabId].chatMessages
+      .flatMap(
+        (message) =>
+          (message.toolCalls as Array<Record<string, unknown>> | undefined) ?? [],
+      )
+      .find((entry) => entry.id === "tc-stat-compact");
+    expect(toolCall).toMatchObject({
+      contextCompaction: {
+        input: {
+          status: "full",
+        },
+        output: {
+          status: "full",
+        },
+      },
+    });
+
+    expect(
+      logFrontendSoonMock.mock.calls.some(([entry]) => {
+        const record = entry as Record<string, unknown>;
+        return (
+          record.level === "warn" &&
+          record.event === "runner.tool.context-compaction.ignored"
+        );
+      }),
+    ).toBe(true);
+  });
+
   it("attaches conversation cards to the owning assistant message in tool declaration order", async () => {
     const tabId = "tab-agent-cards";
     setState(tabId);
@@ -1636,7 +2061,7 @@ describe("runner", () => {
     );
 
     const runPromise = runAgent(tabId, "post cards");
-    await flushAsyncWork(12);
+    await flushAsyncWork(16);
 
     const inFlightAssistant = states[tabId].chatMessages.find(
       (message) =>
@@ -2037,13 +2462,13 @@ describe("runner", () => {
       });
 
     const firstRun = runAgent(tabId, "original run");
-    await flushAsyncWork(4);
+    await flushAsyncWork(8);
 
     const steeringRun = steerMessage(tabId, "urgent correction");
-    await flushAsyncWork(6);
+    await flushAsyncWork(20);
 
     stopAgent(tabId);
-    await flushAsyncWork(6);
+    await flushAsyncWork(20);
 
     expect(secondRunAborted).toBe(true);
     expect(states[tabId].queuedMessages).toEqual([
@@ -3266,6 +3691,152 @@ describe("runner", () => {
       expect(streamTextMock).toHaveBeenCalledTimes(6);
     });
 
+    it("applies tool-context compaction inside subagent local api history", async () => {
+      const tabId = "tab-subagent-context-compaction";
+      setState(tabId);
+
+      turns.push({
+        deltas: [],
+        toolCalls: [
+          {
+            id: "tc-subagent-context",
+            name: "agent_subagent_call",
+            arguments: {
+              subagentId: "planner",
+              message: "inspect the runner and save a plan",
+            },
+          },
+        ],
+      });
+      turns.push({
+        deltas: [],
+        toolCalls: [
+          {
+            id: "tc-subagent-read",
+            name: "workspace_readFile",
+            arguments: {
+              path: "src/agent/runner.ts",
+              __contextCompaction: {
+                outputNote:
+                  "Read src/agent/runner.ts for planning; exact file contents omitted from model history.",
+              },
+            },
+          },
+        ],
+      });
+      turns.push({
+        deltas: ["Saving the plan."],
+        toolCalls: [
+          {
+            id: "tc-subagent-plan-artifact",
+            name: "agent_artifact_create",
+            arguments: {
+              artifactType: "plan",
+              kind: "plan",
+              contentFormat: "markdown",
+              summary: "Runner plan",
+              content: "# Plan\n\n1. Inspect runner\n2. Update compaction",
+            },
+          },
+        ],
+      });
+      turns.push({
+        deltas: ["Posting planner summary card."],
+        toolCalls: [
+          makeSummaryCardToolCall(
+            "tc-subagent-plan-summary",
+            "## Runner Plan\n\n- Inspect runner\n- Update compaction",
+            "Plan Summary",
+          ),
+        ],
+      });
+      turns.push({ deltas: ["Plan ready below."], toolCalls: [] });
+      turns.push({ deltas: ["Great."], toolCalls: [] });
+
+      dispatchToolMock.mockImplementation(async (...args: unknown[]) => {
+        const toolName = args[2] as string;
+        const toolArgs = args[3] as Record<string, unknown>;
+        const runtime = args[6] as Record<string, unknown>;
+        if (toolName === "workspace_readFile") {
+          return {
+            ok: true,
+            data: {
+              path: "src/agent/runner.ts",
+              encoding: "utf8",
+              content: "export const runner = true;\n",
+              fileSizeBytes: 28,
+              lineCount: 1,
+              truncated: false,
+            },
+          };
+        }
+        if (toolName === "agent_artifact_create") {
+          return {
+            ok: true,
+            data: {
+              artifact: makeArtifact({
+                sessionId: tabId,
+                runId: runtime.runId,
+                agentId: runtime.agentId,
+                artifactId: "planner_context_plan",
+                kind: "plan",
+                summary: toolArgs.summary,
+                metadata: toolArgs.metadata,
+                contentFormat: "markdown",
+              }),
+            },
+          };
+        }
+        return { ok: true, data: { ok: true } };
+      });
+
+      await runAgent(tabId, "plan the runner update");
+
+      const plannerToolCall = states[tabId].chatMessages
+        .flatMap(
+          (message) =>
+            (message.toolCalls as Array<Record<string, unknown>> | undefined) ?? [],
+        )
+        .find((entry) => entry.id === "tc-subagent-read");
+      expect(plannerToolCall).toMatchObject({
+        result: {
+          path: "src/agent/runner.ts",
+          content: "export const runner = true;\n",
+        },
+        contextCompaction: {
+          output: {
+            status: "compacted",
+            note:
+              "Read src/agent/runner.ts for planning; exact file contents omitted from model history.",
+          },
+        },
+      });
+
+      const subagentSecondTurnMessages = (
+        streamTextMock.mock.calls[2]?.[0] as
+          | { messages?: Array<Record<string, unknown>> }
+          | undefined
+      )?.messages;
+      const mappedTool = subagentSecondTurnMessages?.find(
+        (message) => message.role === "tool",
+      ) as { content?: Array<Record<string, unknown>> } | undefined;
+      const toolResultPart = mappedTool?.content?.find(
+        (part) => part.type === "tool-result",
+      );
+      expect(toolResultPart).toMatchObject({
+        toolName: "workspace_readFile",
+        output: {
+          type: "json",
+          value: {
+            __rakhCompactToolIO: {
+              tool: "workspace_readFile",
+              side: "output",
+            },
+          },
+        },
+      });
+    });
+
     it("security subagent exec_run follows the normal approval path", async () => {
       const tabId = "tab-subagent-security-exec-approval";
       setState(tabId);
@@ -4346,6 +4917,250 @@ describe("runner", () => {
         learned_facts: [],
         writable: false,
       });
+    });
+
+    it("auto-compacts existing history before starting the next main turn", async () => {
+      const tabId = "tab-auto-compact-preflight";
+      const compactedMarkdown = makeCompactedHistoryMarkdown(
+        "Continue with the latest user request.",
+      );
+      setState(tabId, {
+        config: { cwd: "/repo", model: "openai/gpt-5.2" },
+        apiMessages: [
+          { role: "system", content: "Original system prompt" },
+          { role: "assistant", content: "A".repeat(12 * 1024) },
+        ],
+      });
+
+      const baseGet = jotaiStoreMock.get.getMockImplementation();
+      if (!baseGet) throw new Error("Expected default jotaiStore mock.");
+      jotaiStoreMock.get.mockImplementation((atom: unknown) => {
+        if (atom === autoContextCompactionSettingsAtomMock) {
+          return {
+            enabled: true,
+            thresholdMode: "kb",
+            thresholdPercent: 85,
+            thresholdKb: 1,
+          };
+        }
+        return baseGet(atom);
+      });
+
+      turns.push({
+        deltas: ["Saving compacted context artifact."],
+        toolCalls: [
+          {
+            id: "tc-auto-preflight-artifact",
+            name: "agent_artifact_create",
+            arguments: {
+              artifactType: "compact-state",
+              kind: "context-compaction",
+              contentFormat: "markdown",
+              summary: "Compacted context snapshot",
+              content: compactedMarkdown,
+            },
+          },
+        ],
+      });
+      turns.push({
+        deltas: ["Context compacted."],
+        toolCalls: [],
+      });
+      turns.push({
+        deltas: ["Continuing with the implementation."],
+        toolCalls: [],
+      });
+
+      dispatchToolMock.mockImplementation(async (...args: unknown[]) => {
+        const toolName = args[2] as string;
+        const runtime = args[6] as Record<string, unknown>;
+        if (toolName === "agent_artifact_create") {
+          return {
+            ok: true,
+            data: {
+              artifact: makeArtifact({
+                sessionId: tabId,
+                runId: runtime.runId,
+                agentId: runtime.agentId,
+                artifactId: "auto_preflight_compact_artifact",
+                kind: "context-compaction",
+                contentFormat: "markdown",
+                metadata: { __rakh: { artifactType: "compact-state" } },
+              }),
+            },
+          };
+        }
+        return { ok: true, data: { ok: true } };
+      });
+      artifactGetMock.mockResolvedValue({
+        ok: true,
+        data: {
+          artifact: makeArtifact({
+            sessionId: tabId,
+            artifactId: "auto_preflight_compact_artifact",
+            kind: "context-compaction",
+            contentFormat: "markdown",
+            content: compactedMarkdown,
+            metadata: { __rakh: { artifactType: "compact-state" } },
+          }),
+        },
+      });
+
+      await runAgent(tabId, "continue with the latest task");
+
+      expect(streamTextMock).toHaveBeenCalledTimes(3);
+      expect(states[tabId].status).toBe("idle");
+      expect(states[tabId].apiMessages[1]).toEqual({
+        role: "assistant",
+        content: compactedMarkdown,
+      });
+      expect(states[tabId].apiMessages[2]).toEqual({
+        role: "user",
+        content: "continue with the latest task",
+      });
+      expect(
+        states[tabId].chatMessages.some(
+          (message) =>
+            message.agentName === "Context Compaction" &&
+            message.content === "Context compacted automatically.",
+        ),
+      ).toBe(true);
+      expect(states[tabId].chatMessages.at(-1)).toMatchObject({
+        role: "assistant",
+        content: "Continuing with the implementation.",
+      });
+    });
+
+    it("auto-compacts between assistant iterations after a large tool result", async () => {
+      const tabId = "tab-auto-compact-iteration";
+      const compactedMarkdown = makeCompactedHistoryMarkdown(
+        "Resume after reviewing the large file output.",
+      );
+      setState(tabId, {
+        config: { cwd: "/repo", model: "openai/gpt-5.2" },
+      });
+
+      const baseGet = jotaiStoreMock.get.getMockImplementation();
+      if (!baseGet) throw new Error("Expected default jotaiStore mock.");
+      jotaiStoreMock.get.mockImplementation((atom: unknown) => {
+        if (atom === autoContextCompactionSettingsAtomMock) {
+          return {
+            enabled: true,
+            thresholdMode: "kb",
+            thresholdPercent: 85,
+            thresholdKb: 1,
+          };
+        }
+        return baseGet(atom);
+      });
+
+      turns.push({
+        deltas: ["Reading the large file."],
+        toolCalls: [
+          {
+            id: "tc-auto-read-large",
+            name: "workspace_readFile",
+            arguments: {
+              path: "src/large.ts",
+            },
+          },
+        ],
+      });
+      turns.push({
+        deltas: ["Saving compacted context artifact."],
+        toolCalls: [
+          {
+            id: "tc-auto-iteration-artifact",
+            name: "agent_artifact_create",
+            arguments: {
+              artifactType: "compact-state",
+              kind: "context-compaction",
+              contentFormat: "markdown",
+              summary: "Compacted context snapshot",
+              content: compactedMarkdown,
+            },
+          },
+        ],
+      });
+      turns.push({
+        deltas: ["Context compacted."],
+        toolCalls: [],
+      });
+      turns.push({
+        deltas: ["Continuing after automatic compaction."],
+        toolCalls: [],
+      });
+
+      dispatchToolMock.mockImplementation(async (...args: unknown[]) => {
+        const toolName = args[2] as string;
+        const runtime = args[6] as Record<string, unknown>;
+        if (toolName === "workspace_readFile") {
+          return {
+            ok: true,
+            data: {
+              path: "src/large.ts",
+              encoding: "utf8",
+              content: "x".repeat(10 * 1024),
+              fileSizeBytes: 10 * 1024,
+              lineCount: 256,
+              truncated: false,
+            },
+          };
+        }
+        if (toolName === "agent_artifact_create") {
+          return {
+            ok: true,
+            data: {
+              artifact: makeArtifact({
+                sessionId: tabId,
+                runId: runtime.runId,
+                agentId: runtime.agentId,
+                artifactId: "auto_iteration_compact_artifact",
+                kind: "context-compaction",
+                contentFormat: "markdown",
+                metadata: { __rakh: { artifactType: "compact-state" } },
+              }),
+            },
+          };
+        }
+        return { ok: true, data: { ok: true } };
+      });
+      artifactGetMock.mockResolvedValue({
+        ok: true,
+        data: {
+          artifact: makeArtifact({
+            sessionId: tabId,
+            artifactId: "auto_iteration_compact_artifact",
+            kind: "context-compaction",
+            contentFormat: "markdown",
+            content: compactedMarkdown,
+            metadata: { __rakh: { artifactType: "compact-state" } },
+          }),
+        },
+      });
+
+      await runAgent(tabId, "inspect the large file");
+
+      expect(streamTextMock).toHaveBeenCalledTimes(4);
+      expect(states[tabId].status).toBe("idle");
+      expect(states[tabId].apiMessages[1]).toEqual({
+        role: "assistant",
+        content: compactedMarkdown,
+      });
+      expect(
+        states[tabId].apiMessages.some((message) => message.role === "tool"),
+      ).toBe(false);
+      expect(states[tabId].chatMessages.at(-1)).toMatchObject({
+        role: "assistant",
+        content: "Continuing after automatic compaction.",
+      });
+      expect(
+        states[tabId].chatMessages.some(
+          (message) =>
+            message.agentName === "Context Compaction" &&
+            message.content === "Context compacted automatically.",
+        ),
+      ).toBe(true);
     });
   });
 

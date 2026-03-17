@@ -30,7 +30,8 @@ vi.mock("../db", () => ({
   profilesAtom: profilesAtomMock,
 }));
 
-import { buildSystemPrompt } from "./systemPrompt";
+import { buildSubagentSystemPrompt, buildSystemPrompt } from "./systemPrompt";
+import { plannerSubagent } from "../subagents/planner";
 
 const runtimeContext = {
   hostOs: "mac",
@@ -193,5 +194,34 @@ describe("buildSystemPrompt", () => {
     expect(systemPrompt).toContain(
       "remove the stored fact ID itself rather than paraphrasing the fact text",
     );
+  });
+
+  it("documents hidden tool-context compaction metadata in the main prompt", () => {
+    const systemPrompt = buildSystemPrompt(
+      "/workspace",
+      false,
+      false,
+      false,
+      runtimeContext,
+      undefined,
+      undefined,
+    );
+
+    expect(systemPrompt).toContain("TOOL IO CONTEXT COMPACTION");
+    expect(systemPrompt).toContain("__contextCompaction");
+    expect(systemPrompt).toContain("outputMode?: \"always\" | \"on_success\"");
+    expect(systemPrompt).toContain("Supported local-tool input compaction");
+    expect(systemPrompt).toContain("Supported local-tool output compaction");
+  });
+});
+
+describe("buildSubagentSystemPrompt", () => {
+  it("documents hidden tool-context compaction metadata for subagents", () => {
+    const systemPrompt = buildSubagentSystemPrompt(plannerSubagent);
+
+    expect(systemPrompt).toContain("TOOL IO CONTEXT COMPACTION");
+    expect(systemPrompt).toContain("__contextCompaction");
+    expect(systemPrompt).toContain("workspace_readFile");
+    expect(systemPrompt).toContain("agent_artifact_get");
   });
 });
