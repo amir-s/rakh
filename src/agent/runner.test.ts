@@ -5022,6 +5022,21 @@ describe("runner", () => {
         states[tabId].chatMessages.some(
           (message) =>
             message.agentName === "Context Compaction" &&
+            message.content === "Saving compacted context artifact.",
+        ),
+      ).toBe(true);
+      expect(
+        states[tabId].chatMessages.some(
+          (message) =>
+            message.agentName === "Context Compaction" &&
+            message.content === "Context compacted." &&
+            !Array.isArray(message.cards),
+        ),
+      ).toBe(true);
+      expect(
+        states[tabId].chatMessages.some(
+          (message) =>
+            message.agentName === "Context Compaction" &&
             message.content === "Context compacted automatically.",
         ),
       ).toBe(true);
@@ -5150,6 +5165,21 @@ describe("runner", () => {
       expect(
         states[tabId].apiMessages.some((message) => message.role === "tool"),
       ).toBe(false);
+      expect(
+        states[tabId].chatMessages.some(
+          (message) =>
+            message.agentName === "Context Compaction" &&
+            message.content === "Saving compacted context artifact.",
+        ),
+      ).toBe(true);
+      expect(
+        states[tabId].chatMessages.some(
+          (message) =>
+            message.agentName === "Context Compaction" &&
+            message.content === "Context compacted." &&
+            !Array.isArray(message.cards),
+        ),
+      ).toBe(true);
       expect(states[tabId].chatMessages.at(-1)).toMatchObject({
         role: "assistant",
         content: "Continuing after automatic compaction.",
