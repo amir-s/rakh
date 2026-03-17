@@ -16,6 +16,10 @@ import {
   jotaiStore,
   type AppUpdaterState,
 } from "@/agent/atoms";
+import {
+  saveCompactionSettings,
+  type PersistedCompactionSettings,
+} from "@/agent/compaction";
 import type { AutoContextCompactionSettings } from "@/agent/contextCompaction";
 import {
   providersAtom,
@@ -89,9 +93,11 @@ export interface SettingsControllerValue {
   groupInlineToolCalls: boolean;
   setGroupInlineToolCalls: (enabled: boolean) => void;
   toolContextCompactionEnabled: boolean;
-  setToolContextCompactionEnabled: (enabled: boolean) => void;
+  setToolContextCompactionEnabled: (enabled: boolean) => Promise<void>;
   autoContextCompactionSettings: AutoContextCompactionSettings;
-  setAutoContextCompactionSettings: (settings: AutoContextCompactionSettings) => void;
+  setAutoContextCompactionSettings: (
+    settings: AutoContextCompactionSettings,
+  ) => Promise<void>;
   defaultCommunicationProfile: string;
   setDefaultCommunicationProfile: (profile: string) => void;
   customProfiles: CommunicationProfileRecord[];
@@ -164,6 +170,47 @@ export function useSettingsController(): SettingsControllerValue {
 
   const [isAddingProfile, setIsAddingProfile] = useState(false);
   const [editingProfileId, setEditingProfileId] = useState<string | null>(null);
+
+  const persistCompactionSettings = useCallback(
+    async (settings: PersistedCompactionSettings) => {
+      try {
+        await saveCompactionSettings(settings);
+      } catch (error) {
+        logFrontendSoon({
+          level: "error",
+          tags: ["frontend", "system"],
+          event: "settings.compaction.save.error",
+          message: "Failed to persist context compaction settings.",
+          data: error,
+        });
+      }
+    },
+    [],
+  );
+
+  const handleSetToolContextCompactionEnabled = useCallback(
+    async (enabled: boolean) => {
+      setToolContextCompactionEnabled(enabled);
+      await persistCompactionSettings({
+        toolContextCompactionEnabled: enabled,
+        autoContextCompaction:
+          jotaiStore.get(autoContextCompactionSettingsAtom),
+      });
+    },
+    [persistCompactionSettings, setToolContextCompactionEnabled],
+  );
+
+  const handleSetAutoContextCompactionSettings = useCallback(
+    async (settings: AutoContextCompactionSettings) => {
+      setAutoContextCompactionSettings(settings);
+      await persistCompactionSettings({
+        toolContextCompactionEnabled:
+          jotaiStore.get(toolContextCompactionEnabledAtom),
+        autoContextCompaction: settings,
+      });
+    },
+    [persistCompactionSettings, setAutoContextCompactionSettings],
+  );
 
   const handleSaveProfile = useCallback(
     async (profile: CommunicationProfileRecord) => {
@@ -427,9 +474,9 @@ export function useSettingsController(): SettingsControllerValue {
     groupInlineToolCalls,
     setGroupInlineToolCalls,
     toolContextCompactionEnabled,
-    setToolContextCompactionEnabled,
+    setToolContextCompactionEnabled: handleSetToolContextCompactionEnabled,
     autoContextCompactionSettings,
-    setAutoContextCompactionSettings,
+    setAutoContextCompactionSettings: handleSetAutoContextCompactionSettings,
     defaultCommunicationProfile,
     setDefaultCommunicationProfile,
     customProfiles,

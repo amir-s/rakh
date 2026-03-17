@@ -12,10 +12,13 @@ import {
   themeModeAtom,
   themeNameAtom,
   agentAtomFamily,
+  autoContextCompactionSettingsAtom,
   debugModeEnabledAtom,
   patchAgentState,
   defaultCommunicationProfileAtom,
+  toolContextCompactionEnabledAtom,
 } from "@/agent/atoms";
+import { loadCompactionSettings } from "@/agent/compaction";
 import { loadProviders, providersAtom, loadProfiles, profilesAtom, loadCommandList, commandListAtom } from "@/agent/db";
 import { resolveCommunicationProfileId } from "@/agent/communicationProfiles";
 import {
@@ -221,6 +224,7 @@ export default function App() {
       loadProfiles(),
       loadMcpServers(),
       loadMcpSettings(),
+      loadCompactionSettings(),
       loadCommandList(),
       loadSavedProjects(),
     ]).then(
@@ -230,6 +234,7 @@ export default function App() {
         profiles,
         mcpServers,
         mcpSettings,
+        compactionSettings,
         commandList,
         _savedProjects,
       ]) => {
@@ -255,6 +260,14 @@ export default function App() {
         }
         jotaiStore.set(mcpServersAtom, mcpServers);
         jotaiStore.set(mcpSettingsAtom, mcpSettings);
+        jotaiStore.set(
+          toolContextCompactionEnabledAtom,
+          compactionSettings.toolContextCompactionEnabled,
+        );
+        jotaiStore.set(
+          autoContextCompactionSettingsAtom,
+          compactionSettings.autoContextCompaction,
+        );
         jotaiStore.set(commandListAtom, commandList);
 
         // Hydrate Jotai atoms before first render of agent components
