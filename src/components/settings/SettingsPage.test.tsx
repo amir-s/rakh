@@ -34,9 +34,15 @@ const dbMocks = vi.hoisted(() => ({
   deleteProviderMock: vi.fn<(id: string) => Promise<void>>(),
 }));
 
+const cliMocks = vi.hoisted(() => ({
+  getCliStatusMock: vi.fn<() => Promise<unknown>>(),
+  installCliMock: vi.fn<() => Promise<unknown>>(),
+  uninstallCliMock: vi.fn<() => Promise<unknown>>(),
+}));
+
 vi.mock("@/agent/useEnvProviderKeys", () => ({
   useEnvProviderKeys: () => [],
-  isTauriRuntime: () => false,
+  isTauriRuntime: () => true,
   buildUniqueProviderName: (baseName: string) => baseName,
 }));
 
@@ -99,6 +105,12 @@ vi.mock("@/updater", () => ({
         return "muted";
     }
   },
+}));
+
+vi.mock("@/cli", () => ({
+  getCliStatus: () => cliMocks.getCliStatusMock(),
+  installCli: () => cliMocks.installCliMock(),
+  uninstallCli: () => cliMocks.uninstallCliMock(),
 }));
 
 vi.mock("@/agent/mcp", async () => {
@@ -188,10 +200,35 @@ describe("SettingsPage", () => {
     });
     updaterMocks.checkForAppUpdatesMock.mockReset();
     updaterMocks.installAppUpdateMock.mockReset();
+    cliMocks.getCliStatusMock.mockReset();
+    cliMocks.installCliMock.mockReset();
+    cliMocks.uninstallCliMock.mockReset();
     dbMocks.saveProviderMock.mockReset();
     dbMocks.deleteProviderMock.mockReset();
     updaterMocks.checkForAppUpdatesMock.mockResolvedValue(undefined);
     updaterMocks.installAppUpdateMock.mockResolvedValue(undefined);
+    cliMocks.getCliStatusMock.mockResolvedValue({
+      installed: false,
+      binDir: "/Users/tester/.rakh/bin",
+      appExecutablePath: "/Applications/Rakh.app/Contents/MacOS/Rakh",
+      onPath: false,
+      needsTerminalRestart: false,
+    });
+    cliMocks.installCliMock.mockResolvedValue({
+      installed: true,
+      commandPath: "/Users/tester/.rakh/bin/rakh",
+      binDir: "/Users/tester/.rakh/bin",
+      appExecutablePath: "/Applications/Rakh.app/Contents/MacOS/Rakh",
+      onPath: true,
+      needsTerminalRestart: true,
+    });
+    cliMocks.uninstallCliMock.mockResolvedValue({
+      installed: false,
+      binDir: "/Users/tester/.rakh/bin",
+      appExecutablePath: "/Applications/Rakh.app/Contents/MacOS/Rakh",
+      onPath: false,
+      needsTerminalRestart: false,
+    });
     dbMocks.saveProviderMock.mockResolvedValue(undefined);
     dbMocks.deleteProviderMock.mockResolvedValue(undefined);
     mcpMocks.saveMcpServersMock.mockReset();
@@ -242,6 +279,47 @@ describe("SettingsPage", () => {
     expect(
       screen.getByRole("button", { name: /Check for updates/i }),
     ).not.toBeNull();
+    expect(
+      screen.getByRole("heading", { name: "Command-line launcher" }),
+    ).not.toBeNull();
+  });
+
+  it("renders CLI launcher status and installs the managed launcher", async () => {
+    renderSettingsPage("updates");
+
+    await waitFor(() => {
+      expect(screen.getByText("Not installed")).not.toBeNull();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Install" }));
+
+    await waitFor(() => {
+      expect(cliMocks.installCliMock).toHaveBeenCalledTimes(1);
+    });
+    expect(screen.getByText("Installed")).not.toBeNull();
+  });
+
+  it("shows uninstall action when the CLI launcher is already installed", async () => {
+    cliMocks.getCliStatusMock.mockResolvedValue({
+      installed: true,
+      commandPath: "/Users/tester/.rakh/bin/rakh",
+      binDir: "/Users/tester/.rakh/bin",
+      appExecutablePath: "/Applications/Rakh.app/Contents/MacOS/Rakh",
+      onPath: true,
+      needsTerminalRestart: true,
+    });
+
+    renderSettingsPage("updates");
+
+    await waitFor(() => {
+      expect(screen.getByText("Installed")).not.toBeNull();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Uninstall" }));
+
+    await waitFor(() => {
+      expect(cliMocks.uninstallCliMock).toHaveBeenCalledTimes(1);
+    });
   });
 
   it("switches sections through the left navigation", async () => {

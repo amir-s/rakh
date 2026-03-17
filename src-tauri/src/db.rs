@@ -17,6 +17,9 @@ use std::time::Instant;
 use tauri::{AppHandle, Emitter, State};
 use uuid::Uuid;
 
+#[cfg(test)]
+use std::sync::OnceLock;
+
 /* ── PersistedSession ─────────────────────────────────────────────────────── */
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -601,6 +604,9 @@ pub struct AppState {
     pub db: Mutex<Connection>,
     pub todo_locks: Mutex<HashMap<String, Arc<Mutex<()>>>>,
 }
+
+#[cfg(test)]
+pub(crate) static HOME_TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
 fn emit_session_changed(app_handle: &AppHandle, payload: &SessionChangeEvent) {
     let _ = app_handle.emit("session_changed", payload);
@@ -2122,7 +2128,10 @@ pub fn projects_load() -> Result<Vec<SavedProjectRecord>, String> {
                 if path.exists() {
                     let _ = fs::remove_file(&tmp);
                 } else {
-                    return Err(format!("INTERNAL: cannot rename migrated projects file: {}", e));
+                    return Err(format!(
+                        "INTERNAL: cannot rename migrated projects file: {}",
+                        e
+                    ));
                 }
             }
         }
@@ -2511,10 +2520,7 @@ pub fn profiles_save(profiles: Vec<CommunicationProfileRecord>) -> Result<(), St
 mod tests {
     use super::*;
     use std::path::PathBuf;
-    use std::sync::OnceLock;
     use tempfile::tempdir;
-
-    static HOME_TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
     #[test]
     fn test_providers_load_returns_empty_when_absent() {
@@ -2637,8 +2643,7 @@ mod tests {
                 },
                 SavedProjectLearnedFactRecord {
                     id: "fact_storage".to_string(),
-                    text: "Saved project memory is stored in the project config JSON."
-                        .to_string(),
+                    text: "Saved project memory is stored in the project config JSON.".to_string(),
                 },
             ]),
         }];
@@ -2701,7 +2706,9 @@ mod tests {
             .as_ref()
             .expect("learned facts should be migrated");
         assert_eq!(learned_facts.len(), 2);
-        assert!(learned_facts.iter().all(|fact| fact.id.starts_with("fact_")));
+        assert!(learned_facts
+            .iter()
+            .all(|fact| fact.id.starts_with("fact_")));
         assert_eq!(
             learned_facts[0].text,
             "The desktop app uses Tauri for backend commands."

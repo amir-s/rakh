@@ -31,6 +31,7 @@ reqwest = { version = "0.12", default-features = false, features = ["blocking", 
 sha2 = "0.10"
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
+tauri-plugin-single-instance = "2"
 rmcp = { version = "1.1.1", features = ["client", "transport-child-process", "transport-streamable-http-client-reqwest", "transport-streamable-http-server"] }
 vte = "0.15.0"
 chrono = { version = "0.4", default-features = false, features = ["clock", "serde", "std"] }
@@ -47,3 +48,6 @@ strip = true
 
 [dev-dependencies]
 tempfile = "3.25.0"
+
+[target.'cfg(windows)'.dependencies]
+winreg = "0.55"

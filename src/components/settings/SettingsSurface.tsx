@@ -68,6 +68,7 @@ import {
   TextareaField,
   ToggleSwitch,
 } from "@/components/ui";
+import CopyableCodePill from "@/components/CopyableCodePill";
 import JsonCodeEditor from "@/components/ui/JsonCodeEditor";
 import {
   getAppUpdaterProgressValue,
@@ -2476,90 +2477,163 @@ function UpdatesSection({
         year: "numeric",
       })
     : null;
+  const cliInstallButtonLabel = controller.cliStatusLoading
+    ? controller.cliStatus?.installed
+      ? "Reinstalling…"
+      : "Installing…"
+    : controller.cliStatus?.installed
+      ? "Reinstall"
+      : "Install";
+  const cliInstalledVariant = controller.cliStatus?.installed
+    ? "success"
+    : "muted";
 
   return (
-    <SectionCard
-      title="Release Channel"
-      description="Check for signed releases from GitHub and install them without leaving the app."
-    >
-      <div className="settings-row">
-        <div className="settings-row-info">
-          <span className="settings-row-label">Current version</span>
-          <span className="settings-row-desc">v{pkg.version}</span>
-        </div>
-        <Badge variant={updaterStatusVariant}>{updaterStatusLabel}</Badge>
-      </div>
-
-      {controller.appUpdater.availableVersion ? (
+    <div className="flex flex-col gap-4">
+      <SectionCard
+        title="Release Channel"
+        description="Check for signed releases from GitHub and install them without leaving the app."
+      >
         <div className="settings-row">
           <div className="settings-row-info">
-            <span className="settings-row-label">Available version</span>
-            <span className="settings-row-desc">
-              v{controller.appUpdater.availableVersion}
-              {availableDateLabel ? ` • ${availableDateLabel}` : ""}
-            </span>
+            <span className="settings-row-label">Current version</span>
+            <span className="settings-row-desc">v{pkg.version}</span>
           </div>
+          <Badge variant={updaterStatusVariant}>{updaterStatusLabel}</Badge>
         </div>
-      ) : null}
 
-      <Panel variant="inset" className="settings-updates-panel">
-        <p className="settings-section-desc">
-          {formatUpdaterLastChecked(controller.appUpdater.lastCheckedAt)}
-        </p>
-
-        {updaterProgressValue !== null ? (
-          <p className="settings-feedback settings-feedback--primary">
-            Download progress: {updaterProgressValue}%
-          </p>
-        ) : null}
-
-        {controller.appUpdater.error ? (
-          <p className="settings-feedback settings-feedback--error">
-            {controller.appUpdater.error}
-          </p>
-        ) : null}
-
-        {controller.appUpdater.releaseNotes ? (
-          <div className="settings-release-notes">
-            <p className="settings-release-notes__label">Release notes</p>
-            <p className="settings-release-notes__body">
-              {controller.appUpdater.releaseNotes}
-            </p>
+        {controller.appUpdater.availableVersion ? (
+          <div className="settings-row">
+            <div className="settings-row-info">
+              <span className="settings-row-label">Available version</span>
+              <span className="settings-row-desc">
+                v{controller.appUpdater.availableVersion}
+                {availableDateLabel ? ` • ${availableDateLabel}` : ""}
+              </span>
+            </div>
           </div>
+        ) : null}
+
+        <Panel variant="inset" className="settings-updates-panel">
+          <p className="settings-section-desc">
+            {formatUpdaterLastChecked(controller.appUpdater.lastCheckedAt)}
+          </p>
+
+          {updaterProgressValue !== null ? (
+            <p className="settings-feedback settings-feedback--primary">
+              Download progress: {updaterProgressValue}%
+            </p>
+          ) : null}
+
+          {controller.appUpdater.error ? (
+            <p className="settings-feedback settings-feedback--error">
+              {controller.appUpdater.error}
+            </p>
+          ) : null}
+
+          {controller.appUpdater.releaseNotes ? (
+            <div className="settings-release-notes">
+              <p className="settings-release-notes__label">Release notes</p>
+              <p className="settings-release-notes__body">
+                {controller.appUpdater.releaseNotes}
+              </p>
+            </div>
+          ) : null}
+
+          <div className="settings-updates-panel__actions">
+            <Button
+              type="button"
+              onClick={() => {
+                void controller.checkForUpdates();
+              }}
+              disabled={isCheckingUpdates || isInstallingUpdate}
+              variant={
+                controller.appUpdater.availableVersion ? "secondary" : "primary"
+              }
+              size="xs"
+              loading={isCheckingUpdates}
+            >
+              {isCheckingUpdates ? "Checking…" : "Check for updates"}
+            </Button>
+
+            {controller.appUpdater.availableVersion ? (
+              <Button
+                type="button"
+                onClick={() => {
+                  void controller.installUpdate();
+                }}
+                disabled={isCheckingUpdates || isInstallingUpdate}
+                size="xs"
+                loading={isInstallingUpdate}
+              >
+                {installButtonLabel}
+              </Button>
+            ) : null}
+          </div>
+        </Panel>
+      </SectionCard>
+
+      <SectionCard
+        title="Command-line launcher"
+        description="Install the CLI too. This makes the `rakh` binary available in your terminal so you can open the app from the command line."
+      >
+        {controller.cliStatus ? (
+          <>
+            <div className="flex justify-end">
+              <Badge variant={cliInstalledVariant}>
+                {controller.cliStatus.installed ? "Installed" : "Not installed"}
+              </Badge>
+            </div>
+
+            {controller.cliStatus.manualPathSnippet ? (
+              <div className="flex flex-col gap-2">
+                <CopyableCodePill
+                  value={controller.cliStatus.manualPathSnippet}
+                  label="CLI PATH snippet"
+                  multiline
+                />
+              </div>
+            ) : null}
+          </>
+        ) : (
+          <p className="settings-section-desc">
+            Command-line launcher management is available in the desktop app.
+          </p>
+        )}
+
+        {controller.cliStatusError ? (
+          <p className="settings-feedback settings-feedback--error">
+            {controller.cliStatusError}
+          </p>
         ) : null}
 
         <div className="settings-updates-panel__actions">
           <Button
             type="button"
-            onClick={() => {
-              void controller.checkForUpdates();
-            }}
-            disabled={isCheckingUpdates || isInstallingUpdate}
-            variant={
-              controller.appUpdater.availableVersion ? "secondary" : "primary"
-            }
             size="xs"
-            loading={isCheckingUpdates}
+            onClick={() => {
+              void controller.installCliLauncher();
+            }}
+            loading={controller.cliStatusLoading}
           >
-            {isCheckingUpdates ? "Checking…" : "Check for updates"}
+            {cliInstallButtonLabel}
           </Button>
-
-          {controller.appUpdater.availableVersion ? (
+          {controller.cliStatus?.installed ? (
             <Button
               type="button"
-              onClick={() => {
-                void controller.installUpdate();
-              }}
-              disabled={isCheckingUpdates || isInstallingUpdate}
               size="xs"
-              loading={isInstallingUpdate}
+              variant="ghost"
+              onClick={() => {
+                void controller.uninstallCliLauncher();
+              }}
+              disabled={controller.cliStatusLoading}
             >
-              {installButtonLabel}
+              Uninstall
             </Button>
           ) : null}
         </div>
-      </Panel>
-    </SectionCard>
+      </SectionCard>
+    </div>
   );
 }
 
