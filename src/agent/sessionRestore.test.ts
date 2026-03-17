@@ -28,9 +28,13 @@ vi.mock("./tools/todos", () => ({
 }));
 
 import { agentAtomFamily, jotaiStore } from "./atoms";
+import { providersAtom } from "./db";
+import { registerDynamicModels } from "./modelCatalog";
 import type { PersistedSession } from "./persistence";
+import { summarizeSessionUsage } from "./sessionStats";
 import {
   focusOrOpenPersistedSession,
+  hydratePersistedSession,
   restoreArchivedTab,
   restoreMostRecentArchivedTab,
 } from "./sessionRestore";
@@ -84,6 +88,8 @@ describe("sessionRestore", () => {
     persistenceMock.loadArchivedSessions.mockReset();
     persistenceMock.restoreSession.mockReset();
     todosMock.loadSessionTodos.mockReset();
+    jotaiStore.set(providersAtom, []);
+    registerDynamicModels([]);
   });
 
   it("restores an archived session into agent state and the tab strip", async () => {
@@ -164,6 +170,56 @@ describe("sessionRestore", () => {
     ]);
     expect(state.queueState).toBe("paused");
     expect(state.showDebug).toBe(true);
+  });
+
+  it("refreshes live model metadata while hydrating restored sessions", () => {
+    jotaiStore.set(providersAtom, [
+      {
+        id: "provider-compatible",
+        name: "my-gateway",
+        type: "openai-compatible",
+        apiKey: "",
+        baseUrl: "http://localhost:11434/v1",
+        cachedModels: [
+          {
+            id: "meta/llama-3.3-70b",
+            cost: { input: 0.15, output: 0.6 },
+            limit: { context: 131072 },
+          },
+        ],
+      },
+    ]);
+
+    const session = makeSession("restore-session-6", {
+      model: "my-gateway/meta/llama-3.3-70b",
+      llmUsageLedger: JSON.stringify([
+        {
+          id: "usage-1",
+          timestamp: 1,
+          modelId: "my-gateway/meta/llama-3.3-70b",
+          actorKind: "main",
+          actorId: "main",
+          actorLabel: "Rakh",
+          operation: "assistant turn",
+          inputTokens: 1000,
+          noCacheInputTokens: 1000,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          outputTokens: 500,
+          reasoningTokens: 0,
+          totalTokens: 1500,
+        },
+      ]),
+    });
+
+    hydratePersistedSession(session, { todos: [] });
+
+    const state = jotaiStore.get(agentAtomFamily(session.id));
+    const summary = summarizeSessionUsage(state.llmUsageLedger);
+
+    expect(state.config.contextLength).toBe(131072);
+    expect(summary?.costStatus).toBe("complete");
+    expect(summary?.knownCostUsd).toBeCloseTo(0.00045, 8);
   });
 
   it("restores the most recent archived session from the archived list", async () => {

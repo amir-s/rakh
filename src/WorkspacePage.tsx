@@ -1237,7 +1237,10 @@ export default function WorkspacePage() {
           `⚠ Unknown model \`${modelId}\`. Use \`/model\` to list available models.`,
         );
       } else {
-        agent.setConfig({ model: modelId });
+        agent.setConfig({
+          model: modelId,
+          contextLength: entry.context_length,
+        });
         injectAssistantMessage(
           `✓ Model switched to **${entry.name}** (\`${modelId}\`).`,
         );
@@ -1970,7 +1973,12 @@ export default function WorkspacePage() {
           currentProfile={agent.config.communicationProfile}
           onSelect={(id, profile) => {
             if (!isAgentBusy) {
-              agent.setConfig({ model: id, communicationProfile: profile });
+              const nextModel = models.find((model) => model.id === id);
+              agent.setConfig({
+                model: id,
+                contextLength: nextModel?.context_length,
+                communicationProfile: profile,
+              });
             }
             setModelPickerOpen(false);
           }}
