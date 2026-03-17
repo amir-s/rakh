@@ -6,12 +6,13 @@ import {
   patchAgentState,
 } from "./atoms";
 import { resolveCommunicationProfileId } from "./communicationProfiles";
-import { profilesAtom } from "./db";
+import { profilesAtom, providersAtom } from "./db";
 import {
   loadArchivedSessions,
   restoreSession,
   type PersistedSession,
 } from "./persistence";
+import { buildGatewayModels } from "./useModels";
 import { loadSessionTodos } from "./tools/todos";
 import type {
   AdvancedModelOptions,
@@ -123,6 +124,15 @@ function parseQueueState(
   return "paused";
 }
 
+function getFreshSessionModelMetadata(modelId: string) {
+  if (!modelId) return null;
+  return (
+    buildGatewayModels(jotaiStore.get(providersAtom)).find(
+      (entry) => entry.id === modelId,
+    ) ?? null
+  );
+}
+
 export function hydratePersistedSession(
   session: PersistedSession,
   options: HydratePersistedSessionOptions = {},
@@ -131,6 +141,7 @@ export function hydratePersistedSession(
   const queuedMessages = parseQueuedMessages(session.queuedMessages);
   const queueState = parseQueueState(session.queueState, queuedMessages);
   const llmUsageLedger = parseLlmUsageLedger(session.llmUsageLedger);
+  const freshModelMetadata = getFreshSessionModelMetadata(session.model);
   const communicationProfile = resolveCommunicationProfileId(
     session.communicationProfile,
     jotaiStore.get(profilesAtom),
@@ -146,6 +157,7 @@ export function hydratePersistedSession(
       projectPath: session.projectPath || undefined,
       setupCommand: session.setupCommand || undefined,
       model: session.model,
+      contextLength: freshModelMetadata?.context_length,
       worktreePath: session.worktreePath || undefined,
       worktreeBranch: session.worktreeBranch || undefined,
       worktreeDeclined: session.worktreeDeclined || undefined,
