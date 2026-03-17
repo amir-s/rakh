@@ -1,3 +1,4 @@
+pub mod cli;
 pub mod db;
 pub mod exec;
 pub mod external_tools;
@@ -21,6 +22,9 @@ use std::sync::Mutex;
 pub fn run() {
     let db = init_db().expect("Failed to initialise sessions database");
     tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
+            cli::handle_secondary_cli_invocation(app, argv);
+        }))
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
@@ -30,6 +34,10 @@ pub fn run() {
             app.handle()
                 .plugin(tauri_plugin_updater::Builder::new().build())?;
             init_runtime_logging(app.handle().clone())?;
+            if let Err(error) = cli::refresh_installed_launcher_if_needed() {
+                eprintln!("Failed to refresh installed rakh launcher: {error}");
+            }
+            cli::capture_startup_cli_request(app.handle());
             Ok(())
         })
         .manage(AppState {
@@ -38,8 +46,13 @@ pub fn run() {
             db: Mutex::new(db),
             todo_locks: Mutex::new(HashMap::new()),
         })
+        .manage(cli::CliState::default())
         .manage(McpRunState::default())
         .invoke_handler(tauri::generate_handler![
+            cli::cli_get_status,
+            cli::cli_install,
+            cli::cli_uninstall,
+            cli::cli_take_pending_requests,
             db::load_provider_env_api_keys,
             git::git_worktree_add,
             fs_ops::list_dir,

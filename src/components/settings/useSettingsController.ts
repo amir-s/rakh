@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useAtom } from "jotai";
 import {
@@ -32,6 +32,12 @@ import {
 } from "@/agent/mcp";
 import { ensureNotificationPermission } from "@/notifications";
 import { upsertWorkspaceSessions } from "@/agent/persistence";
+import {
+  getCliStatus,
+  installCli,
+  uninstallCli,
+  type CliStatus,
+} from "@/cli";
 import {
   useEnvProviderKeys,
   isTauriRuntime,
@@ -104,6 +110,12 @@ export interface SettingsControllerValue {
   appUpdater: AppUpdaterState;
   checkForUpdates: () => Promise<void>;
   installUpdate: () => Promise<void>;
+  cliStatus: CliStatus | null;
+  cliStatusLoading: boolean;
+  cliStatusError: string | null;
+  refreshCliStatus: () => Promise<void>;
+  installCliLauncher: () => Promise<void>;
+  uninstallCliLauncher: () => Promise<void>;
 }
 
 export function useSettingsController(): SettingsControllerValue {
@@ -135,6 +147,9 @@ export function useSettingsController(): SettingsControllerValue {
   const [voiceDownloadError, setVoiceDownloadError] = useState<string | null>(
     null,
   );
+  const [cliStatus, setCliStatus] = useState<CliStatus | null>(null);
+  const [cliStatusLoading, setCliStatusLoading] = useState(false);
+  const [cliStatusError, setCliStatusError] = useState<string | null>(null);
 
   const [isAddingProfile, setIsAddingProfile] = useState(false);
   const [editingProfileId, setEditingProfileId] = useState<string | null>(null);
@@ -314,6 +329,57 @@ export function useSettingsController(): SettingsControllerValue {
     await checkForAppUpdates();
   }, []);
 
+  const handleRefreshCliStatus = useCallback(async () => {
+    if (!isTauriRuntime()) {
+      setCliStatus(null);
+      setCliStatusLoading(false);
+      setCliStatusError(null);
+      return;
+    }
+
+    setCliStatusLoading(true);
+    setCliStatusError(null);
+    try {
+      setCliStatus(await getCliStatus());
+    } catch (error) {
+      setCliStatusError(
+        error instanceof Error ? error.message : String(error ?? "Unknown"),
+      );
+    } finally {
+      setCliStatusLoading(false);
+    }
+  }, []);
+
+  const handleInstallCliLauncher = useCallback(async () => {
+    if (!isTauriRuntime()) return;
+    setCliStatusLoading(true);
+    setCliStatusError(null);
+    try {
+      setCliStatus(await installCli());
+    } catch (error) {
+      setCliStatusError(
+        error instanceof Error ? error.message : String(error ?? "Unknown"),
+      );
+    } finally {
+      setCliStatusLoading(false);
+    }
+  }, []);
+
+  const handleUninstallCliLauncher = useCallback(async () => {
+    if (!isTauriRuntime()) return;
+    setCliStatusLoading(true);
+    setCliStatusError(null);
+    try {
+      setCliStatus(await uninstallCli());
+    } catch (error) {
+      setCliStatusError(
+        error instanceof Error ? error.message : String(error ?? "Unknown"),
+      );
+    } finally {
+      setCliStatusLoading(false);
+    }
+  }, []);
+
   const handleInstallUpdate = useCallback(async () => {
     if (!appUpdater.availableVersion) return;
 
@@ -328,6 +394,10 @@ export function useSettingsController(): SettingsControllerValue {
       // updater state already captures failures for the settings UI
     }
   }, [appUpdater.availableVersion, tabs]);
+
+  useEffect(() => {
+    void handleRefreshCliStatus();
+  }, [handleRefreshCliStatus]);
 
   return {
     providers,
@@ -370,5 +440,11 @@ export function useSettingsController(): SettingsControllerValue {
     appUpdater,
     checkForUpdates: handleCheckForUpdates,
     installUpdate: handleInstallUpdate,
+    cliStatus,
+    cliStatusLoading,
+    cliStatusError,
+    refreshCliStatus: handleRefreshCliStatus,
+    installCliLauncher: handleInstallCliLauncher,
+    uninstallCliLauncher: handleUninstallCliLauncher,
   };
 }

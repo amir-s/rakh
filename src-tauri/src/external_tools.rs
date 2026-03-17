@@ -481,10 +481,12 @@ fn resolve_spawn_cwd(target: &Path) -> Result<PathBuf, String> {
     if target.is_dir() {
         return Ok(target.to_path_buf());
     }
-    target
-        .parent()
-        .map(Path::to_path_buf)
-        .ok_or_else(|| format!("Could not determine parent directory for {}", target.display()))
+    target.parent().map(Path::to_path_buf).ok_or_else(|| {
+        format!(
+            "Could not determine parent directory for {}",
+            target.display()
+        )
+    })
 }
 
 fn spawn_plan(tool_name: &str, plan: &LaunchPlan, target: &Path) -> Result<(), String> {

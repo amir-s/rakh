@@ -926,9 +926,18 @@ mod tests {
         fs::write(github_dir.join("CODEOWNERS"), "* @owner").unwrap();
         let res3 = list_dir(path_str.clone(), false, 100, None).unwrap();
         let entries3 = res3["entries"].as_array().unwrap();
-        let names3: Vec<&str> = entries3.iter().map(|e| e["name"].as_str().unwrap()).collect();
-        assert!(names3.contains(&".github"), ".github should be visible without includeHidden");
-        assert!(!names3.contains(&".hidden"), ".hidden should still be excluded");
+        let names3: Vec<&str> = entries3
+            .iter()
+            .map(|e| e["name"].as_str().unwrap())
+            .collect();
+        assert!(
+            names3.contains(&".github"),
+            ".github should be visible without includeHidden"
+        );
+        assert!(
+            !names3.contains(&".hidden"),
+            ".hidden should still be excluded"
+        );
     }
 
     #[test]
