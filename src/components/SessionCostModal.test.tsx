@@ -153,4 +153,29 @@ describe("SessionCostModal", () => {
     expect(screen.getByText(/Call 2/)).not.toBeNull();
     expect(screen.getByText(/Planner - assistant turn/)).not.toBeNull();
   });
+
+  it("shows cumulative total in the cumulative chart tooltip", () => {
+    render(
+      <SessionCostModal
+        summary={makeSummary()}
+        series={makeSeries()}
+        onClose={vi.fn()}
+      />,
+    );
+
+    const cumulativeChart = document.body.querySelector(
+      '[data-chart-id="cumulative-cost"]',
+    );
+    expect(cumulativeChart).not.toBeNull();
+
+    const call3 = cumulativeChart!.querySelector('circle[data-call-index="3"]');
+    expect(call3).not.toBeNull();
+
+    fireEvent.mouseEnter(call3!);
+
+    const tooltip = screen.getByRole("tooltip");
+    expect(tooltip.textContent).toContain("Call 3");
+    expect(tooltip.textContent).toContain("Total so far $0.060");
+    expect(tooltip.textContent).toContain("Call cost $0.030");
+  });
 });
