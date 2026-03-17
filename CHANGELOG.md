@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.16.0](https://github.com/amir-s/rakh/compare/rakh-v0.15.1...rakh-v0.16.0) (2026-03-17)
+
+
+### Features
+
+* add instant chart tooltips ([c6b7e54](https://github.com/amir-s/rakh/commit/c6b7e54ec656a1d27e7af1b56faa8eaf83684a77))
+* add session cost modal ([ecf3dd2](https://github.com/amir-s/rakh/commit/ecf3dd2ca4da6a2c281d1ec14774c547e08e3c14))
+
+
+### Bug Fixes
+
+* show cumulative totals in cost tooltip ([d6615a5](https://github.com/amir-s/rakh/commit/d6615a53b8ae6fde25a84ffe7a9784c25be2f45b))
+
 ## [0.15.1](https://github.com/amir-s/rakh/compare/rakh-v0.15.0...rakh-v0.15.1) (2026-03-17)
 
 
