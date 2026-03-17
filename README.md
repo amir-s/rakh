@@ -114,6 +114,22 @@ Useful built-in slash commands:
 - `/copywrite`
 - `/github`
 
+## CLI launcher
+
+Install the launcher from `Settings -> Updates -> Command-line launcher`.
+
+Once installed:
+
+- `rakh` opens or focuses the desktop app
+- `rakh <path>` opens the app at that directory; if you pass a file, Rakh uses
+  its parent directory
+- `rakh -a <path>` opens the app at that directory and also adds it to your
+  saved projects
+
+The launcher lives under `~/.rakh/bin` or `~/.rakh-dev/bin`. Install also
+tries to add that directory to your `PATH` automatically. If your terminal is
+already open, restart it before using `rakh`.
+
 ## Development
 
 Common commands:

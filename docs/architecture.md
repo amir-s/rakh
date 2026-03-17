@@ -261,6 +261,8 @@ commands from the backend modules.
 
 Current backend modules:
 
+- [`src-tauri/src/cli.rs`](../src-tauri/src/cli.rs): settings-managed `rakh`
+  launcher install/status, PATH integration, and single-instance launch handoff
 - [`src-tauri/src/db.rs`](../src-tauri/src/db.rs): session persistence, archived
   sessions, artifact manifests/blob helpers, artifact change event emission,
   and provider env key loading

@@ -209,8 +209,13 @@ ADD_PROJECT=0
 TARGET=""
 
 print_usage() {{
-  echo "Usage: rakh [path]"
-  echo "       rakh -a <path>"
+  echo "Usage:"
+  echo "  rakh"
+  echo "      Open or focus the desktop app."
+  echo "  rakh <path>"
+  echo "      Open the app at a directory. If you pass a file, Rakh uses its parent directory."
+  echo "  rakh -a <path>"
+  echo "      Open the app at a directory and add it to saved projects."
 }}
 
 if [ ! -x "$APP" ]; then
@@ -338,8 +343,13 @@ if defined TARGET_DIR (
 exit /b 0
 
 :usage
-echo Usage: rakh [path]
-echo        rakh -a ^<path^>
+echo Usage:
+echo   rakh
+echo       Open or focus the desktop app.
+echo   rakh ^<path^>
+echo       Open the app at a directory. If you pass a file, Rakh uses its parent directory.
+echo   rakh -a ^<path^>
+echo       Open the app at a directory and add it to saved projects.
 exit /b 0
 
 :error_missing
@@ -953,6 +963,8 @@ mod tests {
             render_unix_launcher(Path::new("/Applications/Rakh.app/Contents/MacOS/Rakh"));
         assert!(launcher.contains(CLI_OPEN_FLAG));
         assert!(launcher.contains(CLI_ADD_PROJECT_FLAG));
+        assert!(launcher.contains("Open or focus the desktop app."));
+        assert!(launcher.contains("add it to saved projects."));
         assert!(launcher.contains("nohup \"$APP\" \"$@\" >/dev/null 2>&1 &"));
     }
 
@@ -961,6 +973,8 @@ mod tests {
         let launcher = render_windows_launcher(Path::new(r"C:\Program Files\Rakh\Rakh.exe"));
         assert!(launcher.contains(CLI_OPEN_FLAG));
         assert!(launcher.contains(CLI_ADD_PROJECT_FLAG));
+        assert!(launcher.contains("Open or focus the desktop app."));
+        assert!(launcher.contains("add it to saved projects."));
         assert!(launcher.contains("start \"\" \"%APP%\""));
     }
 
