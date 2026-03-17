@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.15.0](https://github.com/amir-s/rakh/compare/rakh-v0.14.0...rakh-v0.15.0) (2026-03-17)
+
+
+### Features
+
+* add context compaction controls and auto-compactor ([3349790](https://github.com/amir-s/rakh/commit/33497902e24cd849d15500eb5bf8b9489b79e2ae)), closes [#184](https://github.com/amir-s/rakh/issues/184)
+* add project learned-facts memory ([6bf111e](https://github.com/amir-s/rakh/commit/6bf111e9b4563bc4cb23f5d98b2e39e60db196f3))
+* add settings-managed rakh launcher ([1ec2695](https://github.com/amir-s/rakh/commit/1ec26954dfce2526ea0faf579e72a8ef0fbd28ca))
+* **agent:** add manual context compaction ([3bd0bcf](https://github.com/amir-s/rakh/commit/3bd0bcfb702760ea5f33034197b0d63e1d2f415c))
+* **agent:** support removing project memory facts ([dc62188](https://github.com/amir-s/rakh/commit/dc62188df19bf507cbd9951067c767eede3764d6))
+* **chat:** add bubble copy and fork actions ([1d55edb](https://github.com/amir-s/rakh/commit/1d55edb2816270e8c2c0084db0ed3b4d42390461))
+* **chat:** show copy success feedback ([ff9b8ab](https://github.com/amir-s/rakh/commit/ff9b8abef7f66c3964f1a8d200767fc7069b84d5))
+* **project-memory:** assign stable ids to learned facts ([f32cc64](https://github.com/amir-s/rakh/commit/f32cc648a411d327c57d0e60e572fa7c07f8bbb2)), closes [#181](https://github.com/amir-s/rakh/issues/181)
+
+
+### Bug Fixes
+
+* **agent:** harden project memory updates ([c93fc3f](https://github.com/amir-s/rakh/commit/c93fc3f5e919042e43cfd9b676d896f9450123f2))
+* always include .github dir regardless of includeHidden flag ([ecace28](https://github.com/amir-s/rakh/commit/ecace28fa4de193835edd33d3f2099362e6ee1cb)), closes [#172](https://github.com/amir-s/rakh/issues/172)
+* **chat:** align trace action with bubble controls ([14d121b](https://github.com/amir-s/rakh/commit/14d121bdcfd0b4ecac512b6909e901ede8ab72c3))
+* refresh model metadata when restoring sessions ([6c71327](https://github.com/amir-s/rakh/commit/6c71327bb148e8cde46a90d3b1bf72982cef3451))
+* **settings:** persist compaction config on disk ([7073349](https://github.com/amir-s/rakh/commit/70733490c231265f9a193fa9b29ee7ab684ac6d0))
+
 ## [0.14.0](https://github.com/amir-s/rakh/compare/rakh-v0.13.0...rakh-v0.14.0) (2026-03-15)
 
 
