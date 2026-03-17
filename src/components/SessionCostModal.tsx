@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import type {
   SessionCostSeriesPoint,
@@ -12,12 +12,33 @@ const CHART_PADDING_LEFT = 16;
 const CHART_PADDING_RIGHT = 16;
 const CHART_PADDING_TOP = 14;
 const CHART_PADDING_BOTTOM = 18;
+const ACTOR_LINE_COLORS = [
+  "var(--color-primary)",
+  "var(--color-success)",
+  "var(--color-warning)",
+  "var(--color-info)",
+  "color-mix(in srgb, var(--color-primary) 62%, var(--color-text))",
+  "color-mix(in srgb, var(--color-success) 62%, var(--color-text))",
+];
 
 interface SessionCostModalProps {
   summary: SessionUsageSummary;
   series: SessionCostSeriesPoint[];
   onClose: () => void;
   onOpenProvidersSettings?: () => void;
+}
+
+interface ActorCostSeries {
+  key: string;
+  label: string;
+  color: string;
+  points: SessionCostSeriesPoint[];
+}
+
+interface ChartTooltipState {
+  leftPct: number;
+  topPct: number;
+  content: string;
 }
 
 function formatUsd(usd: number): string {
@@ -48,27 +69,18 @@ function formatDateTime(timestamp: number): string {
   }).format(timestamp);
 }
 
-function getXPosition(
-  point: SessionCostSeriesPoint,
-  count: number,
-): number {
+function getXPosition(point: SessionCostSeriesPoint, totalCount: number): number {
   const chartWidth = CHART_WIDTH - CHART_PADDING_LEFT - CHART_PADDING_RIGHT;
-  if (count <= 1) return CHART_PADDING_LEFT + chartWidth / 2;
-  return CHART_PADDING_LEFT + (point.index / (count - 1)) * chartWidth;
+  if (totalCount <= 1) return CHART_PADDING_LEFT + chartWidth / 2;
+  return CHART_PADDING_LEFT + (point.index / (totalCount - 1)) * chartWidth;
 }
 
 function getYPosition(value: number, maxValue: number): number {
   const chartHeight = CHART_HEIGHT - CHART_PADDING_TOP - CHART_PADDING_BOTTOM;
-  return (
-    CHART_PADDING_TOP +
-    chartHeight -
-    (value / maxValue) * chartHeight
-  );
+  return CHART_PADDING_TOP + chartHeight - (value / maxValue) * chartHeight;
 }
 
-function buildLinePath(
-  points: Array<{ x: number; y: number }>,
-): string {
+function buildLinePath(points: Array<{ x: number; y: number }>): string {
   return points
     .map((point, index) =>
       `${index === 0 ? "M" : "L"} ${point.x.toFixed(2)} ${point.y.toFixed(2)}`,
@@ -80,10 +92,248 @@ function buildSeriesTitle(point: SessionCostSeriesPoint): string {
   const costLabel =
     point.callCostUsd == null ? "Pricing unavailable" : formatUsd(point.callCostUsd);
   return [
+    `Call ${point.index + 1}`,
     `${formatDateTime(point.timestamp)}`,
     `${point.actorLabel} - ${point.operation}`,
     `${costLabel} - ${formatTokens(point.totalTokens)} tok`,
   ].join("\n");
+}
+
+function buildTooltipState(
+  point: SessionCostSeriesPoint,
+  x: number,
+  y: number,
+): ChartTooltipState {
+  const leftPct = Math.min(94, Math.max(6, (x / CHART_WIDTH) * 100));
+  const topPct = Math.min(92, Math.max(8, (y / CHART_HEIGHT) * 100));
+  return {
+    leftPct,
+    topPct,
+    content: buildSeriesTitle(point),
+  };
+}
+
+function buildActorCostSeries(points: SessionCostSeriesPoint[]): ActorCostSeries[] {
+  const grouped = new Map<string, ActorCostSeries>();
+
+  for (const point of points) {
+    const key = `${point.actorKind}:${point.actorId}`;
+    const existing = grouped.get(key);
+    if (existing) {
+      existing.points.push(point);
+      continue;
+    }
+
+    grouped.set(key, {
+      key,
+      label: point.actorLabel,
+      color: ACTOR_LINE_COLORS[grouped.size % ACTOR_LINE_COLORS.length],
+      points: [point],
+    });
+  }
+
+  return Array.from(grouped.values());
+}
+
+function SessionActorCostLineChart({
+  title,
+  description,
+  points,
+  emptyCopy,
+  showMissingMarkers = false,
+  chartId,
+}: {
+  title: string;
+  description: string;
+  points: SessionCostSeriesPoint[];
+  emptyCopy: string;
+  showMissingMarkers?: boolean;
+  chartId?: string;
+}) {
+  const [tooltip, setTooltip] = useState<ChartTooltipState | null>(null);
+  const actorSeries = buildActorCostSeries(points);
+  const plottedValues = points
+    .map((point) => point.callCostUsd)
+    .filter((value): value is number => value !== null);
+
+  if (plottedValues.length === 0) {
+    return (
+      <section className="session-cost-section" data-chart-id={chartId}>
+        <div className="session-cost-section-header">
+          <div>
+            <div className="session-cost-section-title">{title}</div>
+            <div className="session-cost-section-copy">{description}</div>
+          </div>
+          <div className="session-cost-section-value">{points.length} calls</div>
+        </div>
+        <div className="session-cost-empty">{emptyCopy}</div>
+      </section>
+    );
+  }
+
+  const maxValue = Math.max(...plottedValues, 0.0001);
+  const chartBottom = CHART_HEIGHT - CHART_PADDING_BOTTOM;
+  const gridValues = [1, 0.75, 0.5, 0.25, 0];
+
+  return (
+    <section className="session-cost-section" data-chart-id={chartId}>
+      <div className="session-cost-section-header">
+        <div>
+          <div className="session-cost-section-title">{title}</div>
+          <div className="session-cost-section-copy">{description}</div>
+        </div>
+        <div className="session-cost-section-value">
+          {actorSeries.length} actors · {points.length} calls
+        </div>
+      </div>
+
+      {actorSeries.length > 1 ? (
+        <div className="session-cost-legend">
+          {actorSeries.map((seriesEntry) => (
+            <div key={seriesEntry.key} className="session-cost-legend-item">
+              <span
+                className="session-cost-legend-swatch"
+                style={{ background: seriesEntry.color }}
+                aria-hidden="true"
+              />
+              <span className="session-cost-legend-label">{seriesEntry.label}</span>
+              <span className="session-cost-legend-copy">
+                {seriesEntry.points.length} call
+                {seriesEntry.points.length === 1 ? "" : "s"}
+              </span>
+            </div>
+          ))}
+        </div>
+      ) : null}
+
+      <div className="session-cost-chart-shell">
+        <div className="session-cost-chart-scale">
+          <span>{formatUsd(maxValue)}</span>
+          <span>$0</span>
+        </div>
+        <svg
+          className="session-cost-chart"
+          viewBox={`0 0 ${CHART_WIDTH} ${CHART_HEIGHT}`}
+          preserveAspectRatio="none"
+          aria-hidden="true"
+        >
+          {gridValues.map((ratio) => {
+            const y = getYPosition(maxValue * ratio, maxValue);
+            return (
+              <line
+                key={ratio}
+                className="session-cost-chart-grid"
+                x1={CHART_PADDING_LEFT}
+                x2={CHART_WIDTH - CHART_PADDING_RIGHT}
+                y1={y}
+                y2={y}
+              />
+            );
+          })}
+
+          {actorSeries.map((seriesEntry) => {
+            const positioned = seriesEntry.points.map((point) => ({
+              point,
+              x: getXPosition(point, points.length),
+              y:
+                point.callCostUsd === null
+                  ? null
+                  : getYPosition(point.callCostUsd, maxValue),
+            }));
+
+            const pathSegments: string[] = [];
+            let currentSegment: Array<{ x: number; y: number }> = [];
+            for (const entry of positioned) {
+              if (entry.y === null) {
+                if (currentSegment.length > 0) {
+                  pathSegments.push(buildLinePath(currentSegment));
+                  currentSegment = [];
+                }
+                continue;
+              }
+              currentSegment.push({ x: entry.x, y: entry.y });
+            }
+            if (currentSegment.length > 0) {
+              pathSegments.push(buildLinePath(currentSegment));
+            }
+
+            return (
+              <g key={seriesEntry.key}>
+                {pathSegments.map((segment, index) => (
+                  <path
+                    key={`${seriesEntry.key}-${index}`}
+                    d={segment}
+                    className="session-cost-chart-line"
+                    stroke={seriesEntry.color}
+                  />
+                ))}
+                {positioned.map(({ point, x, y }) =>
+                  y === null ? (
+                    showMissingMarkers ? (
+                      <circle
+                        key={point.id}
+                        className="session-cost-chart-dot session-cost-chart-dot--missing"
+                        data-call-index={point.index + 1}
+                        cx={x}
+                        cy={chartBottom}
+                        r={3.5}
+                        aria-label={buildSeriesTitle(point).replaceAll("\n", " ")}
+                        tabIndex={0}
+                        onMouseEnter={() =>
+                          setTooltip(buildTooltipState(point, x, chartBottom))
+                        }
+                        onMouseMove={() =>
+                          setTooltip(buildTooltipState(point, x, chartBottom))
+                        }
+                        onMouseLeave={() => setTooltip(null)}
+                        onFocus={() =>
+                          setTooltip(buildTooltipState(point, x, chartBottom))
+                        }
+                        onBlur={() => setTooltip(null)}
+                      >
+                      </circle>
+                    ) : null
+                  ) : (
+                    <circle
+                      key={point.id}
+                      className="session-cost-chart-dot"
+                      data-call-index={point.index + 1}
+                      cx={x}
+                      cy={y}
+                      r={4}
+                      fill={seriesEntry.color}
+                      aria-label={buildSeriesTitle(point).replaceAll("\n", " ")}
+                      tabIndex={0}
+                      onMouseEnter={() => setTooltip(buildTooltipState(point, x, y))}
+                      onMouseMove={() => setTooltip(buildTooltipState(point, x, y))}
+                      onMouseLeave={() => setTooltip(null)}
+                      onFocus={() => setTooltip(buildTooltipState(point, x, y))}
+                      onBlur={() => setTooltip(null)}
+                    >
+                    </circle>
+                  ),
+                )}
+              </g>
+            );
+          })}
+        </svg>
+        <div className="session-cost-chart-axis">
+          <span>Call 1</span>
+          <span>Session order</span>
+          <span>{`Call ${points.length}`}</span>
+        </div>
+        {tooltip ? (
+          <div
+            className="session-cost-chart-tooltip"
+            style={{ left: `${tooltip.leftPct}%`, top: `${tooltip.topPct}%` }}
+            role="tooltip"
+          >
+            {tooltip.content}
+          </div>
+        ) : null}
+      </div>
+    </section>
+  );
 }
 
 function SessionCostLineChart({
@@ -95,6 +345,7 @@ function SessionCostLineChart({
   emptyCopy,
   latestValueLabel,
   showMissingMarkers = false,
+  chartId,
 }: {
   title: string;
   description: string;
@@ -104,7 +355,9 @@ function SessionCostLineChart({
   emptyCopy: string;
   latestValueLabel: string;
   showMissingMarkers?: boolean;
+  chartId?: string;
 }) {
+  const [tooltip, setTooltip] = useState<ChartTooltipState | null>(null);
   const pointsWithValues = points.map((point) => ({
     point,
     value: valueFor(point),
@@ -115,7 +368,7 @@ function SessionCostLineChart({
 
   if (plottedValues.length === 0) {
     return (
-      <section className="session-cost-section">
+      <section className="session-cost-section" data-chart-id={chartId}>
         <div className="session-cost-section-header">
           <div>
             <div className="session-cost-section-title">{title}</div>
@@ -131,7 +384,6 @@ function SessionCostLineChart({
   const maxValue = Math.max(...plottedValues, 0.0001);
   const chartBottom = CHART_HEIGHT - CHART_PADDING_BOTTOM;
   const gridValues = [1, 0.75, 0.5, 0.25, 0];
-
   const positioned = pointsWithValues.map(({ point, value }) => ({
     point,
     value,
@@ -156,7 +408,7 @@ function SessionCostLineChart({
   }
 
   return (
-    <section className="session-cost-section">
+    <section className="session-cost-section" data-chart-id={chartId}>
       <div className="session-cost-section-header">
         <div>
           <div className="session-cost-section-title">{title}</div>
@@ -203,23 +455,43 @@ function SessionCostLineChart({
                 <circle
                   key={point.id}
                   className="session-cost-chart-dot session-cost-chart-dot--missing"
+                  data-call-index={point.index + 1}
                   cx={x}
                   cy={chartBottom}
                   r={3.5}
+                  aria-label={buildSeriesTitle(point).replaceAll("\n", " ")}
+                  tabIndex={0}
+                  onMouseEnter={() =>
+                    setTooltip(buildTooltipState(point, x, chartBottom))
+                  }
+                  onMouseMove={() =>
+                    setTooltip(buildTooltipState(point, x, chartBottom))
+                  }
+                  onMouseLeave={() => setTooltip(null)}
+                  onFocus={() =>
+                    setTooltip(buildTooltipState(point, x, chartBottom))
+                  }
+                  onBlur={() => setTooltip(null)}
                 >
-                  <title>{buildSeriesTitle(point)}</title>
                 </circle>
               ) : null
             ) : (
               <circle
                 key={point.id}
                 className="session-cost-chart-dot"
+                data-call-index={point.index + 1}
                 cx={x}
                 cy={y}
                 r={4}
                 fill={lineColor}
+                aria-label={buildSeriesTitle(point).replaceAll("\n", " ")}
+                tabIndex={0}
+                onMouseEnter={() => setTooltip(buildTooltipState(point, x, y))}
+                onMouseMove={() => setTooltip(buildTooltipState(point, x, y))}
+                onMouseLeave={() => setTooltip(null)}
+                onFocus={() => setTooltip(buildTooltipState(point, x, y))}
+                onBlur={() => setTooltip(null)}
               >
-                <title>{buildSeriesTitle(point)}</title>
               </circle>
             ),
           )}
@@ -229,6 +501,15 @@ function SessionCostLineChart({
           <span>Session order</span>
           <span>{`Call ${points.length}`}</span>
         </div>
+        {tooltip ? (
+          <div
+            className="session-cost-chart-tooltip"
+            style={{ left: `${tooltip.leftPct}%`, top: `${tooltip.topPct}%` }}
+            role="tooltip"
+          >
+            {tooltip.content}
+          </div>
+        ) : null}
       </div>
     </section>
   );
@@ -250,9 +531,6 @@ export default function SessionCostModal({
 
   const pricedCallCount = series.filter((point) => point.callCostUsd !== null).length;
   const missingCallCount = Math.max(0, series.length - pricedCallCount);
-  const latestPricedCall = [...series]
-    .reverse()
-    .find((point) => point.callCostUsd !== null);
 
   return createPortal(
     <div
@@ -321,7 +599,7 @@ export default function SessionCostModal({
                 <strong>
                   {summary.missingPricingModels.map((model) => model.label).join(", ")}
                 </strong>
-                . Calls without pricing show as gaps in the per-call line.
+                . Calls without pricing show as gaps in the per-call chart.
               </div>
               {onOpenProvidersSettings ? (
                 <Button onClick={onOpenProvidersSettings} variant="ghost" size="xxs">
@@ -331,22 +609,17 @@ export default function SessionCostModal({
             </div>
           ) : null}
 
-          <SessionCostLineChart
+          <SessionActorCostLineChart
+            chartId="per-call-cost"
             title="Cost per API call"
-            description="Each finished model request, in session order."
+            description="Separate line per actor, positioned by where each call happened in the session."
             points={series}
-            valueFor={(point) => point.callCostUsd}
-            lineColor="var(--color-primary)"
             emptyCopy="No priced API calls yet. Add pricing metadata for this model to chart call-level spend."
-            latestValueLabel={
-              latestPricedCall?.callCostUsd != null
-                ? `Latest ${formatUsd(latestPricedCall.callCostUsd)}`
-                : "Latest unavailable"
-            }
             showMissingMarkers={missingCallCount > 0}
           />
 
           <SessionCostLineChart
+            chartId="cumulative-cost"
             title="Cumulative session cost"
             description="Running subtotal of known cost across the session."
             points={pricedCallCount > 0 ? series : []}
