@@ -1,4 +1,5 @@
 pub mod cli;
+pub mod compaction;
 pub mod db;
 pub mod exec;
 pub mod external_tools;
@@ -105,6 +106,8 @@ pub fn run() {
             logging::logs_query,
             logging::logs_export,
             logging::logs_clear,
+            compaction::compaction_settings_load,
+            compaction::compaction_settings_save,
             mcp::mcp_servers_load,
             mcp::mcp_settings_load,
             mcp::mcp_servers_save,

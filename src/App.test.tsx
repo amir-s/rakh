@@ -8,6 +8,7 @@ const appMocks = vi.hoisted(() => ({
   loadSessionsMock: vi.fn(),
   loadProvidersMock: vi.fn(),
   loadProfilesMock: vi.fn(),
+  loadCompactionSettingsMock: vi.fn(),
   loadCommandListMock: vi.fn(),
   loadSavedProjectsMock: vi.fn(),
   loadMcpServersMock: vi.fn(),
@@ -46,9 +47,21 @@ vi.mock("@/agent/atoms", () => ({
   themeModeAtom: atom("dark"),
   themeNameAtom: atom("default"),
   defaultCommunicationProfileAtom: atom("pragmatic"),
+  toolContextCompactionEnabledAtom: atom(true),
+  autoContextCompactionSettingsAtom: atom({
+    enabled: false,
+    thresholdMode: "percentage",
+    thresholdPercent: 85,
+    thresholdKb: 256,
+  }),
   agentAtomFamily: vi.fn(),
   debugModeEnabledAtom: atom(false),
   patchAgentState: vi.fn(),
+}));
+
+vi.mock("@/agent/compaction", () => ({
+  loadCompactionSettings: (...args: unknown[]) =>
+    appMocks.loadCompactionSettingsMock(...args),
 }));
 
 vi.mock("@/agent/db", () => ({
@@ -142,6 +155,7 @@ describe("App", () => {
     appMocks.loadSessionsMock.mockReset();
     appMocks.loadProvidersMock.mockReset();
     appMocks.loadProfilesMock.mockReset();
+    appMocks.loadCompactionSettingsMock.mockReset();
     appMocks.loadCommandListMock.mockReset();
     appMocks.loadSavedProjectsMock.mockReset();
     appMocks.loadMcpServersMock.mockReset();
@@ -150,6 +164,15 @@ describe("App", () => {
     appMocks.logsWindowAppMock.mockReset();
     appMocks.workspacePageMock.mockReset();
     appMocks.topChromeMock.mockReset();
+    appMocks.loadCompactionSettingsMock.mockResolvedValue({
+      toolContextCompactionEnabled: true,
+      autoContextCompaction: {
+        enabled: false,
+        thresholdMode: "percentage",
+        thresholdPercent: 85,
+        thresholdKb: 256,
+      },
+    });
     appMocks.loadSavedProjectsMock.mockResolvedValue([]);
     appMocks.parseLogNavigatePayloadFromSearchMock.mockReturnValue({
       origin: "manual",

@@ -1781,7 +1781,9 @@ function ContextCompactionSection({
           </div>
           <ToggleSwitch
             checked={controller.toolContextCompactionEnabled}
-            onChange={controller.setToolContextCompactionEnabled}
+            onChange={(enabled) => {
+              void controller.setToolContextCompactionEnabled(enabled);
+            }}
             className="settings-switch"
             title="Tool context compaction"
           />
@@ -1802,7 +1804,9 @@ function ContextCompactionSection({
           </div>
           <ToggleSwitch
             checked={autoSettings.enabled}
-            onChange={(enabled) => updateAutoSettings({ enabled })}
+            onChange={(enabled) => {
+              void updateAutoSettings({ enabled });
+            }}
             className="settings-switch"
             title="Automatic context compaction"
           />
@@ -1819,11 +1823,11 @@ function ContextCompactionSection({
           <SelectField
             className="settings-select settings-select--compact"
             value={autoSettings.thresholdMode}
-            onChange={(event) =>
-              updateAutoSettings({
+            onChange={(event) => {
+              void updateAutoSettings({
                 thresholdMode: event.target.value as "percentage" | "kb",
-              })
-            }
+              });
+            }}
             disabled={!autoSettings.enabled}
             aria-label="Auto-compaction trigger mode"
           >
@@ -1856,9 +1860,9 @@ function ContextCompactionSection({
                 const nextValue = Number.parseInt(event.target.value, 10);
                 if (!Number.isFinite(nextValue)) return;
                 if (autoSettings.thresholdMode === "percentage") {
-                  updateAutoSettings({ thresholdPercent: nextValue });
+                  void updateAutoSettings({ thresholdPercent: nextValue });
                 } else {
-                  updateAutoSettings({ thresholdKb: nextValue });
+                  void updateAutoSettings({ thresholdKb: nextValue });
                 }
               }}
               disabled={!autoSettings.enabled}
