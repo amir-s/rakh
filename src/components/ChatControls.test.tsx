@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
 
-import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import ChatControls, { type ChatControlsProps } from "./ChatControls";
+import type { SessionCostSeriesPoint } from "@/agent/sessionStats";
 
 function makeSessionUsageSummary(
   overrides: Partial<NonNullable<ChatControlsProps["sessionUsageSummary"]>> = {},
@@ -45,7 +46,51 @@ function makeSessionUsageSummary(
   };
 }
 
+function makeSessionCostSeries(
+  overrides: Array<Partial<SessionCostSeriesPoint>> = [],
+): SessionCostSeriesPoint[] {
+  const base: SessionCostSeriesPoint[] = [
+    {
+      id: "usage-1",
+      index: 0,
+      timestamp: 1_710_000_000_000,
+      modelId: "openai/gpt-5.2",
+      actorKind: "main",
+      actorId: "main",
+      actorLabel: "Rakh",
+      operation: "assistant turn",
+      totalTokens: 4200,
+      costStatus: "complete",
+      callCostUsd: 0.012,
+      cumulativeKnownCostUsd: 0.012,
+    },
+    {
+      id: "usage-2",
+      index: 1,
+      timestamp: 1_710_000_060_000,
+      modelId: "openai/gpt-5.2",
+      actorKind: "main",
+      actorId: "main",
+      actorLabel: "Rakh",
+      operation: "assistant turn",
+      totalTokens: 4800,
+      costStatus: "complete",
+      callCostUsd: 0.024,
+      cumulativeKnownCostUsd: 0.036,
+    },
+  ];
+
+  return base.map((point, index) => ({
+    ...point,
+    ...(overrides[index] ?? {}),
+  }));
+}
+
 describe("ChatControls", () => {
+  afterEach(() => {
+    cleanup();
+  });
+
   it("renders current context and session usage totals", () => {
     const { container } = render(
       <ChatControls
@@ -58,6 +103,7 @@ describe("ChatControls", () => {
         contextCurrentKb={41.4}
         contextMaxKb={128}
         sessionUsageSummary={makeSessionUsageSummary()}
+        sessionCostSeries={makeSessionCostSeries()}
       />,
     );
 
@@ -74,9 +120,17 @@ describe("ChatControls", () => {
     expect(screen.getByText("Session usage")).not.toBeNull();
     expect(screen.getByText("Breakdown")).not.toBeNull();
     expect(screen.getByText("Rakh")).not.toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: /0\.036/i }));
+
+    expect(
+      screen.getByRole("dialog", { name: "Session cost" }),
+    ).not.toBeNull();
+    expect(screen.getByText("Cost per API call")).not.toBeNull();
+    expect(screen.getByText("Cumulative session cost")).not.toBeNull();
   });
 
-  it("opens provider settings from the warning state when pricing is missing", () => {
+  it("opens provider settings from the modal when pricing is missing", () => {
     const onOpenProvidersSettings = vi.fn();
 
     const { container } = render(
@@ -116,17 +170,36 @@ describe("ChatControls", () => {
             },
           ],
         })}
+        sessionCostSeries={makeSessionCostSeries([
+          {
+            modelId: "custom/llama",
+            actorKind: "internal",
+            actorId: "context-compaction-summary",
+            actorLabel: "Context compaction",
+            totalTokens: 2200,
+            costStatus: "missing",
+            callCostUsd: null,
+            cumulativeKnownCostUsd: 0,
+          },
+        ])}
         onOpenProvidersSettings={onOpenProvidersSettings}
       />,
     );
 
     fireEvent.click(screen.getByRole("button", { name: /cost\?/i }));
 
-    expect(onOpenProvidersSettings).toHaveBeenCalledTimes(1);
+    expect(onOpenProvidersSettings).not.toHaveBeenCalled();
     expect(
       container.querySelector(".chat-ctrl-session-label")?.textContent,
     ).toBe("cost?");
-    expect(screen.getByText(/Update AI Providers metadata/i)).not.toBeNull();
-    expect(screen.getByText(/Llama 3\.3 70B/i)).not.toBeNull();
+    expect(
+      screen.getByRole("dialog", { name: "Session cost" }),
+    ).not.toBeNull();
+    expect(screen.getAllByText(/Update AI Providers metadata/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Llama 3\.3 70B/i).length).toBeGreaterThan(0);
+
+    fireEvent.click(screen.getByRole("button", { name: /open ai providers/i }));
+
+    expect(onOpenProvidersSettings).toHaveBeenCalledTimes(1);
   });
 });

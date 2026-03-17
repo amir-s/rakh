@@ -50,6 +50,21 @@ export interface SessionUsageSummary {
   breakdown: SessionUsageBreakdown[];
 }
 
+export interface SessionCostSeriesPoint {
+  id: string;
+  index: number;
+  timestamp: number;
+  modelId: string;
+  actorKind: LlmUsageActorKind;
+  actorId: string;
+  actorLabel: string;
+  operation: string;
+  totalTokens: number;
+  costStatus: SessionCostStatus;
+  callCostUsd: number | null;
+  cumulativeKnownCostUsd: number;
+}
+
 export interface UsageTotals {
   inputTokens: number;
   noCacheInputTokens: number;
@@ -334,4 +349,43 @@ export function summarizeSessionUsage(
     })).sort((left, right) => left.label.localeCompare(right.label)),
     breakdown,
   };
+}
+
+export function buildSessionCostSeries(
+  ledger: LlmUsageRecord[],
+  resolveModel: (modelId: string) => ModelCatalogEntry | null = getModelCatalogEntry,
+): SessionCostSeriesPoint[] {
+  if (ledger.length === 0) return [];
+
+  const ordered = ledger
+    .map((record, originalIndex) => ({ record, originalIndex }))
+    .sort(
+      (left, right) =>
+        left.record.timestamp - right.record.timestamp ||
+        left.originalIndex - right.originalIndex,
+    );
+
+  let cumulativeKnownCostUsd = 0;
+
+  return ordered.map(({ record }, index) => {
+    const cost = calculateRecordCost(record, resolveModel(record.modelId));
+    if (cost.status === "complete") {
+      cumulativeKnownCostUsd += cost.knownCostUsd;
+    }
+
+    return {
+      id: record.id,
+      index,
+      timestamp: record.timestamp,
+      modelId: record.modelId,
+      actorKind: record.actorKind,
+      actorId: record.actorId,
+      actorLabel: record.actorLabel,
+      operation: record.operation,
+      totalTokens: record.totalTokens,
+      costStatus: cost.status,
+      callCostUsd: cost.status === "complete" ? cost.knownCostUsd : null,
+      cumulativeKnownCostUsd,
+    };
+  });
 }

@@ -1,7 +1,11 @@
-import type { FC, ReactNode } from "react";
+import { useState, type FC, type ReactNode } from "react";
 import type { AutoApproveCommandsMode } from "@/agent/types";
-import type { SessionUsageSummary } from "@/agent/sessionStats";
+import type {
+  SessionCostSeriesPoint,
+  SessionUsageSummary,
+} from "@/agent/sessionStats";
 import CycleOptionSwitch from "@/components/CycleOptionSwitch";
+import SessionCostModal from "@/components/SessionCostModal";
 
 export interface ChatControlsProps {
   autoApproveEdits: boolean;
@@ -14,6 +18,7 @@ export interface ChatControlsProps {
   contextCurrentKb: number | null;
   contextMaxKb: number | null;
   sessionUsageSummary: SessionUsageSummary | null;
+  sessionCostSeries?: SessionCostSeriesPoint[] | null;
   onOpenProvidersSettings?: () => void;
 }
 
@@ -64,8 +69,10 @@ const ChatControls: FC<ChatControlsProps> = ({
   contextCurrentKb,
   contextMaxKb,
   sessionUsageSummary,
+  sessionCostSeries,
   onOpenProvidersSettings,
 }) => {
+  const [sessionCostModalOpen, setSessionCostModalOpen] = useState(false);
   const ctxColor =
     contextWindowPct == null
       ? "var(--color-muted)"
@@ -121,18 +128,11 @@ const ChatControls: FC<ChatControlsProps> = ({
                   ? "var(--color-primary)"
                   : "var(--color-warning)",
             }}
-            onClick={() => {
-              if (
-                sessionUsageSummary.costStatus !== "complete" &&
-                onOpenProvidersSettings
-              ) {
-                onOpenProvidersSettings();
-              }
-            }}
+            onClick={() => setSessionCostModalOpen(true)}
             title={
               sessionUsageSummary.costStatus === "complete"
-                ? "Session token usage and cost"
-                : "Session token usage and incomplete cost metadata"
+                ? "Open session cost details"
+                : "Open session cost details and pricing warnings"
             }
           >
             <span className="material-symbols-outlined text-sm">
@@ -283,6 +283,21 @@ const ChatControls: FC<ChatControlsProps> = ({
           </span>
         )}
       </div>
+      {sessionCostModalOpen && sessionUsageSummary ? (
+        <SessionCostModal
+          summary={sessionUsageSummary}
+          series={sessionCostSeries ?? []}
+          onClose={() => setSessionCostModalOpen(false)}
+          onOpenProvidersSettings={
+            onOpenProvidersSettings
+              ? () => {
+                  setSessionCostModalOpen(false);
+                  onOpenProvidersSettings();
+                }
+              : undefined
+          }
+        />
+      ) : null}
     </div>
   );
 };
