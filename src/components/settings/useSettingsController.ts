@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useAtom } from "jotai";
 import {
+  autoContextCompactionSettingsAtom,
   appUpdaterStateAtom,
   debugModeEnabledAtom,
   notifyOnAttentionAtom,
@@ -11,9 +12,11 @@ import {
   defaultCommunicationProfileAtom,
   voiceInputEnabledAtom,
   voiceModelPathAtom,
+  toolContextCompactionEnabledAtom,
   jotaiStore,
   type AppUpdaterState,
 } from "@/agent/atoms";
+import type { AutoContextCompactionSettings } from "@/agent/contextCompaction";
 import {
   providersAtom,
   profilesAtom,
@@ -85,6 +88,10 @@ export interface SettingsControllerValue {
   setThemeName: (name: ThemeName) => void;
   groupInlineToolCalls: boolean;
   setGroupInlineToolCalls: (enabled: boolean) => void;
+  toolContextCompactionEnabled: boolean;
+  setToolContextCompactionEnabled: (enabled: boolean) => void;
+  autoContextCompactionSettings: AutoContextCompactionSettings;
+  setAutoContextCompactionSettings: (settings: AutoContextCompactionSettings) => void;
   defaultCommunicationProfile: string;
   setDefaultCommunicationProfile: (profile: string) => void;
   customProfiles: CommunicationProfileRecord[];
@@ -129,6 +136,10 @@ export function useSettingsController(): SettingsControllerValue {
   const [groupInlineToolCalls, setGroupInlineToolCalls] = useAtom(
     groupInlineToolCallsAtom,
   );
+  const [toolContextCompactionEnabled, setToolContextCompactionEnabled] =
+    useAtom(toolContextCompactionEnabledAtom);
+  const [autoContextCompactionSettings, setAutoContextCompactionSettings] =
+    useAtom(autoContextCompactionSettingsAtom);
   const [defaultCommunicationProfile, setDefaultCommunicationProfile] = useAtom(
     defaultCommunicationProfileAtom,
   );
@@ -415,6 +426,10 @@ export function useSettingsController(): SettingsControllerValue {
     setThemeName,
     groupInlineToolCalls,
     setGroupInlineToolCalls,
+    toolContextCompactionEnabled,
+    setToolContextCompactionEnabled,
+    autoContextCompactionSettings,
+    setAutoContextCompactionSettings,
     defaultCommunicationProfile,
     setDefaultCommunicationProfile,
     customProfiles,

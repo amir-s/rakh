@@ -9,7 +9,7 @@ export const compactSubagent: SubagentDefinition = {
     light: "#0f766e",
   },
   description:
-    "Compacts the main agent's internal context into one durable execution-state summary. Manual trigger only.",
+    "Compacts the main agent's internal context into one durable execution-state summary for manual and automatic runner compaction.",
   triggerCommand: "/compact",
   triggerCommandDisplay: "/compact",
   triggerCommandTakesArguments: false,

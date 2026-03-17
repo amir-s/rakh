@@ -1748,6 +1748,133 @@ function NotificationsSection({
   );
 }
 
+function ContextCompactionSection({
+  controller,
+}: {
+  controller: SettingsControllerValue;
+}) {
+  const autoSettings = controller.autoContextCompactionSettings;
+
+  const updateAutoSettings = (
+    patch: Partial<typeof controller.autoContextCompactionSettings>,
+  ) => {
+    controller.setAutoContextCompactionSettings({
+      ...autoSettings,
+      ...patch,
+    });
+  };
+
+  return (
+    <div className="settings-page__section-stack">
+      <SectionCard
+        title="Tool Context Compaction"
+        description="Control whether the runner may rewrite model-facing tool IO for allowlisted local tools while keeping raw tool data visible in chat."
+      >
+        <div className="settings-row">
+          <div className="settings-row-info">
+            <span className="settings-row-label">Enable tool IO compaction</span>
+            <span className="settings-row-desc">
+              Lets the model replace large allowlisted tool inputs and outputs
+              with compact sentinels while preserving raw args and results in
+              the UI.
+            </span>
+          </div>
+          <ToggleSwitch
+            checked={controller.toolContextCompactionEnabled}
+            onChange={controller.setToolContextCompactionEnabled}
+            className="settings-switch"
+            title="Tool context compaction"
+          />
+        </div>
+      </SectionCard>
+
+      <SectionCard
+        title="Compactor Sub-agent"
+        description="Automatically run the internal Context Compaction sub-agent when the main agent context crosses a threshold, then resume the main loop with the compacted history."
+      >
+        <div className="settings-row">
+          <div className="settings-row-info">
+            <span className="settings-row-label">Enable automatic compaction</span>
+            <span className="settings-row-desc">
+              Runs the internal compactor in the background and continues the
+              active main-agent run after the summary is applied.
+            </span>
+          </div>
+          <ToggleSwitch
+            checked={autoSettings.enabled}
+            onChange={(enabled) => updateAutoSettings({ enabled })}
+            className="settings-switch"
+            title="Automatic context compaction"
+          />
+        </div>
+
+        <div className="settings-row">
+          <div className="settings-row-info">
+            <span className="settings-row-label">Trigger mode</span>
+            <span className="settings-row-desc">
+              Choose whether automatic compaction is based on the current
+              context window percentage or the estimated context size in KB.
+            </span>
+          </div>
+          <SelectField
+            className="settings-select settings-select--compact"
+            value={autoSettings.thresholdMode}
+            onChange={(event) =>
+              updateAutoSettings({
+                thresholdMode: event.target.value as "percentage" | "kb",
+              })
+            }
+            disabled={!autoSettings.enabled}
+            aria-label="Auto-compaction trigger mode"
+          >
+            <option value="percentage">Context window %</option>
+            <option value="kb">Context size (KB)</option>
+          </SelectField>
+        </div>
+
+        <div className="settings-row">
+          <div className="settings-row-info">
+            <span className="settings-row-label">Threshold</span>
+            <span className="settings-row-desc">
+              {autoSettings.thresholdMode === "percentage"
+                ? "Percentage mode relies on the selected model's context window metadata."
+                : "KB mode uses the estimated size of the live model-facing apiMessages history."}
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <TextField
+              type="number"
+              inputMode="numeric"
+              min={1}
+              max={autoSettings.thresholdMode === "percentage" ? 100 : 1048576}
+              value={
+                autoSettings.thresholdMode === "percentage"
+                  ? autoSettings.thresholdPercent
+                  : autoSettings.thresholdKb
+              }
+              onChange={(event) => {
+                const nextValue = Number.parseInt(event.target.value, 10);
+                if (!Number.isFinite(nextValue)) return;
+                if (autoSettings.thresholdMode === "percentage") {
+                  updateAutoSettings({ thresholdPercent: nextValue });
+                } else {
+                  updateAutoSettings({ thresholdKb: nextValue });
+                }
+              }}
+              disabled={!autoSettings.enabled}
+              aria-label="Auto-compaction threshold"
+              wrapClassName="settings-input-wrap w-28"
+            />
+            <span className="settings-row-desc shrink-0">
+              {autoSettings.thresholdMode === "percentage" ? "%" : "KB"}
+            </span>
+          </div>
+        </div>
+      </SectionCard>
+    </div>
+  );
+}
+
 function VoiceStatus({
   voiceDownloadStatus,
   voiceModelPath,
@@ -2985,6 +3112,8 @@ function renderSection(
       return <NotificationsSection controller={controller} />;
     case "providers":
       return <ProvidersSection controller={controller} />;
+    case "context-compaction":
+      return <ContextCompactionSection controller={controller} />;
     case "mcp":
       return <McpServersSection controller={controller} />;
     case "voice":

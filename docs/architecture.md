@@ -180,6 +180,14 @@ Manual `/compact` follows a separate trigger path in the same runner facade:
 8. append a visible assistant chat message with a summary card that renders the
    compacted markdown
 
+Automatic context compaction reuses the same compactor subagent when the global
+Context Compaction settings enable threshold-based auto-triggering. The runner
+checks the live `apiMessages` size before a new main turn starts and between
+main-agent iterations. When the configured percentage or KB threshold is
+crossed, it runs the internal compactor, rewrites `apiMessages` to the
+refreshed system prompt plus one compacted-history assistant message, appends a
+single summary card to `chatMessages`, and then resumes the main loop.
+
 Because `/compact` is currently run with visible subagent output enabled, the
 chat transcript also shows the compactor's internal streaming/tool activity
 before the final summary card is appended.

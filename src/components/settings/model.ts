@@ -5,6 +5,7 @@ export type SettingsSectionId =
   | "appearance"
   | "notifications"
   | "providers"
+  | "context-compaction"
   | "mcp"
   | "voice"
   | "command-list"
@@ -60,6 +61,13 @@ export const SETTINGS_SECTIONS: SettingsSectionDefinition[] = [
     label: "AI Providers",
     description: "API keys, model sources, and imports.",
     icon: "hub",
+  },
+  {
+    id: "context-compaction",
+    groupId: "ai",
+    label: "Context Compaction",
+    description: "Tool IO compaction and automatic context summarization.",
+    icon: "compress",
   },
   {
     id: "mcp",

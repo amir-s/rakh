@@ -1,10 +1,7 @@
 import { toJSONSchema } from "zod";
 import { normalizeLearnedFacts, type ProjectLearnedFact } from "@/projects";
 
-import {
-  jotaiStore,
-  globalCommunicationProfileAtom,
-} from "../atoms";
+import { jotaiStore, globalCommunicationProfileAtom } from "../atoms";
 import { getCommunicationProfileRecord } from "../communicationProfiles";
 import { profilesAtom, type ProviderInstance } from "../db";
 import { getModelCatalogEntry } from "../modelCatalog";
@@ -75,6 +72,21 @@ Each entry includes its stable fact ID so you can remove or edit the correct rec
 ${learnedFacts.map((fact) => `- ${fact.id}: ${fact.text}`).join("\n")}`;
 }
 
+function renderToolContextCompactionSection(): string {
+  return `TOOL IO CONTEXT COMPACTION
+- You are highly encouraged to use context compaction for large local-tool payloads.
+- You can annotate tool calls with a hidden \`__contextCompaction\` to keep a memory of the input or output without storing the full raw payload in the conversation history.
+- This field is NOT part of the tool schema and is stripped before validation/execution.
+- Shape:
+  \`__contextCompaction: { inputNote?: string, outputNote?: string, outputMode?: "always" | "on_success" }\`
+- Use it only when the exact raw IO would add a lot of context bloat and a short deterministic note is enough for future continuity.
+- Keep notes short, concrete, and factual. Describe what was omitted and why the exact payload is unnecessary.
+- Prefer \`outputMode: "on_success"\` for commands or other tool outputs where failures may need the full diagnostics.
+- Supported local-tool input compaction: \`workspace_writeFile\`, \`workspace_editFile\`, \`agent_artifact_create\`, \`agent_artifact_version\`, \`exec_run\`.
+- Supported local-tool output compaction: \`workspace_readFile\`, \`workspace_search\`, \`workspace_glob\`, \`workspace_listDir\`, \`exec_run\`, \`git_worktree_init\`, \`agent_artifact_get\`.
+- Do NOT attach \`__contextCompaction\` to MCP tools, \`agent_subagent_call\`, \`user_input\`, todo/title/card tools, or small payloads where keeping the full IO is better.`;
+}
+
 export function buildSystemPrompt(
   cwd: string,
   isGitRepo: boolean,
@@ -141,6 +153,8 @@ TOOL USAGE
 |- For tracked mutations, set todoHandling.mode to track_active and ensure exactly one todo is currently in the doing state.
 |- To mutate without a todo, set todoHandling.mode to skip and include a concrete todoHandling.skipReason.
 
+${renderToolContextCompactionSection()}
+
 PLANNING
 - For complex, multi-step tasks, call agent_plan_set BEFORE starting work.
 - Break work into discrete steps using agent_todo_add.
@@ -206,12 +220,10 @@ Use agent_subagent_call when delegating to a specialist is appropriate.
 When a subagent returns cards, those cards are already visible to the user.
 Read them, but do not recreate the same cards with agent_card_add.
 
-Be concise. Act like a focused senior engineer.${
-  (() => {
+Be concise. Act like a focused senior engineer.${(() => {
     const inst = getCommunicationInstruction(communicationProfile);
     return inst ? `\n\nCOMMUNICATION STYLE\n${inst}` : "";
-  })()
-}`;
+  })()}`;
 }
 
 function renderSubagentArtifactSpec(spec: SubagentArtifactSpec): string {
@@ -278,6 +290,8 @@ export function buildSubagentSystemPrompt(
   outputSections.push(
     ["FINAL MESSAGE", def.output.finalMessageInstructions.trim()].join("\n"),
   );
+
+  outputSections.push(renderToolContextCompactionSection());
 
   const commInstruction = getCommunicationInstruction(communicationProfile);
   if (commInstruction) {

@@ -2,6 +2,12 @@ import { atom, createStore } from "jotai";
 import { atomFamily } from "jotai-family";
 import type { AgentState, AgentPlan, AgentConfig } from "./types";
 import {
+  DEFAULT_AUTO_CONTEXT_COMPACTION_SETTINGS,
+  DEFAULT_TOOL_CONTEXT_COMPACTION_ENABLED,
+  sanitizeAutoContextCompactionSettings,
+  type AutoContextCompactionSettings,
+} from "./contextCompaction";
+import {
   coerceThemeName,
   type ThemeName,
 } from "@/styles/themes/registry";
@@ -90,6 +96,49 @@ export const groupInlineToolCallsAtom = atomWithStorage<boolean>(
   "rakh.group-inline-tool-calls",
   true,
 );
+
+/** Whether model-facing tool IO compaction is allowed globally. */
+export const toolContextCompactionEnabledAtom = atomWithStorage<boolean>(
+  "rakh.tool-context-compaction-enabled",
+  DEFAULT_TOOL_CONTEXT_COMPACTION_ENABLED,
+);
+
+const autoContextCompactionStorage = {
+  getItem(
+    key: string,
+    initialValue: AutoContextCompactionSettings,
+  ): AutoContextCompactionSettings {
+    if (typeof window === "undefined") return initialValue;
+    const raw = window.localStorage.getItem(key);
+    if (!raw) return initialValue;
+    try {
+      return sanitizeAutoContextCompactionSettings(
+        JSON.parse(raw) as unknown,
+      );
+    } catch {
+      return initialValue;
+    }
+  },
+  setItem(key: string, nextValue: AutoContextCompactionSettings) {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(
+      key,
+      JSON.stringify(sanitizeAutoContextCompactionSettings(nextValue)),
+    );
+  },
+  removeItem(key: string) {
+    if (typeof window === "undefined") return;
+    window.localStorage.removeItem(key);
+  },
+};
+
+/** Automatic main-context compaction thresholds for the internal compactor. */
+export const autoContextCompactionSettingsAtom =
+  atomWithStorage<AutoContextCompactionSettings>(
+    "rakh.auto-context-compaction",
+    DEFAULT_AUTO_CONTEXT_COMPACTION_SETTINGS,
+    autoContextCompactionStorage,
+  );
 
 /** Whether voice input is enabled in the chat composer */
 export const voiceInputEnabledAtom = atomWithStorage<boolean>(

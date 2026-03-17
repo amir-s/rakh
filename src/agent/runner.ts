@@ -5,12 +5,6 @@
  */
 
 import {
-  cloneLearnedFacts,
-  loadSavedProjectForWorkspace,
-  type ProjectLearnedFact,
-  upsertSavedProject,
-} from "@/projects";
-import {
   getAgentState,
   patchAgentState,
   jotaiStore,
@@ -21,13 +15,11 @@ import { execAbort, execStop } from "./tools/exec";
 import { findSubagentByTrigger, type SubagentDefinition } from "./subagents";
 import { cancelAllApprovals } from "./approvals";
 import type {
-  ApiMessage,
   AttachedImage,
   AgentQueueState,
   ChatMessage,
   ConversationCard,
   QueuedUserMessage,
-  TodoItem,
   ToolApiMessage,
   ToolCallDisplay,
 } from "./types";
@@ -49,13 +41,13 @@ import {
 } from "./runner/logging";
 import { buildProviderOptions } from "./runner/providerOptions";
 import { runSubagentLoop } from "./runner/subagentLoop";
-import {
-  buildSystemPrompt,
-  buildSystemPromptRuntimeContext,
-} from "./runner/systemPrompt";
 import { RunAbortedError, serializeError } from "./runner/utils";
-import { artifactGet } from "./tools/artifacts";
-import { buildConversationCard } from "./tools/agentControl";
+import {
+  buildMainSystemPromptForState,
+  COMPACT_TRIGGER_SUBAGENT_ID,
+  executeMainContextCompaction,
+  maybeRunAutomaticMainContextCompaction,
+} from "./runner/mainContextCompaction";
 
 export { buildProviderOptions } from "./runner/providerOptions";
 export { serializeError } from "./runner/utils";
@@ -95,21 +87,6 @@ function setAgentErrorState(
   }));
 }
 
-const COMPACT_TRIGGER_SUBAGENT_ID = "compact";
-const COMPACT_SUMMARY_CARD_TITLE = "Compacted Context";
-const COMPACT_REQUIRED_SECTIONS = [
-  "[COMPACTED HISTORY]",
-  "Current task",
-  "User goal",
-  "Hard constraints",
-  "What has been done",
-  "Important facts discovered",
-  "Files / artifacts / outputs created",
-  "Decisions already made",
-  "Unresolved issues",
-  "Exact next step",
-] as const;
-
 function appendAssistantChatMessage(
   tabId: string,
   content: string,
@@ -137,184 +114,6 @@ function appendAssistantChatMessage(
   }));
 }
 
-function projectTodoForCompaction(todo: TodoItem): Record<string, unknown> {
-  return {
-    id: todo.id,
-    title: todo.title,
-    state: todo.state,
-    ...(todo.completionNote ? { completionNote: todo.completionNote } : {}),
-    filesTouched: [...todo.filesTouched],
-    thingsLearned: todo.thingsLearned.map((note) => ({
-      text: note.text,
-      verified: note.verified,
-    })),
-    criticalInfo: todo.criticalInfo.map((note) => ({
-      text: note.text,
-      verified: note.verified,
-    })),
-  };
-}
-
-interface ProjectMemorySnapshot {
-  projectPath: string;
-  learnedFacts?: ProjectLearnedFact[];
-}
-
-async function inspectWorkspaceForSystemPrompt(
-  cwd: string,
-): Promise<{
-  isGitRepo: boolean;
-  hasAgentsFile: boolean;
-  hasSkillsDir: boolean;
-}> {
-  let isGitRepo = false;
-  let hasAgentsFile = false;
-  let hasSkillsDir = false;
-
-  if (!cwd) {
-    return { isGitRepo, hasAgentsFile, hasSkillsDir };
-  }
-
-  try {
-    const { invoke: tauriInvoke } = await import("@tauri-apps/api/core");
-    const gitResult = await tauriInvoke<{ exitCode: number }>("exec_run", {
-      command: "git",
-      args: ["rev-parse", "--show-toplevel"],
-      cwd,
-      env: {},
-      timeoutMs: 5000,
-      maxStdoutBytes: 512,
-      maxStderrBytes: 512,
-      stdin: null,
-    });
-    isGitRepo = gitResult.exitCode === 0;
-
-    const agentsStat = await tauriInvoke<{ exists: boolean; kind?: string }>(
-      "stat_file",
-      {
-        path: `${cwd}/AGENTS.md`,
-      },
-    );
-    hasAgentsFile = agentsStat.exists && agentsStat.kind === "file";
-
-    const skillsStat = await tauriInvoke<{ exists: boolean; kind?: string }>(
-      "stat_file",
-      {
-        path: `${cwd}/.agents/skills`,
-      },
-    );
-    hasSkillsDir = skillsStat.exists && skillsStat.kind === "dir";
-  } catch {
-    // Not in Tauri or git not available.
-  }
-
-  return { isGitRepo, hasAgentsFile, hasSkillsDir };
-}
-
-async function buildMainSystemPromptForState(
-  state: ReturnType<typeof getAgentState>,
-): Promise<string> {
-  const cwd = state.config.cwd;
-  const workspaceInfo = await inspectWorkspaceForSystemPrompt(cwd);
-  const project = await loadSavedProjectForWorkspace(
-    state.config.projectPath,
-    cwd,
-  );
-
-  return buildSystemPrompt(
-    cwd,
-    workspaceInfo.isGitRepo,
-    workspaceInfo.hasAgentsFile,
-    workspaceInfo.hasSkillsDir,
-    buildSystemPromptRuntimeContext(),
-    project?.learnedFacts,
-    state.config.communicationProfile,
-  );
-}
-
-async function restoreProjectMemorySnapshot(
-  snapshot: ProjectMemorySnapshot | null,
-): Promise<void> {
-  if (!snapshot) return;
-
-  const project = await loadSavedProjectForWorkspace(snapshot.projectPath);
-  if (!project) return;
-
-  const restoredProject = { ...project };
-  if (snapshot.learnedFacts?.length) {
-    restoredProject.learnedFacts = cloneLearnedFacts(snapshot.learnedFacts);
-  } else {
-    delete restoredProject.learnedFacts;
-  }
-  await upsertSavedProject(restoredProject);
-}
-
-async function buildManualCompactionPayload(
-  apiMessages: ApiMessage[],
-  state: ReturnType<typeof getAgentState>,
-): Promise<{ ok: true; systemPrompt: string; message: string; projectMemorySnapshot: ProjectMemorySnapshot | null } | {
-  ok: false;
-  error: string;
-}> {
-  const firstMessage = apiMessages[0];
-  if (!firstMessage || firstMessage.role !== "system") {
-    return {
-      ok: false,
-      error: "Nothing to compact yet. The main agent has no system prompt in its internal history.",
-    };
-  }
-
-  const messages = apiMessages.slice(1);
-  if (messages.length === 0) {
-    return {
-      ok: false,
-      error: "Nothing to compact yet. The main agent has no internal conversation history beyond the system prompt.",
-    };
-  }
-
-  const project = await loadSavedProjectForWorkspace(
-    state.config.projectPath,
-    state.config.cwd,
-  );
-  const payload = {
-    system_prompt: firstMessage.content,
-    messages,
-    current_plan: {
-      markdown: state.plan.markdown,
-      version: state.plan.version,
-      updatedAtMs: state.plan.updatedAtMs,
-    },
-    todos: state.todos.map(projectTodoForCompaction),
-    project_memory: {
-      project_path: project?.path ?? null,
-      learned_facts: project?.learnedFacts ?? [],
-      writable: project !== null,
-    },
-  };
-
-  return {
-    ok: true,
-    systemPrompt: firstMessage.content,
-    message: JSON.stringify(payload, null, 2),
-    projectMemorySnapshot: project
-      ? {
-          projectPath: project.path,
-          ...(project.learnedFacts?.length
-            ? { learnedFacts: cloneLearnedFacts(project.learnedFacts) }
-            : {}),
-        }
-      : null,
-  };
-}
-
-function validateCompactedHistoryMarkdown(content: string): string | null {
-  const missing = COMPACT_REQUIRED_SECTIONS.filter(
-    (section) => !content.includes(section),
-  );
-  if (missing.length === 0) return null;
-  return `Compacted history is missing required sections: ${missing.join(", ")}`;
-}
-
 async function runManualCompactionTrigger(
   tabId: string,
   userMessage: string,
@@ -337,134 +136,21 @@ async function runManualCompactionTrigger(
     return { ok: true };
   }
 
-  const state = getAgentState(tabId);
-  const payload = await buildManualCompactionPayload(state.apiMessages, state);
-  if (!payload.ok) {
-    appendAssistantChatMessage(tabId, payload.error, {
+  const result = await executeMainContextCompaction({
+    tabId,
+    signal: controller.signal,
+    runId,
+    currentTurn,
+    logContext: runLogContext,
+    mode: "manual",
+  });
+  if (!result.ok) {
+    appendAssistantChatMessage(tabId, result.message, {
       agentName: triggerSubagent.name,
     });
-    return { ok: true };
+    return { ok: false, ...(result.error !== undefined ? { error: result.error } : {}) };
   }
-
-  const triggerProviders = jotaiStore.get(providersAtom);
-  const triggerDebug = state.showDebug ?? false;
-  let restoredProjectMemory = false;
-  const maybeRestoreProjectMemory = async (): Promise<void> => {
-    if (restoredProjectMemory) return;
-    restoredProjectMemory = true;
-    await restoreProjectMemorySnapshot(payload.projectMemorySnapshot);
-  };
-
-  try {
-    const subagentResult = await runSubagentLoop({
-      tabId,
-      signal: controller.signal,
-      runId,
-      currentTurn,
-      subagentDef: triggerSubagent,
-      message: payload.message,
-      parentModelId: state.config.model,
-      providers: triggerProviders,
-      debugEnabled: triggerDebug,
-      logContext: runLogContext,
-      suppressChatOutput: false,
-    });
-
-    if (!subagentResult.ok) {
-      await maybeRestoreProjectMemory();
-      appendAssistantChatMessage(tabId, subagentResult.error.message, {
-        agentName: triggerSubagent.name,
-      });
-      return { ok: false, error: subagentResult.error };
-    }
-
-    const artifactManifest = subagentResult.data.artifacts[0];
-    if (!artifactManifest) {
-      await maybeRestoreProjectMemory();
-      appendAssistantChatMessage(
-        tabId,
-        "Compaction finished without producing a compacted context artifact.",
-        { agentName: triggerSubagent.name },
-      );
-      return { ok: false };
-    }
-
-    const artifactResult = await artifactGet(tabId, {
-      artifactId: artifactManifest.artifactId,
-      includeContent: true,
-    });
-    if (!artifactResult.ok) {
-      await maybeRestoreProjectMemory();
-      appendAssistantChatMessage(tabId, artifactResult.error.message, {
-        agentName: triggerSubagent.name,
-      });
-      return { ok: false, error: artifactResult.error };
-    }
-
-    const compactedContent = artifactResult.data.artifact.content;
-    if (typeof compactedContent !== "string" || !compactedContent.trim()) {
-      await maybeRestoreProjectMemory();
-      appendAssistantChatMessage(
-        tabId,
-        "Compaction artifact is missing its markdown content.",
-        { agentName: triggerSubagent.name },
-      );
-      return { ok: false };
-    }
-
-    const compactedValidationError =
-      validateCompactedHistoryMarkdown(compactedContent);
-    if (compactedValidationError) {
-      await maybeRestoreProjectMemory();
-      appendAssistantChatMessage(tabId, compactedValidationError, {
-        agentName: triggerSubagent.name,
-      });
-      return { ok: false };
-    }
-
-    const summaryCard = buildConversationCard({
-      kind: "summary",
-      title: COMPACT_SUMMARY_CARD_TITLE,
-      markdown: compactedContent,
-    });
-    if (!summaryCard.ok) {
-      appendAssistantChatMessage(
-        tabId,
-        `Compaction succeeded but the summary card could not be created: ${summaryCard.error.message}`,
-        { agentName: triggerSubagent.name },
-      );
-      await maybeRestoreProjectMemory();
-      return { ok: false, error: summaryCard.error };
-    }
-
-    const refreshedSystemPrompt = await buildMainSystemPromptForState(
-      getAgentState(tabId),
-    );
-
-    patchAgentState(tabId, (prev) => ({
-      ...prev,
-      apiMessages: [
-        { role: "system", content: refreshedSystemPrompt },
-        { role: "assistant", content: compactedContent },
-      ],
-      chatMessages: [
-        ...prev.chatMessages,
-        {
-          id: msgId(),
-          role: "assistant",
-          content: subagentResult.data.rawText.trim() || "Context compacted.",
-          timestamp: Date.now(),
-          agentName: triggerSubagent.name,
-          cards: [summaryCard.data.card],
-        },
-      ],
-    }));
-
-    return { ok: true };
-  } catch (error) {
-    await maybeRestoreProjectMemory();
-    throw error;
-  }
+  return { ok: true };
 }
 
 function findRunningExecToolCallIds(tabId: string): string[] {
@@ -1088,6 +774,41 @@ async function runAgentTurn(
     return;
   }
 
+  const preflightAutoCompaction = await maybeRunAutomaticMainContextCompaction({
+    tabId,
+    signal: controller.signal,
+    runId,
+    currentTurn,
+    logContext: runLogContext,
+  });
+  if (preflightAutoCompaction.status === "compacted") {
+    writeRunnerLog({
+      level: "info",
+      tags: ["frontend", "agent-loop", "system"],
+      event: "runner.context-compaction.auto.triggered",
+      message: "Automatic context compaction ran before the main turn started",
+      data: {
+        source: "preflight",
+        trigger: preflightAutoCompaction.trigger,
+      },
+      context: runLogContext,
+    });
+  } else if (preflightAutoCompaction.status === "failed") {
+    writeRunnerLog({
+      level: "warn",
+      tags: ["frontend", "agent-loop", "system"],
+      event: "runner.context-compaction.auto.failed",
+      message: "Automatic context compaction failed before the main turn started",
+      data: {
+        source: "preflight",
+        trigger: preflightAutoCompaction.trigger,
+        error: preflightAutoCompaction.error ?? preflightAutoCompaction.message,
+      },
+      context: runLogContext,
+    });
+  }
+
+  const stateAfterPreflight = getAgentState(tabId);
   const userChatMsg: ChatMessage = {
     id: msgId(),
     role: "user",
@@ -1098,15 +819,15 @@ async function runAgentTurn(
   dequeueQueuedMessage(tabId, options.queuedMessageId);
 
   const newApiMessages = [
-    ...(state.apiMessages.length === 0
+    ...(stateAfterPreflight.apiMessages.length === 0
       ? [
           {
             role: "system" as const,
-            content: await buildMainSystemPromptForState(state),
+            content: await buildMainSystemPromptForState(stateAfterPreflight),
           },
         ]
       : []),
-    ...state.apiMessages,
+    ...stateAfterPreflight.apiMessages,
     {
       role: "user" as const,
       content: userMessage,
