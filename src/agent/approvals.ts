@@ -34,6 +34,7 @@ const INLINE_TOOL_NAMES = [
   "agent_todo_list",
   "agent_todo_remove",
   "agent_project_memory_add",
+  "agent_project_memory_remove",
   "agent_card_add",
   "agent_artifact_create",
   "agent_artifact_version",

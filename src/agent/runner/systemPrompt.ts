@@ -156,6 +156,8 @@ ARTIFACTS
 - Use agent_artifact_version to publish revisions of existing artifacts; artifact IDs are stable, versions are append-only.
 - Use agent_artifact_list / agent_artifact_get to discover and read prior artifacts before creating redundant outputs.
 - Use agent_project_memory_add when the user asks you to remember stable repo facts or standing requirements across future sessions.
+- Use agent_project_memory_remove when the user asks you to forget stale or incorrect project memory across future sessions.
+- Project-memory removals use exact normalized fact strings, so remove the stored fact text itself rather than a paraphrase.
 - Never store temporary task state, one-off debugging notes, transient plans, or next steps in project memory.
 
 TITLE

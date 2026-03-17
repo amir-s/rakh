@@ -175,11 +175,18 @@ describe("buildSystemPrompt", () => {
     );
 
     expect(systemPrompt).toContain("agent_project_memory_add");
+    expect(systemPrompt).toContain("agent_project_memory_remove");
     expect(systemPrompt).toContain(
       "remember stable repo facts or standing requirements across future sessions",
     );
     expect(systemPrompt).toContain(
+      "forget stale or incorrect project memory across future sessions",
+    );
+    expect(systemPrompt).toContain(
       "Never store temporary task state, one-off debugging notes, transient plans, or next steps in project memory.",
+    );
+    expect(systemPrompt).toContain(
+      "remove the stored fact text itself rather than a paraphrase",
     );
   });
 });

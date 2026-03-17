@@ -28,6 +28,7 @@ const {
   todoRemoveMock,
   todoNoteAddMock,
   projectMemoryAddMock,
+  projectMemoryRemoveMock,
   cardAddMock,
   titleSetMock,
   titleGetMock,
@@ -58,6 +59,7 @@ const {
   todoRemoveMock: vi.fn(),
   todoNoteAddMock: vi.fn(),
   projectMemoryAddMock: vi.fn(),
+  projectMemoryRemoveMock: vi.fn(),
   cardAddMock: vi.fn(),
   titleSetMock: vi.fn(),
   titleGetMock: vi.fn(),
@@ -108,6 +110,7 @@ vi.mock("./todos", () => ({
 
 vi.mock("./projectMemory", () => ({
   projectMemoryAdd: (...args: unknown[]) => projectMemoryAddMock(...args),
+  projectMemoryRemove: (...args: unknown[]) => projectMemoryRemoveMock(...args),
 }));
 
 vi.mock("./artifacts", () => ({
@@ -155,6 +158,7 @@ describe("tools/index dispatchTool", () => {
     todoRemoveMock.mockReset();
     todoNoteAddMock.mockReset();
     projectMemoryAddMock.mockReset();
+    projectMemoryRemoveMock.mockReset();
     cardAddMock.mockReset();
     titleSetMock.mockReset();
     titleGetMock.mockReset();
@@ -310,6 +314,36 @@ describe("tools/index dispatchTool", () => {
     );
 
     expect(projectMemoryAddMock).toHaveBeenCalledWith(
+      "tab",
+      runtime,
+      { facts: ["Use pnpm."] },
+    );
+    expect(result).toMatchObject({ ok: true });
+  });
+
+  it("routes agent_project_memory_remove with runtime context", async () => {
+    projectMemoryRemoveMock.mockResolvedValue({
+      ok: true,
+      data: {
+        projectPath: "/repo",
+        learnedFacts: [],
+        removedFacts: ["Use pnpm."],
+        updated: true,
+      },
+    });
+
+    const runtime = { runId: "run_1", agentId: "agent_main" };
+    const result = await dispatchTool(
+      "tab",
+      "/cwd",
+      "agent_project_memory_remove",
+      { facts: ["Use pnpm."] },
+      "tc-project-memory-remove",
+      undefined,
+      runtime,
+    );
+
+    expect(projectMemoryRemoveMock).toHaveBeenCalledWith(
       "tab",
       runtime,
       { facts: ["Use pnpm."] },

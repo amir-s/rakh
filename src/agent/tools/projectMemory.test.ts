@@ -9,7 +9,7 @@ vi.mock("../atoms", () => ({
   getAgentState: (...args: unknown[]) => getAgentStateMock(...args),
 }));
 
-import { projectMemoryAdd } from "./projectMemory";
+import { projectMemoryAdd, projectMemoryRemove } from "./projectMemory";
 
 describe("projectMemoryAdd", () => {
   beforeEach(async () => {
@@ -143,6 +143,63 @@ describe("projectMemoryAdd", () => {
     expect(result).toMatchObject({
       ok: false,
       error: { code: "NOT_FOUND" },
+    });
+  });
+
+  it("removes exact learned facts for the main agent", async () => {
+    await saveSavedProjects([
+      {
+        path: "/repo",
+        name: "Repo",
+        icon: "folder",
+        learnedFacts: ["Use pnpm in this repo.", "The backend uses Tauri."],
+      },
+    ]);
+
+    const result = await projectMemoryRemove(
+      "tab",
+      { agentId: "agent_main" },
+      { facts: [" Use pnpm in this repo. ", "Unknown fact"] },
+    );
+
+    expect(result).toEqual({
+      ok: true,
+      data: {
+        projectPath: "/repo",
+        learnedFacts: ["The backend uses Tauri."],
+        removedFacts: ["Use pnpm in this repo."],
+        updated: true,
+      },
+    });
+    expect(getSavedProjects()[0]?.learnedFacts).toEqual([
+      "The backend uses Tauri.",
+    ]);
+  });
+
+  it("reports a no-op when project memory removal matches nothing", async () => {
+    await saveSavedProjects([
+      {
+        path: "/repo",
+        name: "Repo",
+        icon: "folder",
+        learnedFacts: ["Use pnpm in this repo."],
+      },
+    ]);
+
+    const result = await projectMemoryRemove(
+      "tab",
+      { agentId: "agent_compact" },
+      { facts: ["Use npm in this repo."] },
+    );
+
+    expect(result).toEqual({
+      ok: true,
+      data: {
+        projectPath: "/repo",
+        learnedFacts: ["Use pnpm in this repo."],
+        removedFacts: [],
+        updated: false,
+      },
     });
   });
 });
