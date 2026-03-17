@@ -28,6 +28,7 @@ const {
   todoRemoveMock,
   todoNoteAddMock,
   projectMemoryAddMock,
+  projectMemoryEditMock,
   projectMemoryRemoveMock,
   cardAddMock,
   titleSetMock,
@@ -59,6 +60,7 @@ const {
   todoRemoveMock: vi.fn(),
   todoNoteAddMock: vi.fn(),
   projectMemoryAddMock: vi.fn(),
+  projectMemoryEditMock: vi.fn(),
   projectMemoryRemoveMock: vi.fn(),
   cardAddMock: vi.fn(),
   titleSetMock: vi.fn(),
@@ -110,6 +112,7 @@ vi.mock("./todos", () => ({
 
 vi.mock("./projectMemory", () => ({
   projectMemoryAdd: (...args: unknown[]) => projectMemoryAddMock(...args),
+  projectMemoryEdit: (...args: unknown[]) => projectMemoryEditMock(...args),
   projectMemoryRemove: (...args: unknown[]) => projectMemoryRemoveMock(...args),
 }));
 
@@ -158,6 +161,7 @@ describe("tools/index dispatchTool", () => {
     todoRemoveMock.mockReset();
     todoNoteAddMock.mockReset();
     projectMemoryAddMock.mockReset();
+    projectMemoryEditMock.mockReset();
     projectMemoryRemoveMock.mockReset();
     cardAddMock.mockReset();
     titleSetMock.mockReset();
@@ -296,8 +300,8 @@ describe("tools/index dispatchTool", () => {
       ok: true,
       data: {
         projectPath: "/repo",
-        learnedFacts: ["Use pnpm."],
-        addedFacts: ["Use pnpm."],
+        learnedFacts: [{ id: "fact_pnpm", text: "Use pnpm." }],
+        addedFacts: [{ id: "fact_pnpm", text: "Use pnpm." }],
         updated: true,
       },
     });
@@ -327,7 +331,7 @@ describe("tools/index dispatchTool", () => {
       data: {
         projectPath: "/repo",
         learnedFacts: [],
-        removedFacts: ["Use pnpm."],
+        removedFacts: [{ id: "fact_pnpm", text: "Use pnpm." }],
         updated: true,
       },
     });
@@ -337,7 +341,7 @@ describe("tools/index dispatchTool", () => {
       "tab",
       "/cwd",
       "agent_project_memory_remove",
-      { facts: ["Use pnpm."] },
+      { factIds: ["fact_pnpm"] },
       "tc-project-memory-remove",
       undefined,
       runtime,
@@ -346,7 +350,37 @@ describe("tools/index dispatchTool", () => {
     expect(projectMemoryRemoveMock).toHaveBeenCalledWith(
       "tab",
       runtime,
-      { facts: ["Use pnpm."] },
+      { factIds: ["fact_pnpm"] },
+    );
+    expect(result).toMatchObject({ ok: true });
+  });
+
+  it("routes agent_project_memory_edit with runtime context", async () => {
+    projectMemoryEditMock.mockResolvedValue({
+      ok: true,
+      data: {
+        projectPath: "/repo",
+        learnedFacts: [{ id: "fact_pnpm", text: "Use bun." }],
+        updatedFact: { id: "fact_pnpm", text: "Use bun." },
+        updated: true,
+      },
+    });
+
+    const runtime = { runId: "run_1", agentId: "agent_main" };
+    const result = await dispatchTool(
+      "tab",
+      "/cwd",
+      "agent_project_memory_edit",
+      { factId: "fact_pnpm", text: "Use bun." },
+      "tc-project-memory-edit",
+      undefined,
+      runtime,
+    );
+
+    expect(projectMemoryEditMock).toHaveBeenCalledWith(
+      "tab",
+      runtime,
+      { factId: "fact_pnpm", text: "Use bun." },
     );
     expect(result).toMatchObject({ ok: true });
   });

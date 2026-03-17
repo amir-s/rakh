@@ -1,5 +1,5 @@
 import { toJSONSchema } from "zod";
-import { normalizeLearnedFacts } from "@/projects";
+import { normalizeLearnedFacts, type ProjectLearnedFact } from "@/projects";
 
 import {
   jotaiStore,
@@ -62,7 +62,7 @@ export function getCommunicationInstruction(
 }
 
 function renderProjectMemorySection(
-  projectLearnedFacts: readonly string[] | undefined,
+  projectLearnedFacts: readonly ProjectLearnedFact[] | undefined,
 ): string {
   const learnedFacts = normalizeLearnedFacts(projectLearnedFacts) ?? [];
   if (learnedFacts.length === 0) return "";
@@ -71,7 +71,8 @@ function renderProjectMemorySection(
 
 PROJECT MEMORY
 These learned facts come from the saved project's long-term memory. Treat them as durable project context and standing user requirements unless newer user input corrects them.
-${learnedFacts.map((fact) => `- ${fact}`).join("\n")}`;
+Each entry includes its stable fact ID so you can remove or edit the correct record later.
+${learnedFacts.map((fact) => `- ${fact.id}: ${fact.text}`).join("\n")}`;
 }
 
 export function buildSystemPrompt(
@@ -80,7 +81,7 @@ export function buildSystemPrompt(
   hasAgentsFile: boolean,
   hasSkillsDir: boolean,
   runtimeContext: SystemPromptRuntimeContext,
-  projectLearnedFacts: readonly string[] | undefined,
+  projectLearnedFacts: readonly ProjectLearnedFact[] | undefined,
   communicationProfile: string | undefined,
 ): string {
   const gitSection = isGitRepo
@@ -157,7 +158,8 @@ ARTIFACTS
 - Use agent_artifact_list / agent_artifact_get to discover and read prior artifacts before creating redundant outputs.
 - Use agent_project_memory_add when the user asks you to remember stable repo facts or standing requirements across future sessions.
 - Use agent_project_memory_remove when the user asks you to forget stale or incorrect project memory across future sessions.
-- Project-memory removals use exact normalized fact strings, so remove the stored fact text itself rather than a paraphrase.
+- Use agent_project_memory_edit when an existing stored fact should be corrected in place without changing which fact record it is.
+- Project-memory removals are ID-based, so remove the stored fact ID itself rather than paraphrasing the fact text.
 - Never store temporary task state, one-off debugging notes, transient plans, or next steps in project memory.
 
 TITLE

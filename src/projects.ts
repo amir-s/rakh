@@ -9,13 +9,18 @@ import { logFrontendSoon } from "@/logging/client";
 export const DEFAULT_PROJECT_ICON = "folder";
 export const MAX_PROJECT_LEARNED_FACTS = 50;
 
+export interface ProjectLearnedFact {
+  id: string;
+  text: string;
+}
+
 export interface SavedProject {
   path: string;
   name: string;
   icon?: string;
   setupCommand?: string;
   commands?: ProjectCommandConfig[];
-  learnedFacts?: string[];
+  learnedFacts?: ProjectLearnedFact[];
   hasProjectConfigFile?: boolean;
 }
 
@@ -64,47 +69,128 @@ function normalizeProjectIcon(value: unknown): string {
   return trimmed.length > 0 ? trimmed : DEFAULT_PROJECT_ICON;
 }
 
-export function normalizeLearnedFacts(value: unknown): string[] | undefined {
+function createProjectLearnedFactId(): string {
+  const randomUUID = globalThis.crypto?.randomUUID?.bind(globalThis.crypto);
+  if (typeof randomUUID === "function") {
+    return `fact_${randomUUID()}`;
+  }
+  return `fact_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function normalizeLearnedFactText(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function normalizeLearnedFactId(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function normalizeLearnedFact(value: unknown): ProjectLearnedFact | null {
+  if (typeof value === "string") {
+    const text = normalizeLearnedFactText(value);
+    return text ? { id: createProjectLearnedFactId(), text } : null;
+  }
+
+  if (!isRecord(value)) return null;
+  const text = normalizeLearnedFactText(value.text);
+  if (!text) return null;
+
+  return {
+    id: normalizeLearnedFactId(value.id) ?? createProjectLearnedFactId(),
+    text,
+  };
+}
+
+export function normalizeLearnedFacts(
+  value: unknown,
+): ProjectLearnedFact[] | undefined {
   if (!Array.isArray(value)) return undefined;
 
-  const facts: string[] = [];
-  const seen = new Set<string>();
+  const facts: ProjectLearnedFact[] = [];
+  const seenTexts = new Set<string>();
   for (const entry of value) {
-    if (typeof entry !== "string") continue;
-    const trimmed = entry.trim();
-    if (!trimmed || seen.has(trimmed)) continue;
-    seen.add(trimmed);
-    facts.push(trimmed);
+    const fact = normalizeLearnedFact(entry);
+    if (!fact || seenTexts.has(fact.text)) continue;
+    seenTexts.add(fact.text);
+    facts.push(fact);
   }
 
   if (facts.length === 0) return undefined;
   return facts.slice(-MAX_PROJECT_LEARNED_FACTS);
 }
 
+function normalizeIncomingLearnedFactTexts(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+
+  const facts: string[] = [];
+  const seen = new Set<string>();
+  for (const entry of value) {
+    const text = normalizeLearnedFactText(entry);
+    if (!text || seen.has(text)) continue;
+    seen.add(text);
+    facts.push(text);
+  }
+
+  return facts;
+}
+
+function normalizeLearnedFactIds(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+
+  const ids: string[] = [];
+  const seen = new Set<string>();
+  for (const entry of value) {
+    const id = normalizeLearnedFactId(entry);
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    ids.push(id);
+  }
+
+  return ids;
+}
+
+export function cloneLearnedFacts(
+  learnedFacts: readonly ProjectLearnedFact[] | undefined,
+): ProjectLearnedFact[] | undefined {
+  const normalized = normalizeLearnedFacts(learnedFacts);
+  return normalized?.map((fact) => ({ ...fact }));
+}
+
+export function getLearnedFactTexts(
+  learnedFacts: readonly ProjectLearnedFact[] | undefined,
+): string[] {
+  return (normalizeLearnedFacts(learnedFacts) ?? []).map((fact) => fact.text);
+}
+
 export function mergeProjectLearnedFacts(
-  existing: readonly string[] | undefined,
+  existing: readonly ProjectLearnedFact[] | undefined,
   incoming: readonly string[] | undefined,
 ): {
-  learnedFacts?: string[];
-  addedFacts: string[];
+  learnedFacts?: ProjectLearnedFact[];
+  addedFacts: ProjectLearnedFact[];
   updated: boolean;
 } {
   const current = normalizeLearnedFacts(existing) ?? [];
-  const nextCandidates = normalizeLearnedFacts(incoming) ?? [];
+  const nextCandidates = normalizeIncomingLearnedFactTexts(incoming);
   if (nextCandidates.length === 0) {
     return {
-      ...(current.length > 0 ? { learnedFacts: current } : {}),
+      ...(current.length > 0 ? { learnedFacts: cloneLearnedFacts(current) } : {}),
       addedFacts: [],
       updated: false,
     };
   }
 
-  const merged = [...current];
-  const seen = new Set(current);
-  const addedFacts: string[] = [];
-  for (const fact of nextCandidates) {
-    if (seen.has(fact)) continue;
-    seen.add(fact);
+  const merged = current.map((fact) => ({ ...fact }));
+  const seenTexts = new Set(current.map((fact) => fact.text));
+  const addedFacts: ProjectLearnedFact[] = [];
+  for (const text of nextCandidates) {
+    if (seenTexts.has(text)) continue;
+    seenTexts.add(text);
+    const fact = { id: createProjectLearnedFactId(), text };
     merged.push(fact);
     addedFacts.push(fact);
   }
@@ -118,30 +204,90 @@ export function mergeProjectLearnedFacts(
 }
 
 export function removeProjectLearnedFacts(
-  existing: readonly string[] | undefined,
+  existing: readonly ProjectLearnedFact[] | undefined,
   removals: readonly string[] | undefined,
 ): {
-  learnedFacts?: string[];
-  removedFacts: string[];
+  learnedFacts?: ProjectLearnedFact[];
+  removedFacts: ProjectLearnedFact[];
   updated: boolean;
 } {
   const current = normalizeLearnedFacts(existing) ?? [];
-  const nextRemovals = normalizeLearnedFacts(removals) ?? [];
+  const nextRemovals = normalizeLearnedFactIds(removals);
   if (current.length === 0 || nextRemovals.length === 0) {
     return {
-      ...(current.length > 0 ? { learnedFacts: current } : {}),
+      ...(current.length > 0 ? { learnedFacts: cloneLearnedFacts(current) } : {}),
       removedFacts: [],
       updated: false,
     };
   }
 
   const toRemove = new Set(nextRemovals);
-  const learnedFacts = current.filter((fact) => !toRemove.has(fact));
-  const removedFacts = current.filter((fact) => toRemove.has(fact));
+  const learnedFacts = current.filter((fact) => !toRemove.has(fact.id));
+  const removedFacts = current.filter((fact) => toRemove.has(fact.id));
   return {
     ...(learnedFacts.length > 0 ? { learnedFacts } : {}),
     removedFacts,
     updated: removedFacts.length > 0,
+  };
+}
+
+export function editProjectLearnedFact(
+  existing: readonly ProjectLearnedFact[] | undefined,
+  factId: string | undefined,
+  nextText: string | undefined,
+): {
+  learnedFacts?: ProjectLearnedFact[];
+  updatedFact?: ProjectLearnedFact;
+  updated: boolean;
+  error?: "duplicate_text" | "missing_fact";
+} {
+  const current = normalizeLearnedFacts(existing) ?? [];
+  const normalizedFactId = normalizeLearnedFactId(factId);
+  const normalizedNextText = normalizeLearnedFactText(nextText);
+  if (current.length === 0 || !normalizedFactId || !normalizedNextText) {
+    return {
+      ...(current.length > 0 ? { learnedFacts: cloneLearnedFacts(current) } : {}),
+      updated: false,
+      error: "missing_fact",
+    };
+  }
+
+  const target = current.find((fact) => fact.id === normalizedFactId);
+  if (!target) {
+    return {
+      learnedFacts: cloneLearnedFacts(current),
+      updated: false,
+      error: "missing_fact",
+    };
+  }
+
+  if (target.text === normalizedNextText) {
+    return {
+      learnedFacts: cloneLearnedFacts(current),
+      updatedFact: { ...target },
+      updated: false,
+    };
+  }
+
+  const duplicate = current.find(
+    (fact) => fact.id !== normalizedFactId && fact.text === normalizedNextText,
+  );
+  if (duplicate) {
+    return {
+      learnedFacts: cloneLearnedFacts(current),
+      updated: false,
+      error: "duplicate_text",
+    };
+  }
+
+  const learnedFacts = current.map((fact) =>
+    fact.id === normalizedFactId ? { ...fact, text: normalizedNextText } : { ...fact },
+  );
+  const updatedFact = learnedFacts.find((fact) => fact.id === normalizedFactId);
+  return {
+    learnedFacts,
+    ...(updatedFact ? { updatedFact } : {}),
+    updated: true,
   };
 }
 
@@ -169,19 +315,16 @@ export function normalizeSavedProject(value: unknown): SavedProject | null {
   if (!rawPath) return null;
 
   const rawName = typeof value.name === "string" ? value.name.trim() : "";
+  const setupCommand = normalizeSetupCommand(value.setupCommand);
+  const commands = normalizeCommands(value.commands);
+  const learnedFacts = normalizeLearnedFacts(value.learnedFacts);
   return {
     path: rawPath,
     name: rawName || inferProjectName(rawPath),
     icon: normalizeProjectIcon(value.icon),
-    ...(normalizeSetupCommand(value.setupCommand)
-      ? { setupCommand: normalizeSetupCommand(value.setupCommand) }
-      : {}),
-    ...(normalizeCommands(value.commands)
-      ? { commands: normalizeCommands(value.commands) }
-      : {}),
-    ...(normalizeLearnedFacts(value.learnedFacts)
-      ? { learnedFacts: normalizeLearnedFacts(value.learnedFacts) }
-      : {}),
+    ...(setupCommand ? { setupCommand } : {}),
+    ...(commands ? { commands } : {}),
+    ...(learnedFacts ? { learnedFacts } : {}),
   };
 }
 
@@ -203,7 +346,7 @@ export function applyProjectScriptsConfig(
     name: normalized.name,
     icon: normalized.icon,
     ...(normalized.learnedFacts?.length
-      ? { learnedFacts: normalized.learnedFacts }
+      ? { learnedFacts: cloneLearnedFacts(normalized.learnedFacts) }
       : {}),
     hasProjectConfigFile: true,
     ...(configState.config?.setupCommand
@@ -224,6 +367,18 @@ export async function resolveSavedProjects(
   projects: SavedProject[],
 ): Promise<SavedProject[]> {
   return Promise.all(projects.map((project) => resolveSavedProject(project)));
+}
+
+function cloneSavedProject(project: SavedProject): SavedProject {
+  return {
+    ...project,
+    ...(project.learnedFacts?.length
+      ? { learnedFacts: cloneLearnedFacts(project.learnedFacts) }
+      : {}),
+    ...(project.commands?.length
+      ? { commands: [...project.commands] }
+      : {}),
+  };
 }
 
 function dedupeSavedProjects(projects: SavedProject[]): SavedProject[] {
@@ -253,7 +408,7 @@ function serializeSavedProject(project: SavedProject): SavedProject {
     name: normalized.name,
     icon: normalized.icon,
     ...(normalized.learnedFacts?.length
-      ? { learnedFacts: normalized.learnedFacts }
+      ? { learnedFacts: cloneLearnedFacts(normalized.learnedFacts) }
       : {}),
     ...(normalized.setupCommand
       ? { setupCommand: normalized.setupCommand }
@@ -263,7 +418,7 @@ function serializeSavedProject(project: SavedProject): SavedProject {
 }
 
 export function getSavedProjects(): SavedProject[] {
-  return [...savedProjectsCache];
+  return savedProjectsCache.map((project) => cloneSavedProject(project));
 }
 
 export async function loadSavedProjects(): Promise<SavedProject[]> {
@@ -356,7 +511,7 @@ export async function upsertSavedProjectPreservingLearnedFacts(
     !normalized.learnedFacts && existing?.learnedFacts?.length
       ? {
           ...normalized,
-          learnedFacts: [...existing.learnedFacts],
+          learnedFacts: cloneLearnedFacts(existing.learnedFacts),
         }
       : normalized;
   const next = [
@@ -374,16 +529,17 @@ export async function removeSavedProject(projectPath: string): Promise<SavedProj
 }
 
 export function findSavedProject(projectPath: string): SavedProject | null {
-  return (
-    savedProjectsCache.find((project) => project.path === projectPath) ?? null
-  );
+  const project =
+    savedProjectsCache.find((entry) => entry.path === projectPath) ?? null;
+  return project ? cloneSavedProject(project) : null;
 }
 
 export function findSavedProjectForWorkspace(
   projectPath?: string,
   cwd?: string,
 ): SavedProject | null {
-  return findSavedProjectInList(savedProjectsCache, projectPath, cwd);
+  const project = findSavedProjectInList(savedProjectsCache, projectPath, cwd);
+  return project ? cloneSavedProject(project) : null;
 }
 
 export async function loadSavedProjectForWorkspace(

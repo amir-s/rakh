@@ -119,8 +119,10 @@ describe("getSubagent", () => {
     expect(sa?.id).toBe("compact");
     expect(sa?.tools).toContain("agent_project_memory_add");
     expect(sa?.tools).toContain("agent_project_memory_remove");
+    expect(sa?.tools).toContain("agent_project_memory_edit");
     expect(sa?.systemPrompt).toContain("agent_project_memory_add");
     expect(sa?.systemPrompt).toContain("agent_project_memory_remove");
+    expect(sa?.systemPrompt).toContain("agent_project_memory_edit");
   });
 
   it("returns undefined for an unknown id", () => {

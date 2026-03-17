@@ -1951,6 +1951,76 @@ pub struct ProjectCommandRecord {
     pub show_label: Option<bool>,
 }
 
+const MAX_PROJECT_LEARNED_FACTS: usize = 50;
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct SavedProjectLearnedFactRecord {
+    pub id: String,
+    pub text: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(untagged)]
+enum SavedProjectLearnedFactInput {
+    Legacy(String),
+    Record(SavedProjectLearnedFactRecord),
+}
+
+fn new_saved_project_learned_fact_id() -> String {
+    format!("fact_{}", Uuid::new_v4().simple())
+}
+
+fn normalize_saved_project_learned_facts(
+    value: Option<Vec<SavedProjectLearnedFactInput>>,
+) -> Option<Vec<SavedProjectLearnedFactRecord>> {
+    let mut normalized = Vec::new();
+    let mut seen_texts = std::collections::HashSet::new();
+
+    for entry in value.unwrap_or_default() {
+        let (id, text) = match entry {
+            SavedProjectLearnedFactInput::Legacy(text) => {
+                (new_saved_project_learned_fact_id(), text)
+            }
+            SavedProjectLearnedFactInput::Record(record) => {
+                let id = if record.id.trim().is_empty() {
+                    new_saved_project_learned_fact_id()
+                } else {
+                    record.id.trim().to_string()
+                };
+                (id, record.text)
+            }
+        };
+
+        let trimmed_text = text.trim();
+        if trimmed_text.is_empty() || !seen_texts.insert(trimmed_text.to_string()) {
+            continue;
+        }
+
+        normalized.push(SavedProjectLearnedFactRecord {
+            id,
+            text: trimmed_text.to_string(),
+        });
+    }
+
+    if normalized.is_empty() {
+        None
+    } else {
+        let start = normalized.len().saturating_sub(MAX_PROJECT_LEARNED_FACTS);
+        Some(normalized.into_iter().skip(start).collect())
+    }
+}
+
+fn deserialize_saved_project_learned_facts<'de, D>(
+    deserializer: D,
+) -> Result<Option<Vec<SavedProjectLearnedFactRecord>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = Option::<Vec<SavedProjectLearnedFactInput>>::deserialize(deserializer)?;
+    Ok(normalize_saved_project_learned_facts(value))
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct SavedProjectRecord {
@@ -1961,8 +2031,12 @@ pub struct SavedProjectRecord {
     pub setup_command: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub commands: Option<Vec<ProjectCommandRecord>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub learned_facts: Option<Vec<String>>,
+    #[serde(
+        default,
+        deserialize_with = "deserialize_saved_project_learned_facts",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub learned_facts: Option<Vec<SavedProjectLearnedFactRecord>>,
 }
 
 #[tauri::command]
@@ -2030,8 +2104,29 @@ pub fn projects_load() -> Result<Vec<SavedProjectRecord>, String> {
     }
     let raw =
         fs::read_to_string(&path).map_err(|e| format!("INTERNAL: cannot read projects: {}", e))?;
-    let records: Vec<SavedProjectRecord> = serde_json::from_str(&raw)
+    let raw_json: Value = serde_json::from_str(&raw)
         .map_err(|e| format!("INTERNAL: cannot parse projects: {}", e))?;
+    let records: Vec<SavedProjectRecord> = serde_json::from_value(raw_json.clone())
+        .map_err(|e| format!("INTERNAL: cannot parse projects: {}", e))?;
+    let normalized_json = serde_json::to_value(&records)
+        .map_err(|e| format!("INTERNAL: cannot serialise migrated projects: {}", e))?;
+    if normalized_json != raw_json {
+        let rewritten = serde_json::to_string_pretty(&records)
+            .map_err(|e| format!("INTERNAL: cannot serialise migrated projects: {}", e))?;
+        let tmp = path.with_extension(format!("json.tmp-{}", now_ms()));
+        fs::write(&tmp, rewritten.as_bytes())
+            .map_err(|e| format!("INTERNAL: cannot write migrated projects tmp: {}", e))?;
+        match fs::rename(&tmp, &path) {
+            Ok(()) => {}
+            Err(e) => {
+                if path.exists() {
+                    let _ = fs::remove_file(&tmp);
+                } else {
+                    return Err(format!("INTERNAL: cannot rename migrated projects file: {}", e));
+                }
+            }
+        }
+    }
     tool_log("projects_load", "ok", json!({ "count": records.len() }));
     Ok(records)
 }
@@ -2536,8 +2631,15 @@ mod tests {
                 show_label: Some(false),
             }]),
             learned_facts: Some(vec![
-                "The desktop app uses Tauri for backend commands.".to_string(),
-                "Saved project memory is stored in the project config JSON.".to_string(),
+                SavedProjectLearnedFactRecord {
+                    id: "fact_tauri".to_string(),
+                    text: "The desktop app uses Tauri for backend commands.".to_string(),
+                },
+                SavedProjectLearnedFactRecord {
+                    id: "fact_storage".to_string(),
+                    text: "Saved project memory is stored in the project config JSON."
+                        .to_string(),
+                },
             ]),
         }];
 
@@ -2551,6 +2653,67 @@ mod tests {
         assert!(raw.contains("\"icon\": \"folder_code\""));
         assert!(raw.contains("\"setupCommand\": \"pnpm install\""));
         assert!(raw.contains("\"learnedFacts\""));
+
+        match prev_home {
+            Some(v) => std::env::set_var("HOME", v),
+            None => std::env::remove_var("HOME"),
+        }
+    }
+
+    #[test]
+    fn test_projects_load_migrates_legacy_learned_facts_to_records() {
+        let _guard = HOME_TEST_LOCK
+            .get_or_init(|| Mutex::new(()))
+            .lock()
+            .unwrap();
+        let tmp = tempdir().unwrap();
+        let prev_home = std::env::var("HOME").ok();
+        std::env::set_var("HOME", tmp.path());
+
+        let config_path = projects_config_path().unwrap();
+        if let Some(parent) = config_path.parent() {
+            std::fs::create_dir_all(parent).unwrap();
+        }
+        std::fs::write(
+            &config_path,
+            r#"
+[
+  {
+    "path": "/repo/platform",
+    "name": "Platform API",
+    "icon": "folder_code",
+    "learnedFacts": [
+      "  The desktop app uses Tauri for backend commands.  ",
+      "",
+      "The desktop app uses Tauri for backend commands.",
+      "Saved project memory is stored in the project config JSON."
+    ]
+  }
+]
+"#,
+        )
+        .unwrap();
+
+        let loaded = projects_load().expect("projects_load should succeed");
+        assert_eq!(loaded.len(), 1);
+        let learned_facts = loaded[0]
+            .learned_facts
+            .as_ref()
+            .expect("learned facts should be migrated");
+        assert_eq!(learned_facts.len(), 2);
+        assert!(learned_facts.iter().all(|fact| fact.id.starts_with("fact_")));
+        assert_eq!(
+            learned_facts[0].text,
+            "The desktop app uses Tauri for backend commands."
+        );
+        assert_eq!(
+            learned_facts[1].text,
+            "Saved project memory is stored in the project config JSON."
+        );
+
+        let raw = std::fs::read_to_string(&config_path).unwrap();
+        assert!(raw.contains("\"id\": \"fact_"));
+        assert!(raw.contains("\"text\": \"The desktop app uses Tauri for backend commands.\""));
 
         match prev_home {
             Some(v) => std::env::set_var("HOME", v),

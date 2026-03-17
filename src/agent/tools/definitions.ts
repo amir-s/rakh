@@ -386,11 +386,25 @@ path/to/other.ts
     description:
       "Remove durable learned facts from the current saved project's long-term memory. " +
       "Use this when the user asks you to forget stale or incorrect project memory, or when compaction confirms an existing learned fact is no longer true. " +
-      "Removal uses exact normalized string matches against the stored facts, so pass the actual fact text you want removed.",
+      "Removal is ID-based, so pass the exact stored fact ID you want removed.",
     inputSchema: z.object({
-      facts: z
+      factIds: z
         .array(z.string())
-        .describe("Stored learned facts to remove from project memory"),
+        .describe("Stored learned fact IDs to remove from project memory"),
+    }),
+  }),
+  tool({
+    name: "agent_project_memory_edit",
+    description:
+      "Edit one durable learned fact in the current saved project's long-term memory by stable ID. " +
+      "Use this when an existing project-memory fact is still relevant but needs corrected wording.",
+    inputSchema: z.object({
+      factId: z
+        .string()
+        .describe("Stable ID of the stored learned fact to update"),
+      text: z
+        .string()
+        .describe("Replacement fact text"),
     }),
   }),
   tool({

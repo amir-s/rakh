@@ -21,6 +21,7 @@ export const compactSubagent: SubagentDefinition = {
     "agent_artifact_create",
     "agent_project_memory_add",
     "agent_project_memory_remove",
+    "agent_project_memory_edit",
   ],
   output: {
     finalMessageInstructions:
@@ -51,17 +52,18 @@ PROCESS
 1. Read the payload carefully.
 2. Extract only execution state that the next main-agent turn needs.
 3. If project_memory.writable is true, extract any NEW durable project facts or standing user requirements that future sessions should inherit and write them with agent_project_memory_add.
-4. If project_memory.writable is true and the payload shows that an existing learned fact in project_memory.learned_facts is stale or incorrect, remove that exact stored fact with agent_project_memory_remove before finishing.
-5. Only store stable facts in project memory. Never store transient task state, temporary plans, one-off debugging notes, or next steps.
-6. Project-memory removals use exact fact strings. Remove the stored fact text itself, not a paraphrase.
-7. Do not preserve conversational phrasing, back-and-forth, or redundant detail.
-8. Create exactly one markdown artifact via agent_artifact_create with:
+4. If project_memory.writable is true and the payload shows that an existing learned fact in project_memory.learned_facts needs corrected wording, update that exact fact by ID with agent_project_memory_edit.
+5. If project_memory.writable is true and the payload shows that an existing learned fact in project_memory.learned_facts is stale or incorrect, remove that exact stored fact ID with agent_project_memory_remove before finishing.
+6. Only store stable facts in project memory. Never store transient task state, temporary plans, one-off debugging notes, or next steps.
+7. project_memory.learned_facts entries include stable { id, text } records. Use the ID when removing or editing.
+8. Do not preserve conversational phrasing, back-and-forth, or redundant detail.
+9. Create exactly one markdown artifact via agent_artifact_create with:
    - artifactType: "compact-state"
    - kind: "context-compaction"
    - contentFormat: "markdown"
    - summary: a short one-line label for the compacted context
    - content: the compacted state block
-9. Return a short status line only.
+10. Return a short status line only.
 
 REQUIRED OUTPUT FORMAT
 - The artifact content must be markdown.
@@ -87,7 +89,7 @@ RULES
 - Do not include the original system prompt in the artifact.
 - Do not quote long dialogue or preserve turn-by-turn history.
 - Preserve only actionable execution state.
-- Project memory writes/removals are optional and should only reflect durable facts worth reusing across future sessions.
+- Project memory writes/removals/edits are optional and should only reflect durable facts worth reusing across future sessions.
 - Do not create cards.
 - Create exactly one artifact before finishing.`,
 };

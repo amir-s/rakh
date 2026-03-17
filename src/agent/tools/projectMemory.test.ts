@@ -9,7 +9,15 @@ vi.mock("../atoms", () => ({
   getAgentState: (...args: unknown[]) => getAgentStateMock(...args),
 }));
 
-import { projectMemoryAdd, projectMemoryRemove } from "./projectMemory";
+import {
+  projectMemoryAdd,
+  projectMemoryEdit,
+  projectMemoryRemove,
+} from "./projectMemory";
+
+function fact(id: string, text: string) {
+  return { id, text };
+}
 
 describe("projectMemoryAdd", () => {
   beforeEach(async () => {
@@ -38,16 +46,19 @@ describe("projectMemoryAdd", () => {
       { facts: ["Use pnpm."] },
     );
 
-    expect(result).toEqual({
-      ok: true,
-      data: {
-        projectPath: "/repo",
-        learnedFacts: ["Use pnpm."],
-        addedFacts: ["Use pnpm."],
-        updated: true,
-      },
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.data.projectPath).toBe("/repo");
+    expect(result.data.updated).toBe(true);
+    expect(result.data.learnedFacts).toHaveLength(1);
+    expect(result.data.addedFacts).toHaveLength(1);
+    expect(result.data.learnedFacts[0]).toMatchObject({ text: "Use pnpm." });
+    expect(result.data.learnedFacts[0]?.id).toMatch(/^fact_/);
+    expect(result.data.addedFacts[0]).toEqual(result.data.learnedFacts[0]);
+    expect(getSavedProjects()[0]?.learnedFacts).toHaveLength(1);
+    expect(getSavedProjects()[0]?.learnedFacts?.[0]).toMatchObject({
+      text: "Use pnpm.",
     });
-    expect(getSavedProjects()[0]?.learnedFacts).toEqual(["Use pnpm."]);
   });
 
   it("rejects unrelated subagent callers", async () => {
@@ -78,7 +89,10 @@ describe("projectMemoryAdd", () => {
         path: "/repo",
         name: "Repo",
         icon: "folder",
-        learnedFacts: Array.from({ length: 50 }, (_, index) => `Fact ${index}`),
+        learnedFacts: Array.from(
+          { length: 50 },
+          (_, index) => fact(`fact_${index}`, `Fact ${index}`),
+        ),
       },
     ]);
 
@@ -88,15 +102,17 @@ describe("projectMemoryAdd", () => {
       { facts: [" Fact 49 ", "Fact 50", "", "Fact 51"] },
     );
 
-    expect(result).toEqual({
-      ok: true,
-      data: {
-        projectPath: "/repo",
-        learnedFacts: Array.from({ length: 50 }, (_, index) => `Fact ${index + 2}`),
-        addedFacts: ["Fact 50", "Fact 51"],
-        updated: true,
-      },
-    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.data.projectPath).toBe("/repo");
+    expect(result.data.updated).toBe(true);
+    expect(result.data.learnedFacts).toHaveLength(50);
+    expect(result.data.learnedFacts[0]).toMatchObject({ text: "Fact 2" });
+    expect(result.data.learnedFacts.at(-1)).toMatchObject({ text: "Fact 51" });
+    expect(result.data.addedFacts.map((entry) => entry.text)).toEqual([
+      "Fact 50",
+      "Fact 51",
+    ]);
   });
 
   it("reports a no-op when there are no new learned facts", async () => {
@@ -105,7 +121,7 @@ describe("projectMemoryAdd", () => {
         path: "/repo",
         name: "Repo",
         icon: "folder",
-        learnedFacts: ["Use pnpm in this repo."],
+        learnedFacts: [fact("fact_pnpm", "Use pnpm in this repo.")],
       },
     ]);
 
@@ -119,7 +135,7 @@ describe("projectMemoryAdd", () => {
       ok: true,
       data: {
         projectPath: "/repo",
-        learnedFacts: ["Use pnpm in this repo."],
+        learnedFacts: [fact("fact_pnpm", "Use pnpm in this repo.")],
         addedFacts: [],
         updated: false,
       },
@@ -152,27 +168,30 @@ describe("projectMemoryAdd", () => {
         path: "/repo",
         name: "Repo",
         icon: "folder",
-        learnedFacts: ["Use pnpm in this repo.", "The backend uses Tauri."],
+        learnedFacts: [
+          fact("fact_pnpm", "Use pnpm in this repo."),
+          fact("fact_tauri", "The backend uses Tauri."),
+        ],
       },
     ]);
 
     const result = await projectMemoryRemove(
       "tab",
       { agentId: "agent_main" },
-      { facts: [" Use pnpm in this repo. ", "Unknown fact"] },
+      { factIds: [" fact_pnpm ", "fact_unknown"] },
     );
 
     expect(result).toEqual({
       ok: true,
       data: {
         projectPath: "/repo",
-        learnedFacts: ["The backend uses Tauri."],
-        removedFacts: ["Use pnpm in this repo."],
+        learnedFacts: [fact("fact_tauri", "The backend uses Tauri.")],
+        removedFacts: [fact("fact_pnpm", "Use pnpm in this repo.")],
         updated: true,
       },
     });
     expect(getSavedProjects()[0]?.learnedFacts).toEqual([
-      "The backend uses Tauri.",
+      fact("fact_tauri", "The backend uses Tauri."),
     ]);
   });
 
@@ -182,24 +201,76 @@ describe("projectMemoryAdd", () => {
         path: "/repo",
         name: "Repo",
         icon: "folder",
-        learnedFacts: ["Use pnpm in this repo."],
+        learnedFacts: [fact("fact_pnpm", "Use pnpm in this repo.")],
       },
     ]);
 
     const result = await projectMemoryRemove(
       "tab",
       { agentId: "agent_compact" },
-      { facts: ["Use npm in this repo."] },
+      { factIds: ["fact_unknown"] },
     );
 
     expect(result).toEqual({
       ok: true,
       data: {
         projectPath: "/repo",
-        learnedFacts: ["Use pnpm in this repo."],
+        learnedFacts: [fact("fact_pnpm", "Use pnpm in this repo.")],
         removedFacts: [],
         updated: false,
       },
+    });
+  });
+
+  it("edits a learned fact by stable ID", async () => {
+    await saveSavedProjects([
+      {
+        path: "/repo",
+        name: "Repo",
+        icon: "folder",
+        learnedFacts: [fact("fact_pnpm", "Use pnpm in this repo.")],
+      },
+    ]);
+
+    const result = await projectMemoryEdit(
+      "tab",
+      { agentId: "agent_main" },
+      { factId: "fact_pnpm", text: "Use bun in this repo." },
+    );
+
+    expect(result).toEqual({
+      ok: true,
+      data: {
+        projectPath: "/repo",
+        learnedFacts: [fact("fact_pnpm", "Use bun in this repo.")],
+        updatedFact: fact("fact_pnpm", "Use bun in this repo."),
+        updated: true,
+      },
+    });
+  });
+
+  it("rejects edits that would duplicate another learned fact", async () => {
+    await saveSavedProjects([
+      {
+        path: "/repo",
+        name: "Repo",
+        icon: "folder",
+        learnedFacts: [
+          fact("fact_a", "Use pnpm in this repo."),
+          fact("fact_b", "The backend uses Tauri."),
+        ],
+      },
+    ]);
+
+    const result = await projectMemoryEdit(
+      "tab",
+      { agentId: "agent_compact" },
+      { factId: "fact_b", text: "Use pnpm in this repo." },
+    );
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: { code: "CONFLICT" },
     });
   });
 });
