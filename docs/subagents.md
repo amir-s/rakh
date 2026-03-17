@@ -242,6 +242,8 @@ bubble in the parent tab.
 - `agent_subagent_call("compact", ...)` is rejected by the runner
 - the runner may also invoke it automatically when the global Context
   Compaction settings enable threshold-based auto-compaction
+- those global settings are persisted in `~/.rakh/config/compaction.json`
+  (or `~/.rakh-dev/config/compaction.json` in debug builds)
 - it still streams its own internal subagent turns into chat when manually
   triggered
 - automatic runs suppress the internal streamed turns and append a single
@@ -290,6 +292,7 @@ bubble in the parent tab.
 - `kind: "context-compaction"`
 - Manual trigger through `/compact`
 - Optional automatic trigger from the global Context Compaction settings
+- Global settings are persisted in `config/compaction.json`
 - Tool allowlist is limited to `agent_artifact_create` and `agent_project_memory_add`
 - No schema validator; the runner performs a required-section markdown check
 - The runtime reinserts the real system prompt separately and never asks the
