@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.15.1](https://github.com/amir-s/rakh/compare/rakh-v0.15.0...rakh-v0.15.1) (2026-03-17)
+
+
+### Bug Fixes
+
+* show automatic compaction subagent output ([cfe80ef](https://github.com/amir-s/rakh/commit/cfe80ef89cdd363526e46c3872cc89d6313557ff))
+* store compacted history as user handoff ([949c29b](https://github.com/amir-s/rakh/commit/949c29b14a98431337c9db28e549580f5245287b))
+* use synthetic compacted-history handoff ([b0412a0](https://github.com/amir-s/rakh/commit/b0412a025c5da5f7a2be9493931964e5a4881bfc))
+
 ## [0.15.0](https://github.com/amir-s/rakh/compare/rakh-v0.14.0...rakh-v0.15.0) (2026-03-17)
 
 
