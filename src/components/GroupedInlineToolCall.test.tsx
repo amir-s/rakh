@@ -34,7 +34,16 @@ describe("GroupedInlineToolCall", () => {
       <GroupedInlineToolCall
         toolCalls={[
           makeToolCall("tc-1", "workspace_listDir", { path: "src" }),
-          makeToolCall("tc-2", "workspace_readFile", { path: "README.md" }),
+          {
+            ...makeToolCall("tc-2", "workspace_readFile", { path: "README.md" }),
+            contextCompaction: {
+              request: { outputNote: "Keep only the file summary in history." },
+              output: {
+                status: "compacted",
+                note: "Keep only the file summary in history.",
+              },
+            },
+          },
           makeToolCall("tc-3", "workspace_readFile", { path: "package.json" }),
           makeToolCall("tc-4", "workspace_glob", { patterns: ["*.ts"] }),
         ]}
@@ -49,6 +58,11 @@ describe("GroupedInlineToolCall", () => {
     expect(screen.getByTitle("LIST DIRECTORY")).not.toBeNull();
     expect(screen.getAllByTitle("READ FILE")).toHaveLength(1);
     expect(screen.getByTitle("GLOB FILES")).not.toBeNull();
+    expect(
+      document.querySelector(
+        '.inline-tool-group__icon[data-context-compaction-state="compacted"] .tool-call-icon__flare',
+      )?.getAttribute("title"),
+    ).toBe("Context compaction compacted the model-facing output.");
   });
 
   it("expands to render all grouped tool calls", () => {

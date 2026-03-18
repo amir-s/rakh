@@ -164,6 +164,37 @@
     border-radius var(--t-slow);
 }
 
+.tool-call-icon {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+
+.tool-call-icon__flare {
+  position: absolute;
+  right: -0.35em;
+  bottom: -0.28em;
+  font-size: 0.68em;
+  line-height: 1;
+  color: color-mix(in srgb, var(--color-muted) 74%, var(--color-warning));
+  text-shadow:
+    0 0 0.5px var(--color-inset),
+    0 0 2px color-mix(in srgb, var(--color-warning) 32%, transparent);
+}
+
+.tool-call-icon--annotated .tool-call-icon__flare {
+  color: color-mix(in srgb, var(--color-muted) 64%, var(--color-warning));
+}
+
+.tool-call-icon--compacted .tool-call-icon__flare {
+  color: color-mix(in srgb, var(--color-primary) 72%, var(--color-warning));
+  text-shadow:
+    0 0 0.5px var(--color-inset),
+    0 0 4px color-mix(in srgb, var(--color-primary) 34%, transparent);
+}
+
 /* ── Status dot ────────────────────────────────────────────────────────── */
 .inline-tool-status {
   width: 6px;
@@ -221,9 +252,15 @@
 }
 
 .inline-tool-group__icon {
+  position: relative;
   font-size: 15px;
   line-height: 1;
   opacity: 0.8;
+}
+
+.inline-tool-group__icon-symbol {
+  font-size: 15px;
+  line-height: 1;
 }
 
 .inline-tool-group__body {

@@ -23,7 +23,8 @@ import {
   getToolCallAttentionTargetKind,
 } from "@/components/autoScrollAttention";
 import { Badge, Button, TextField } from "@/components/ui";
-import { getToolCallIcon, getToolCallLabel } from "@/components/toolDisplay";
+import ToolCallIcon from "@/components/ToolCallIcon";
+import { getToolCallLabel } from "@/components/toolDisplay";
 import { cn } from "@/utils/cn";
 
 /* ─────────────────────────────────────────────────────────────────────────────
@@ -954,7 +955,6 @@ export default function ToolCallApproval({
     );
   }
 
-  const icon = getToolCallIcon(toolCall);
   const label = getToolCallLabel(toolCall);
   const isDangerous = toolCall.dangerous === true;
 
@@ -965,7 +965,7 @@ export default function ToolCallApproval({
       {/* ── Card header ───────────────────────────────────────────────── */}
       <div className="msg-card-head">
         <div className="msg-card-label">
-          <span className="material-symbols-outlined text-base">{icon}</span>
+          <ToolCallIcon toolCall={toolCall} iconClassName="text-base" />
           {label}
         </div>
         <div className="text-xxs text-muted font-mono opacity-60">{tool}</div>

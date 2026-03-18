@@ -1,7 +1,8 @@
 import type { ReactNode } from "react";
 import type { ToolCallDisplay } from "@/agent/types";
 import { getExecCommandBadge } from "@/components/compactToolCallStatus";
-import { getToolCallIcon, getToolCallLabel } from "@/components/toolDisplay";
+import ToolCallIcon from "@/components/ToolCallIcon";
+import { getToolCallLabel } from "@/components/toolDisplay";
 import { cn } from "@/utils/cn";
 import { Badge, StatusDot } from "@/components/ui";
 
@@ -269,7 +270,6 @@ export function CompactToolCallSummaryRow({
   argPreviewOverride,
 }: CompactToolCallSummaryRowProps) {
   const interactive = typeof onActivate === "function";
-  const icon = iconOverride ?? getToolCallIcon(tc);
   const label = labelOverride ?? getToolCallLabel(tc);
   const dotStatus = STATUS_DOT[tc.status] ?? "pending";
   const statusDotVariant =
@@ -301,9 +301,13 @@ export function CompactToolCallSummaryRow({
         className={cn("inline-tool-status", `inline-tool-status--${dotStatus}`)}
       />
 
-      <span className="material-symbols-outlined text-base opacity-65 shrink-0">
-        {icon}
-      </span>
+      <ToolCallIcon
+        toolCall={tc}
+        icon={iconOverride}
+        showCompactionFlare={iconOverride === undefined}
+        className="shrink-0"
+        iconClassName="text-base opacity-65"
+      />
 
       <div className="inline-tool-summary-main">
         <span

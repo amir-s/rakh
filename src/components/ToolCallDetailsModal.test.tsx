@@ -86,6 +86,11 @@ describe("ToolCallDetailsModal", () => {
         "Read src/agent/runner.ts for planning; exact file contents omitted from model history.",
       ).length,
     ).toBeGreaterThan(0);
+    expect(
+      document.querySelector(
+        '[data-context-compaction-state="compacted"] .tool-call-icon__flare',
+      )?.getAttribute("title"),
+    ).toBe("Context compaction compacted the model-facing output.");
     expect(screen.getByText(/__rakhCompactToolIO/)).not.toBeNull();
     expect(screen.getByText(/export const runner = true/)).not.toBeNull();
   });
