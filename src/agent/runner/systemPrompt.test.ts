@@ -154,6 +154,31 @@ describe("buildSystemPrompt", () => {
     expect(systemPrompt).toContain("The backend is a Tauri app.");
   });
 
+  it("documents distinct input and output file reference syntax", () => {
+    const systemPrompt = buildSystemPrompt(
+      "/workspace",
+      false,
+      false,
+      false,
+      runtimeContext,
+      undefined,
+      undefined,
+    );
+
+    expect(systemPrompt).toContain(
+      "The user may reference files with the @filename syntax",
+    );
+    expect(systemPrompt).toContain(
+      "use plain workspace-relative references like src/App.tsx:42 or src/App.tsx:42:7",
+    );
+    expect(systemPrompt).toContain(
+      "Do not add a leading @ when you are writing a file reference yourself.",
+    );
+    expect(systemPrompt).toContain(
+      "Prefer plain text path:line[:column] references over custom markdown links",
+    );
+  });
+
   it("omits the project memory section when no learned facts exist", () => {
     const systemPrompt = buildSystemPrompt(
       "/workspace",

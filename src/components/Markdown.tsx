@@ -1,12 +1,18 @@
+import type { MouseEvent as ReactMouseEvent } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { Components } from "react-markdown";
-import type { Root } from "mdast";
+import type { Content, Link, Parent, Root, Text } from "mdast";
 
 import { visit } from "unist-util-visit";
 
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { a11yDark } from "react-syntax-highlighter/dist/esm/styles/prism";
+import {
+  openFileReference,
+  parseFileReferenceHref,
+  parsePlainTextFileReference,
+} from "@/components/markdownFileReferences";
 
 /* ─────────────────────────────────────────────────────────────────────────────
    Markdown — renders markdown content respecting design tokens from theme.css
@@ -14,9 +20,103 @@ import { a11yDark } from "react-syntax-highlighter/dist/esm/styles/prism";
 
 interface MarkdownProps {
   children: string;
+  cwd?: string;
+  onOpenFileReferenceError?: (details: unknown) => void;
 }
 
-export default function Markdown({ children }: MarkdownProps) {
+const LEADING_PUNCTUATION = new Set(["(", "[", "{", "\"", "'"]);
+const TRAILING_PUNCTUATION = new Set([
+  ")",
+  "]",
+  "}",
+  "\"",
+  "'",
+  ".",
+  ",",
+  "!",
+  "?",
+  ";",
+  ":",
+]);
+
+function createTextNode(value: string): Text {
+  return { type: "text", value };
+}
+
+function createLinkNode(url: string, value: string): Link {
+  return {
+    type: "link",
+    url,
+    children: [createTextNode(value)],
+  };
+}
+
+function splitReferenceToken(token: string): {
+  leading: string;
+  core: string;
+  trailing: string;
+} | null {
+  let start = 0;
+  let end = token.length;
+
+  while (start < end && LEADING_PUNCTUATION.has(token[start] ?? "")) {
+    start += 1;
+  }
+  while (end > start && TRAILING_PUNCTUATION.has(token[end - 1] ?? "")) {
+    end -= 1;
+  }
+
+  const core = token.slice(start, end);
+  if (!core) return null;
+  if (!parsePlainTextFileReference(core)) return null;
+
+  return {
+    leading: token.slice(0, start),
+    core,
+    trailing: token.slice(end),
+  };
+}
+
+function buildLinkedTextNodes(value: string): Content[] | null {
+  const nodes: Content[] = [];
+  const tokenRegex = /\S+/g;
+  let lastIndex = 0;
+  let replaced = false;
+
+  for (const match of value.matchAll(tokenRegex)) {
+    const token = match[0];
+    const index = match.index ?? -1;
+    if (index < 0) continue;
+
+    const split = splitReferenceToken(token);
+    if (!split) continue;
+
+    if (index > lastIndex) {
+      nodes.push(createTextNode(value.slice(lastIndex, index)));
+    }
+    if (split.leading) {
+      nodes.push(createTextNode(split.leading));
+    }
+    nodes.push(createLinkNode(split.core, split.core));
+    if (split.trailing) {
+      nodes.push(createTextNode(split.trailing));
+    }
+    lastIndex = index + token.length;
+    replaced = true;
+  }
+
+  if (!replaced) return null;
+  if (lastIndex < value.length) {
+    nodes.push(createTextNode(value.slice(lastIndex)));
+  }
+  return nodes;
+}
+
+export default function Markdown({
+  children,
+  cwd,
+  onOpenFileReferenceError,
+}: MarkdownProps) {
   const components: Components = {
     // Inline code
     code: ({ className, children, ref, ...props }) => {
@@ -50,12 +150,26 @@ export default function Markdown({ children }: MarkdownProps) {
     },
     // Links
     a: ({ children, href, ...props }) => {
+      const localReference =
+        typeof href === "string" ? parseFileReferenceHref(href) : null;
+      const handleLocalReferenceClick = (
+        event: ReactMouseEvent<HTMLAnchorElement>,
+      ) => {
+        if (!localReference) return;
+        event.preventDefault();
+        void openFileReference(localReference, {
+          cwd,
+          onError: onOpenFileReferenceError,
+        });
+      };
+
       return (
         <a
           href={href}
-          target="_blank"
-          rel="noopener noreferrer"
+          target={localReference ? undefined : "_blank"}
+          rel={localReference ? undefined : "noopener noreferrer"}
           className="cursor-pointer text-primary"
+          onClick={handleLocalReferenceClick}
           {...props}
         >
           {children}
@@ -178,6 +292,12 @@ export default function Markdown({ children }: MarkdownProps) {
         () => (tree: Root) => {
           visit(tree, "code", (node) => {
             node.lang = node.lang ?? "plaintext";
+          });
+          visit(tree, "text", (node, index, parent) => {
+            if (index == null || !parent || parent.type === "link") return;
+            const linkedNodes = buildLinkedTextNodes(node.value);
+            if (!linkedNodes) return;
+            (parent as Parent).children.splice(index, 1, ...linkedNodes);
           });
         },
       ]}

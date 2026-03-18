@@ -19,6 +19,8 @@ type RenderMode = "compact" | "detail";
 interface ArtifactRendererProps {
   artifact: ArtifactManifest;
   mode: RenderMode;
+  cwd?: string;
+  onOpenFileReferenceError?: (details: unknown) => void;
 }
 
 function validationVariant(status: string) {
@@ -307,14 +309,21 @@ function CopyReviewRenderer({ artifact, mode }: ArtifactRendererProps) {
   );
 }
 
-function PlanRenderer({ artifact, mode }: ArtifactRendererProps) {
+function PlanRenderer({
+  artifact,
+  mode,
+  cwd,
+  onOpenFileReferenceError,
+}: ArtifactRendererProps) {
   const content = artifact.content ?? "";
   if (mode === "compact") {
     return <CompactFallbackText content={content} />;
   }
   return (
     <div className="artifact-markdown">
-      <Markdown>{content}</Markdown>
+      <Markdown cwd={cwd} onOpenFileReferenceError={onOpenFileReferenceError}>
+        {content}
+      </Markdown>
     </div>
   );
 }
@@ -372,14 +381,21 @@ function JsonRenderer({ artifact, mode }: ArtifactRendererProps) {
   return <ArtifactRawText content={pretty} />;
 }
 
-function MarkdownRenderer({ artifact, mode }: ArtifactRendererProps) {
+function MarkdownRenderer({
+  artifact,
+  mode,
+  cwd,
+  onOpenFileReferenceError,
+}: ArtifactRendererProps) {
   const content = artifact.content ?? "";
   if (mode === "compact") {
     return <CompactFallbackText content={content} />;
   }
   return (
     <div className="artifact-markdown">
-      <Markdown>{content}</Markdown>
+      <Markdown cwd={cwd} onOpenFileReferenceError={onOpenFileReferenceError}>
+        {content}
+      </Markdown>
     </div>
   );
 }
@@ -400,10 +416,22 @@ function UnifiedDiffRenderer({ artifact, mode }: ArtifactRendererProps) {
   return <ArtifactRawText content={content} className="artifact-pre--diff" />;
 }
 
-export function ArtifactRenderer({ artifact, mode }: ArtifactRendererProps) {
+export function ArtifactRenderer({
+  artifact,
+  mode,
+  cwd,
+  onOpenFileReferenceError,
+}: ArtifactRendererProps) {
   switch (resolveArtifactRenderKind(artifact)) {
     case "plan":
-      return <PlanRenderer artifact={artifact} mode={mode} />;
+      return (
+        <PlanRenderer
+          artifact={artifact}
+          mode={mode}
+          cwd={cwd}
+          onOpenFileReferenceError={onOpenFileReferenceError}
+        />
+      );
     case "review-report":
       return <ReviewReportRenderer artifact={artifact} mode={mode} />;
     case "security-report":
@@ -413,7 +441,14 @@ export function ArtifactRenderer({ artifact, mode }: ArtifactRendererProps) {
     case "mcp-attachment":
       return <McpAttachmentRenderer artifact={artifact} mode={mode} />;
     case "markdown":
-      return <MarkdownRenderer artifact={artifact} mode={mode} />;
+      return (
+        <MarkdownRenderer
+          artifact={artifact}
+          mode={mode}
+          cwd={cwd}
+          onOpenFileReferenceError={onOpenFileReferenceError}
+        />
+      );
     case "json":
       return <JsonRenderer artifact={artifact} mode={mode} />;
     case "unified-diff":

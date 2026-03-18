@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { useTabs } from "@/contexts/TabsContext";
 import {
+  useAgentConfig,
   useAgentReviewEdits,
   useAgentShowDebug,
   useAgentTodos,
@@ -22,6 +23,7 @@ export { useArtifactUpdates } from "./artifact-pane/useArtifactUpdates";
 interface ArtifactPaneProps {
   onRefineEdit: (filePath: string) => void;
   onOpenLogs: () => void;
+  onOpenFileReferenceError?: (details: unknown) => void;
   onCollapse?: () => void;
   activeTab: ArtifactTab;
   unseenTabs: Set<ArtifactTab>;
@@ -39,6 +41,7 @@ interface ArtifactPaneProps {
 export default function ArtifactPane({
   onRefineEdit,
   onOpenLogs,
+  onOpenFileReferenceError,
   onCollapse,
   activeTab,
   unseenTabs,
@@ -53,6 +56,7 @@ export default function ArtifactPane({
   const todos = useAgentTodos(activeTabId);
   const reviewEdits = useAgentReviewEdits(activeTabId);
   const showDebug = useAgentShowDebug(activeTabId);
+  const config = useAgentConfig(activeTabId);
 
   const todoDone = todos.filter((todo) => todo.state === "done").length;
   const visibleTabs: ArtifactTab[] = showDebug
@@ -137,6 +141,8 @@ export default function ArtifactPane({
           <PlanPane
             planGroup={planGroup}
             content={planEntry?.artifact?.content}
+            cwd={config.cwd}
+            onOpenFileReferenceError={onOpenFileReferenceError}
             loading={
               artifactInventoryLoading ||
               (planGroup != null && planEntry == null) ||
@@ -164,6 +170,8 @@ export default function ArtifactPane({
             inventory={artifactInventory}
             loading={artifactInventoryLoading}
             error={artifactInventoryError}
+            cwd={config.cwd}
+            onOpenFileReferenceError={onOpenFileReferenceError}
             getContentEntry={getArtifactContentEntry}
             ensureArtifactContent={ensureArtifactContent}
           />

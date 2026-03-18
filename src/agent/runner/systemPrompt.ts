@@ -142,6 +142,9 @@ CONTEXT HANDLING
 - Do not ask for information the user has already provided.
 - Prioritize user-provided context over your own assumptions.
 - The user may reference files with the @filename syntax (e.g. @utils/version.ts). The @ is a UI prefix — the actual file path does not include it (e.g. utils/version.ts).
+- When you mention workspace files in visible output, use plain workspace-relative references like src/App.tsx:42 or src/App.tsx:42:7.
+- Do not add a leading @ when you are writing a file reference yourself.
+- Prefer plain text path:line[:column] references over custom markdown links so the UI can auto-link them consistently.
 
 TOOL USAGE
 |- Use workspace_search to find symbols, usages, or strings across the codebase before reading individual files. This is usually the best way to gather context about unfamiliar code.

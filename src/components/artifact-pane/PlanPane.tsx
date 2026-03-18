@@ -8,6 +8,8 @@ interface PlanPaneProps {
   content?: string;
   loading: boolean;
   error?: string;
+  cwd?: string;
+  onOpenFileReferenceError?: (details: unknown) => void;
   ensurePlanContent: (artifactId: string, version: number) => Promise<void>;
 }
 
@@ -16,6 +18,8 @@ export default function PlanPane({
   content,
   loading,
   error,
+  cwd,
+  onOpenFileReferenceError,
   ensurePlanContent,
 }: PlanPaneProps) {
   useEffect(() => {
@@ -50,7 +54,9 @@ export default function PlanPane({
         <p className="artifact-inline-error">{error}</p>
       ) : content ? (
         <div className="artifact-markdown text-sm leading-[1.8] text-[color-mix(in_srgb,var(--color-text)_85%,transparent)]">
-          <Markdown>{content}</Markdown>
+          <Markdown cwd={cwd} onOpenFileReferenceError={onOpenFileReferenceError}>
+            {content}
+          </Markdown>
         </div>
       ) : (
         <p className="artifact-empty-copy">Plan artifact content is empty.</p>
