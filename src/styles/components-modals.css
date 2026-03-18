@@ -928,13 +928,12 @@
 }
 
 .session-cost-chart-shell {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  align-items: stretch;
+  column-gap: 12px;
 }
 
-.session-cost-chart-scale,
 .session-cost-chart-axis {
   display: flex;
   align-items: center;
@@ -943,6 +942,31 @@
   font-size: 10px;
   letter-spacing: 0.04em;
   color: var(--color-muted);
+}
+
+.session-cost-chart-scale {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  align-items: flex-start;
+  height: 180px;
+  padding-block: 14px 18px;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  color: var(--color-muted);
+  white-space: nowrap;
+}
+
+.session-cost-chart-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.session-cost-chart-plot {
+  position: relative;
+  min-width: 0;
 }
 
 .session-cost-chart {

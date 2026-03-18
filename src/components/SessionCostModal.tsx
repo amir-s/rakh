@@ -221,142 +221,146 @@ function SessionActorCostLineChart({
       ) : null}
 
       <div className="session-cost-chart-shell">
-        <div className="session-cost-chart-scale">
+        <div className="session-cost-chart-scale" aria-hidden="true">
           <span>{formatUsd(maxValue)}</span>
           <span>$0</span>
         </div>
-        <svg
-          className="session-cost-chart"
-          viewBox={`0 0 ${CHART_WIDTH} ${CHART_HEIGHT}`}
-          preserveAspectRatio="none"
-          aria-hidden="true"
-        >
-          {gridValues.map((ratio) => {
-            const y = getYPosition(maxValue * ratio, maxValue);
-            return (
-              <line
-                key={ratio}
-                className="session-cost-chart-grid"
-                x1={CHART_PADDING_LEFT}
-                x2={CHART_WIDTH - CHART_PADDING_RIGHT}
-                y1={y}
-                y2={y}
-              />
-            );
-          })}
+        <div className="session-cost-chart-panel">
+          <div className="session-cost-chart-plot">
+            <svg
+              className="session-cost-chart"
+              viewBox={`0 0 ${CHART_WIDTH} ${CHART_HEIGHT}`}
+              preserveAspectRatio="none"
+              aria-hidden="true"
+            >
+              {gridValues.map((ratio) => {
+                const y = getYPosition(maxValue * ratio, maxValue);
+                return (
+                  <line
+                    key={ratio}
+                    className="session-cost-chart-grid"
+                    x1={CHART_PADDING_LEFT}
+                    x2={CHART_WIDTH - CHART_PADDING_RIGHT}
+                    y1={y}
+                    y2={y}
+                  />
+                );
+              })}
 
-          {actorSeries.map((seriesEntry) => {
-            const positioned = seriesEntry.points.map((point) => ({
-              point,
-              x: getXPosition(point, points.length),
-              y:
-                point.callCostUsd === null
-                  ? null
-                  : getYPosition(point.callCostUsd, maxValue),
-            }));
+              {actorSeries.map((seriesEntry) => {
+                const positioned = seriesEntry.points.map((point) => ({
+                  point,
+                  x: getXPosition(point, points.length),
+                  y:
+                    point.callCostUsd === null
+                      ? null
+                      : getYPosition(point.callCostUsd, maxValue),
+                }));
 
-            const pathSegments: string[] = [];
-            let currentSegment: Array<{ x: number; y: number }> = [];
-            for (const entry of positioned) {
-              if (entry.y === null) {
+                const pathSegments: string[] = [];
+                let currentSegment: Array<{ x: number; y: number }> = [];
+                for (const entry of positioned) {
+                  if (entry.y === null) {
+                    if (currentSegment.length > 0) {
+                      pathSegments.push(buildLinePath(currentSegment));
+                      currentSegment = [];
+                    }
+                    continue;
+                  }
+                  currentSegment.push({ x: entry.x, y: entry.y });
+                }
                 if (currentSegment.length > 0) {
                   pathSegments.push(buildLinePath(currentSegment));
-                  currentSegment = [];
                 }
-                continue;
-              }
-              currentSegment.push({ x: entry.x, y: entry.y });
-            }
-            if (currentSegment.length > 0) {
-              pathSegments.push(buildLinePath(currentSegment));
-            }
 
-            return (
-              <g key={seriesEntry.key}>
-                {pathSegments.map((segment, index) => (
-                  <path
-                    key={`${seriesEntry.key}-${index}`}
-                    d={segment}
-                    className="session-cost-chart-line"
-                    stroke={seriesEntry.color}
-                  />
-                ))}
-                {positioned.map(({ point, x, y }) =>
-                  y === null ? (
-                    showMissingMarkers ? (
-                      (() => {
-                        const tooltipContent = buildPerCallTooltipContent(point);
-                        return (
-                      <circle
-                        key={point.id}
-                        className="session-cost-chart-dot session-cost-chart-dot--missing"
-                        data-call-index={point.index + 1}
-                        cx={x}
-                        cy={chartBottom}
-                        r={3.5}
-                        aria-label={tooltipContent.replaceAll("\n", " ")}
-                        tabIndex={0}
-                        onMouseEnter={() =>
-                          setTooltip(buildTooltipState(tooltipContent, x, chartBottom))
-                        }
-                        onMouseMove={() =>
-                          setTooltip(buildTooltipState(tooltipContent, x, chartBottom))
-                        }
-                        onMouseLeave={() => setTooltip(null)}
-                        onFocus={() =>
-                          setTooltip(buildTooltipState(tooltipContent, x, chartBottom))
-                        }
-                        onBlur={() => setTooltip(null)}
+                return (
+                  <g key={seriesEntry.key}>
+                    {pathSegments.map((segment, index) => (
+                      <path
+                        key={`${seriesEntry.key}-${index}`}
+                        d={segment}
+                        className="session-cost-chart-line"
+                        stroke={seriesEntry.color}
                       />
-                        );
-                      })()
-                    ) : null
-                  ) : (
-                    (() => {
-                      const tooltipContent = buildPerCallTooltipContent(point);
-                      return (
-                    <circle
-                      key={point.id}
-                      className="session-cost-chart-dot"
-                      data-call-index={point.index + 1}
-                      cx={x}
-                      cy={y}
-                      r={4}
-                      fill={seriesEntry.color}
-                      aria-label={tooltipContent.replaceAll("\n", " ")}
-                      tabIndex={0}
-                      onMouseEnter={() =>
-                        setTooltip(buildTooltipState(tooltipContent, x, y))
-                      }
-                      onMouseMove={() =>
-                        setTooltip(buildTooltipState(tooltipContent, x, y))
-                      }
-                      onMouseLeave={() => setTooltip(null)}
-                      onFocus={() => setTooltip(buildTooltipState(tooltipContent, x, y))}
-                      onBlur={() => setTooltip(null)}
-                    />
-                      );
-                    })()
-                  ),
-                )}
-              </g>
-            );
-          })}
-        </svg>
-        <div className="session-cost-chart-axis">
-          <span>Call 1</span>
-          <span>Session order</span>
-          <span>{`Call ${points.length}`}</span>
-        </div>
-        {tooltip ? (
-          <div
-            className="session-cost-chart-tooltip"
-            style={{ left: `${tooltip.leftPct}%`, top: `${tooltip.topPct}%` }}
-            role="tooltip"
-          >
-            {tooltip.content}
+                    ))}
+                    {positioned.map(({ point, x, y }) =>
+                      y === null ? (
+                        showMissingMarkers ? (
+                          (() => {
+                            const tooltipContent = buildPerCallTooltipContent(point);
+                            return (
+                              <circle
+                                key={point.id}
+                                className="session-cost-chart-dot session-cost-chart-dot--missing"
+                                data-call-index={point.index + 1}
+                                cx={x}
+                                cy={chartBottom}
+                                r={3.5}
+                                aria-label={tooltipContent.replaceAll("\n", " ")}
+                                tabIndex={0}
+                                onMouseEnter={() =>
+                                  setTooltip(buildTooltipState(tooltipContent, x, chartBottom))
+                                }
+                                onMouseMove={() =>
+                                  setTooltip(buildTooltipState(tooltipContent, x, chartBottom))
+                                }
+                                onMouseLeave={() => setTooltip(null)}
+                                onFocus={() =>
+                                  setTooltip(buildTooltipState(tooltipContent, x, chartBottom))
+                                }
+                                onBlur={() => setTooltip(null)}
+                              />
+                            );
+                          })()
+                        ) : null
+                      ) : (
+                        (() => {
+                          const tooltipContent = buildPerCallTooltipContent(point);
+                          return (
+                            <circle
+                              key={point.id}
+                              className="session-cost-chart-dot"
+                              data-call-index={point.index + 1}
+                              cx={x}
+                              cy={y}
+                              r={4}
+                              fill={seriesEntry.color}
+                              aria-label={tooltipContent.replaceAll("\n", " ")}
+                              tabIndex={0}
+                              onMouseEnter={() =>
+                                setTooltip(buildTooltipState(tooltipContent, x, y))
+                              }
+                              onMouseMove={() =>
+                                setTooltip(buildTooltipState(tooltipContent, x, y))
+                              }
+                              onMouseLeave={() => setTooltip(null)}
+                              onFocus={() => setTooltip(buildTooltipState(tooltipContent, x, y))}
+                              onBlur={() => setTooltip(null)}
+                            />
+                          );
+                        })()
+                      ),
+                    )}
+                  </g>
+                );
+              })}
+            </svg>
+            {tooltip ? (
+              <div
+                className="session-cost-chart-tooltip"
+                style={{ left: `${tooltip.leftPct}%`, top: `${tooltip.topPct}%` }}
+                role="tooltip"
+              >
+                {tooltip.content}
+              </div>
+            ) : null}
           </div>
-        ) : null}
+          <div className="session-cost-chart-axis">
+            <span>Call 1</span>
+            <span>Session order</span>
+            <span>{`Call ${points.length}`}</span>
+          </div>
+        </div>
       </div>
     </section>
   );
@@ -446,110 +450,114 @@ function SessionCostLineChart({
       </div>
 
       <div className="session-cost-chart-shell">
-        <div className="session-cost-chart-scale">
+        <div className="session-cost-chart-scale" aria-hidden="true">
           <span>{formatUsd(maxValue)}</span>
           <span>$0</span>
         </div>
-        <svg
-          className="session-cost-chart"
-          viewBox={`0 0 ${CHART_WIDTH} ${CHART_HEIGHT}`}
-          preserveAspectRatio="none"
-          aria-hidden="true"
-        >
-          {gridValues.map((ratio) => {
-            const y = getYPosition(maxValue * ratio, maxValue);
-            return (
-              <line
-                key={ratio}
-                className="session-cost-chart-grid"
-                x1={CHART_PADDING_LEFT}
-                x2={CHART_WIDTH - CHART_PADDING_RIGHT}
-                y1={y}
-                y2={y}
-              />
-            );
-          })}
-          {pathSegments.map((segment, index) => (
-            <path
-              key={`${title}-${index}`}
-              d={segment}
-              className="session-cost-chart-line"
-              stroke={lineColor}
-            />
-          ))}
-          {positioned.map(({ point, value, x, y }) =>
-            y === null ? (
-              showMissingMarkers ? (
-                (() => {
-                  const tooltipContent = buildTooltipContent(point);
-                  return (
-                <circle
-                  key={point.id}
-                  className="session-cost-chart-dot session-cost-chart-dot--missing"
-                  data-call-index={point.index + 1}
-                  cx={x}
-                  cy={chartBottom}
-                  r={3.5}
-                  aria-label={tooltipContent.replaceAll("\n", " ")}
-                  tabIndex={0}
-                  onMouseEnter={() =>
-                    setTooltip(buildTooltipState(tooltipContent, x, chartBottom))
-                  }
-                  onMouseMove={() =>
-                    setTooltip(buildTooltipState(tooltipContent, x, chartBottom))
-                  }
-                  onMouseLeave={() => setTooltip(null)}
-                  onFocus={() =>
-                    setTooltip(buildTooltipState(tooltipContent, x, chartBottom))
-                  }
-                  onBlur={() => setTooltip(null)}
-                />
-                  );
-                })()
-              ) : null
-            ) : (
-              (() => {
-                const tooltipContent = buildTooltipContent(point);
+        <div className="session-cost-chart-panel">
+          <div className="session-cost-chart-plot">
+            <svg
+              className="session-cost-chart"
+              viewBox={`0 0 ${CHART_WIDTH} ${CHART_HEIGHT}`}
+              preserveAspectRatio="none"
+              aria-hidden="true"
+            >
+              {gridValues.map((ratio) => {
+                const y = getYPosition(maxValue * ratio, maxValue);
                 return (
-              <circle
-                key={point.id}
-                className="session-cost-chart-dot"
-                data-call-index={point.index + 1}
-                cx={x}
-                cy={y}
-                r={4}
-                fill={lineColor}
-                aria-label={tooltipContent.replaceAll("\n", " ")}
-                tabIndex={0}
-                onMouseEnter={() =>
-                  setTooltip(buildTooltipState(tooltipContent, x, y))
-                }
-                onMouseMove={() =>
-                  setTooltip(buildTooltipState(tooltipContent, x, y))
-                }
-                onMouseLeave={() => setTooltip(null)}
-                onFocus={() => setTooltip(buildTooltipState(tooltipContent, x, y))}
-                onBlur={() => setTooltip(null)}
-              />
+                  <line
+                    key={ratio}
+                    className="session-cost-chart-grid"
+                    x1={CHART_PADDING_LEFT}
+                    x2={CHART_WIDTH - CHART_PADDING_RIGHT}
+                    y1={y}
+                    y2={y}
+                  />
                 );
-              })()
-            ),
-          )}
-        </svg>
-        <div className="session-cost-chart-axis">
-          <span>Call 1</span>
-          <span>Session order</span>
-          <span>{`Call ${points.length}`}</span>
-        </div>
-        {tooltip ? (
-          <div
-            className="session-cost-chart-tooltip"
-            style={{ left: `${tooltip.leftPct}%`, top: `${tooltip.topPct}%` }}
-            role="tooltip"
-          >
-            {tooltip.content}
+              })}
+              {pathSegments.map((segment, index) => (
+                <path
+                  key={`${title}-${index}`}
+                  d={segment}
+                  className="session-cost-chart-line"
+                  stroke={lineColor}
+                />
+              ))}
+              {positioned.map(({ point, value, x, y }) =>
+                y === null ? (
+                  showMissingMarkers ? (
+                    (() => {
+                      const tooltipContent = buildTooltipContent(point);
+                      return (
+                        <circle
+                          key={point.id}
+                          className="session-cost-chart-dot session-cost-chart-dot--missing"
+                          data-call-index={point.index + 1}
+                          cx={x}
+                          cy={chartBottom}
+                          r={3.5}
+                          aria-label={tooltipContent.replaceAll("\n", " ")}
+                          tabIndex={0}
+                          onMouseEnter={() =>
+                            setTooltip(buildTooltipState(tooltipContent, x, chartBottom))
+                          }
+                          onMouseMove={() =>
+                            setTooltip(buildTooltipState(tooltipContent, x, chartBottom))
+                          }
+                          onMouseLeave={() => setTooltip(null)}
+                          onFocus={() =>
+                            setTooltip(buildTooltipState(tooltipContent, x, chartBottom))
+                          }
+                          onBlur={() => setTooltip(null)}
+                        />
+                      );
+                    })()
+                  ) : null
+                ) : (
+                  (() => {
+                    const tooltipContent = buildTooltipContent(point);
+                    return (
+                      <circle
+                        key={point.id}
+                        className="session-cost-chart-dot"
+                        data-call-index={point.index + 1}
+                        cx={x}
+                        cy={y}
+                        r={4}
+                        fill={lineColor}
+                        aria-label={tooltipContent.replaceAll("\n", " ")}
+                        tabIndex={0}
+                        onMouseEnter={() =>
+                          setTooltip(buildTooltipState(tooltipContent, x, y))
+                        }
+                        onMouseMove={() =>
+                          setTooltip(buildTooltipState(tooltipContent, x, y))
+                        }
+                        onMouseLeave={() => setTooltip(null)}
+                        onFocus={() => setTooltip(buildTooltipState(tooltipContent, x, y))}
+                        onBlur={() => setTooltip(null)}
+                      />
+                    );
+                  })()
+                ),
+              )}
+            </svg>
+            {tooltip ? (
+              <div
+                className="session-cost-chart-tooltip"
+                style={{ left: `${tooltip.leftPct}%`, top: `${tooltip.topPct}%` }}
+                role="tooltip"
+              >
+                {tooltip.content}
+              </div>
+            ) : null}
           </div>
-        ) : null}
+          <div className="session-cost-chart-axis">
+            <span>Call 1</span>
+            <span>Session order</span>
+            <span>{`Call ${points.length}`}</span>
+          </div>
+        </div>
       </div>
     </section>
   );
