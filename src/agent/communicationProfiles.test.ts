@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  LEGACY_GLOBAL_COMMUNICATION_PROFILE_ID,
   getCommunicationProfileRecord,
   normalizeCommunicationProfileId,
   resolveCommunicationProfileId,
@@ -13,16 +12,14 @@ const profiles = [
 ];
 
 describe("communicationProfiles", () => {
-  it("normalizes the legacy global sentinel to undefined", () => {
-    expect(
-      normalizeCommunicationProfileId(LEGACY_GLOBAL_COMMUNICATION_PROFILE_ID),
-    ).toBeUndefined();
+  it("preserves non-empty profile ids", () => {
+    expect(normalizeCommunicationProfileId("global")).toBe("global");
   });
 
-  it("resolves legacy sessions to the configured default profile", () => {
-    expect(
-      resolveCommunicationProfileId("global", profiles, "friendly"),
-    ).toBe("friendly");
+  it("resolves to the default profile when id is unknown", () => {
+    expect(resolveCommunicationProfileId("global", profiles, "friendly")).toBe(
+      "friendly",
+    );
   });
 
   it("falls back to the first available profile when the default is invalid", () => {
