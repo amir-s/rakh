@@ -2,7 +2,9 @@ import { getAgentState } from "../atoms";
 import { requestBranchReleaseAction } from "../approvals";
 import { getBranchReleaseInstructions, switchToGitBranch } from "../tools/git";
 import type { ToolResult, ToolCallDisplay } from "../types";
+import type { LogContext } from "@/logging/types";
 
+import { writeRunnerLog } from "./logging";
 import { isRecord } from "./utils";
 
 const worktreeLeaseCheckPromises = new Map<
@@ -17,6 +19,8 @@ export function isManagedWorktreeWriteTool(toolName: string): boolean {
 export async function ensureManagedWorktreeLease(
   tabId: string,
   toolCallId: string,
+  toolName: string,
+  logContext: LogContext,
   updateToolCallById: (patch: Partial<ToolCallDisplay>) => void,
 ): Promise<Extract<ToolResult<unknown>, { ok: false }> | null> {
   const state = getAgentState(tabId);
@@ -58,11 +62,49 @@ export async function ensureManagedWorktreeLease(
           ),
         },
       });
+      writeRunnerLog({
+        level: "info",
+        tags: ["frontend", "agent-loop", "tool-calls"],
+        event: "runner.tool.branch-release.waiting",
+        message: `Tool ${toolName} waiting for branch release`,
+        data: {
+          branch: worktreeBranch,
+          path: worktreePath,
+          ...(blockingPath ? { blockingPath } : {}),
+        },
+        context: logContext,
+      });
 
       const { action } = await requestBranchReleaseAction(tabId, toolCallId);
       if (action === "retry") {
+        writeRunnerLog({
+          level: "info",
+          tags: ["frontend", "agent-loop", "tool-calls"],
+          event: "runner.tool.branch-release.retry",
+          message: `Tool ${toolName} retrying after branch release prompt`,
+          data: {
+            branch: worktreeBranch,
+            path: worktreePath,
+            ...(blockingPath ? { blockingPath } : {}),
+          },
+          context: logContext,
+        });
         continue;
       }
+
+      writeRunnerLog({
+        level: "warn",
+        tags: ["frontend", "agent-loop", "tool-calls"],
+        event: "runner.tool.branch-release.aborted",
+        message: `Tool ${toolName} was aborted while waiting for branch release`,
+        kind: "error",
+        data: {
+          branch: worktreeBranch,
+          path: worktreePath,
+          ...(blockingPath ? { blockingPath } : {}),
+        },
+        context: logContext,
+      });
 
       return {
         ok: false as const,

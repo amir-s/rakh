@@ -4,12 +4,224 @@ import {
   nextLogId,
   nextTraceId,
 } from "@/logging/client";
-import type { LogContext } from "@/logging/types";
+import type { LogContext, LogKind, LogLevel } from "@/logging/types";
 
 import { serializeError } from "./utils";
 
 function toLoggable(value: unknown): unknown {
   return value instanceof Error ? serializeError(value) : value;
+}
+
+function isRecord(
+  value: unknown,
+): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function extractMessage(value: unknown): string | null {
+  if (value instanceof Error) {
+    return value.message || value.name || null;
+  }
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : null;
+  }
+  if (!isRecord(value)) return null;
+  const direct = value.message;
+  if (typeof direct === "string" && direct.trim().length > 0) {
+    return direct.trim();
+  }
+  const error = value.error;
+  if (error instanceof Error) return error.message || error.name || null;
+  if (typeof error === "string") {
+    const trimmed = error.trim();
+    return trimmed.length > 0 ? trimmed : null;
+  }
+  if (isRecord(error) && typeof error.message === "string") {
+    const trimmed = error.message.trim();
+    return trimmed.length > 0 ? trimmed : null;
+  }
+  return null;
+}
+
+function pluralize(count: number, singular: string, plural = `${singular}s`): string {
+  return `${count} ${count === 1 ? singular : plural}`;
+}
+
+function joinNames(names: string[]): string {
+  if (names.length === 0) return "";
+  if (names.length <= 3) return names.join(", ");
+  return `${names.slice(0, 3).join(", ")} +${names.length - 3} more`;
+}
+
+function describeToolCalls(
+  payload: Record<string, unknown> | undefined,
+): string {
+  const names = Array.isArray(payload?.toolNames)
+    ? payload.toolNames.filter((name): name is string => typeof name === "string")
+    : [];
+  const count =
+    typeof payload?.count === "number"
+      ? payload.count
+      : typeof payload?.toolCallCount === "number"
+        ? payload.toolCallCount
+        : names.length;
+  if (count <= 0) return "no tool calls";
+  const suffix = names.length > 0 ? `: ${joinNames(names)}` : "";
+  return `${pluralize(count, "tool call")}${suffix}`;
+}
+
+function streamLogLevel(event: string): LogLevel {
+  switch (event) {
+    case "stream:part":
+    case "stream:text-delta":
+    case "stream:reasoning-delta":
+    case "stream:text-delta:textStream":
+    case "stream:tool-calls:raw":
+      return "trace";
+    case "stream:error-part":
+    case "stream:tool-calls:error":
+    case "stream:finish:error":
+    case "stream:usage:error":
+      return "warn";
+    case "stream:throw":
+      return "error";
+    default:
+      return "debug";
+  }
+}
+
+function streamLogKind(event: string, level: LogLevel): LogKind {
+  if (level === "error") return "error";
+  if (event.includes(":error") || event.endsWith(":throw")) return "error";
+  return "event";
+}
+
+function summarizeStreamEvent(
+  event: string,
+  payload: unknown,
+): string {
+  const record = isRecord(payload) ? payload : undefined;
+  switch (event) {
+    case "stream:part": {
+      const partType =
+        typeof record?.type === "string" ? record.type : null;
+      return partType ? `Stream part received: ${partType}` : "Stream part received";
+    }
+    case "stream:error-part": {
+      const message = extractMessage(payload);
+      return message ? `Stream reported an error part: ${message}` : "Stream reported an error part";
+    }
+    case "stream:reasoning-start":
+      return "Reasoning stream started";
+    case "stream:reasoning-end": {
+      const durationMs =
+        typeof record?.reasoningDurationMs === "number"
+          ? record.reasoningDurationMs
+          : null;
+      return durationMs !== null
+        ? `Reasoning stream ended after ${durationMs}ms`
+        : "Reasoning stream ended";
+    }
+    case "stream:text-delta":
+    case "stream:text-delta:textStream": {
+      const deltaLength =
+        typeof record?.deltaLength === "number" ? record.deltaLength : null;
+      const accumulatedLength =
+        typeof record?.accumulatedLength === "number"
+          ? record.accumulatedLength
+          : null;
+      const prefix =
+        event === "stream:text-delta:textStream"
+          ? "Fallback text delta"
+          : "Text delta";
+      if (deltaLength !== null && accumulatedLength !== null) {
+        return `${prefix}: +${deltaLength} chars (${accumulatedLength} total)`;
+      }
+      if (deltaLength !== null) return `${prefix}: +${deltaLength} chars`;
+      return `${prefix} received`;
+    }
+    case "stream:reasoning-delta": {
+      const deltaLength =
+        typeof record?.deltaLength === "number" ? record.deltaLength : null;
+      const accumulatedLength =
+        typeof record?.accumulatedLength === "number"
+          ? record.accumulatedLength
+          : null;
+      if (deltaLength !== null && accumulatedLength !== null) {
+        return `Reasoning delta: +${deltaLength} chars (${accumulatedLength} total)`;
+      }
+      if (deltaLength !== null) return `Reasoning delta: +${deltaLength} chars`;
+      return "Reasoning delta received";
+    }
+    case "stream:throw": {
+      const message = extractMessage(payload);
+      return message ? `Stream threw before completion: ${message}` : "Stream threw before completion";
+    }
+    case "stream:tool-calls:raw": {
+      const count = Array.isArray(payload) ? payload.length : 0;
+      return count > 0
+        ? `Raw tool call payload received for ${pluralize(count, "call")}`
+        : "Raw tool call payload received";
+    }
+    case "stream:tool-calls:error": {
+      const message = extractMessage(payload);
+      return message ? `Failed to read tool calls from the stream: ${message}` : "Failed to read tool calls from the stream";
+    }
+    case "stream:finish": {
+      const stepCount =
+        typeof record?.stepCount === "number" ? record.stepCount : 0;
+      const finishReason =
+        typeof record?.finishReason === "string" ? record.finishReason : null;
+      return finishReason
+        ? `Stream finished after ${pluralize(stepCount, "step")} (${finishReason})`
+        : `Stream finished after ${pluralize(stepCount, "step")}`;
+    }
+    case "stream:finish:error": {
+      const message = extractMessage(payload);
+      return message ? `Failed to read stream completion details: ${message}` : "Failed to read stream completion details";
+    }
+    case "stream:usage": {
+      const totalTokens =
+        typeof record?.totalTokens === "number" ? record.totalTokens : null;
+      const inputTokens =
+        typeof record?.inputTokens === "number" ? record.inputTokens : null;
+      const outputTokens =
+        typeof record?.outputTokens === "number" ? record.outputTokens : null;
+      if (totalTokens !== null) {
+        return `Recorded usage: ${totalTokens} total tokens`;
+      }
+      if (inputTokens !== null || outputTokens !== null) {
+        return `Recorded usage: ${inputTokens ?? 0} input, ${outputTokens ?? 0} output tokens`;
+      }
+      return "Recorded model usage";
+    }
+    case "stream:usage:error": {
+      const message = extractMessage(payload);
+      return message ? `Failed to read usage metadata: ${message}` : "Failed to read usage metadata";
+    }
+    case "stream:tool-calls:parsed":
+      return `Parsed ${describeToolCalls(record)}`;
+    case "stream:summary": {
+      const textChars =
+        typeof record?.assistantTextChars === "number"
+          ? record.assistantTextChars
+          : 0;
+      const reasoningChars =
+        typeof record?.assistantReasoningChars === "number"
+          ? record.assistantReasoningChars
+          : 0;
+      const toolCallCount =
+        typeof record?.toolCallCount === "number" ? record.toolCallCount : 0;
+      return `Stream summary: ${textChars} text chars, ${reasoningChars} reasoning chars, ${pluralize(toolCallCount, "tool call")}`;
+    }
+    default:
+      return event.replaceAll(":", " ");
+  }
+}
+
+function normalizeRunnerEvent(event: string): string {
+  return `runner.${event.replaceAll(":", ".")}`;
 }
 
 export function writeRunnerLog(input: {
@@ -87,13 +299,16 @@ export function logStreamDebug(
 ): void {
   if (!debugEnabled) return;
   const tags = ["frontend", "agent-loop", "streaming"];
+  if (event.includes("reasoning")) tags.push("reasoning");
   if (event.includes("delta")) tags.push("tokens");
   if (event.includes("tool-calls")) tags.push("tool-calls");
+  const level = streamLogLevel(event);
   writeRunnerLog({
-    level: "debug",
+    level,
     tags,
-    event: `runner.${event}`,
-    message: event,
+    event: normalizeRunnerEvent(event),
+    message: summarizeStreamEvent(event, payload),
+    kind: streamLogKind(event, level),
     data: payload === undefined ? undefined : toLoggable(payload),
     context: logContext,
   });

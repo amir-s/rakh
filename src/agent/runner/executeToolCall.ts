@@ -45,7 +45,9 @@ function writeToolCompletionLog(
     level: result.ok ? "info" : "error",
     tags: ["frontend", "agent-loop", "tool-calls"],
     event: result.ok ? "runner.tool.end" : "runner.tool.error",
-    message: result.ok ? `${toolName} completed` : `${toolName} failed`,
+    message: result.ok
+      ? `Tool ${toolName} completed`
+      : `Tool ${toolName} failed`,
     kind: result.ok ? "end" : "error",
     data: result.ok
       ? { sourceKind, finalStatus }

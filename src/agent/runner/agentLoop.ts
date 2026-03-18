@@ -34,7 +34,6 @@ import {
 import { executeToolCall } from "./executeToolCall";
 import {
   createToolLogContext,
-  logStreamDebug,
   nextLogId,
   writeRunnerLog,
 } from "./logging";
@@ -96,6 +95,49 @@ function buildToolCallDisplay(
         },
       }
     : base;
+}
+
+function writeToolApprovalLog(input: {
+  event: "waiting" | "approved" | "denied";
+  toolName: string;
+  context: LogContext;
+  data?: Record<string, unknown>;
+}): void {
+  writeRunnerLog({
+    level: input.event === "denied" ? "warn" : "info",
+    tags: ["frontend", "agent-loop", "tool-calls"],
+    event: `runner.tool.approval.${input.event}`,
+    message:
+      input.event === "waiting"
+        ? `Tool ${input.toolName} waiting for approval`
+        : input.event === "approved"
+          ? `Tool ${input.toolName} was approved`
+          : `Tool ${input.toolName} was denied`,
+    ...(input.event === "denied" ? { kind: "error" as const } : {}),
+    ...(input.data ? { data: input.data } : {}),
+    context: input.context,
+  });
+}
+
+function writeUserInputLifecycleLog(input: {
+  event: "waiting" | "received" | "skipped";
+  context: LogContext;
+  data?: Record<string, unknown>;
+}): void {
+  writeRunnerLog({
+    level: input.event === "skipped" ? "warn" : "info",
+    tags: ["frontend", "agent-loop", "tool-calls"],
+    event: `runner.tool.user-input.${input.event}`,
+    message:
+      input.event === "waiting"
+        ? "Tool user_input waiting for a user response"
+        : input.event === "received"
+          ? "Tool user_input received a user response"
+          : "Tool user_input was skipped by the user",
+    ...(input.event === "skipped" ? { kind: "error" as const } : {}),
+    ...(input.data ? { data: input.data } : {}),
+    context: input.context,
+  });
 }
 
 interface PreparedConversationCardToolCall {
@@ -222,7 +264,7 @@ export async function agentLoop(
         level: "info",
         tags: ["frontend", "agent-loop", "messages"],
         event: "runner.turn.start",
-        message: `Turn ${iteration} started`,
+        message: `Main turn ${iteration} started`,
         kind: "start",
         expandable: true,
         data: {
@@ -231,11 +273,6 @@ export async function agentLoop(
           modelId,
         },
         context: runLogContext,
-      });
-      logStreamDebug(debugEnabled, "turn:start", turnContext, {
-        iteration,
-        apiMessageCount: currentApiMessages.length,
-        modelId,
       });
 
       const streamed = await streamTurn({
@@ -274,7 +311,7 @@ export async function agentLoop(
         level: "info",
         tags: ["frontend", "agent-loop", "messages"],
         event: "runner.turn.end",
-        message: `Turn ${iteration} completed`,
+        message: `Main turn ${iteration} completed`,
         kind: "end",
         durationMs: turnDurationMs,
         data: {
@@ -303,7 +340,7 @@ export async function agentLoop(
               level: "warn",
               tags: ["frontend", "agent-loop", "tool-calls"],
               event: "runner.tool.context-compaction.ignored",
-              message: `Ignored tool context compaction metadata on ${tc.function.name}`,
+              message: `Tool ${tc.function.name} ignored context compaction metadata`,
               data: {
                 toolName: tc.function.name,
                 warnings: prepared.warnings,
@@ -395,7 +432,7 @@ export async function agentLoop(
             level: "info",
             tags: ["frontend", "agent-loop", "tool-calls"],
             event: "runner.tool.start",
-            message: `${tc.function.name} queued`,
+            message: `Tool ${tc.function.name} queued`,
             kind: "start",
             expandable: true,
             data: {
@@ -498,10 +535,25 @@ export async function agentLoop(
 
                 if (subagentDef.requiresApproval) {
                   updateToolCallById({ status: "awaiting_approval" });
+                  writeToolApprovalLog({
+                    event: "waiting",
+                    toolName: tc.function.name,
+                    context: toolLog.context,
+                    data: { subagentId },
+                  });
                   const approved = await requestApproval(tabId, tcId);
                   if (!approved) {
                     const reason = consumeApprovalReason(tabId, tcId);
                     updateToolCallById({ status: "denied" });
+                    writeToolApprovalLog({
+                      event: "denied",
+                      toolName: tc.function.name,
+                      context: toolLog.context,
+                      data: {
+                        subagentId,
+                        ...(reason ? { reason } : {}),
+                      },
+                    });
                     return {
                       result: {
                         ok: false as const,
@@ -513,6 +565,12 @@ export async function agentLoop(
                       finalStatus: "denied" as const,
                     };
                   }
+                  writeToolApprovalLog({
+                    event: "approved",
+                    toolName: tc.function.name,
+                    context: toolLog.context,
+                    data: { subagentId },
+                  });
                 }
 
                 updateToolCallById({ status: "running" });
@@ -547,9 +605,17 @@ export async function agentLoop(
               },
               user_input: async () => {
                 updateToolCallById({ status: "awaiting_approval" });
+                writeUserInputLifecycleLog({
+                  event: "waiting",
+                  context: toolLog.context,
+                });
                 const answer = await requestUserInput(tabId, tcId);
                 if (answer === null) {
                   updateToolCallById({ status: "denied" });
+                  writeUserInputLifecycleLog({
+                    event: "skipped",
+                    context: toolLog.context,
+                  });
                   return {
                     result: {
                       ok: false as const,
@@ -561,6 +627,11 @@ export async function agentLoop(
                     finalStatus: "denied" as const,
                   };
                 }
+                writeUserInputLifecycleLog({
+                  event: "received",
+                  context: toolLog.context,
+                  data: { answerLength: answer.length },
+                });
                 return {
                   result: { ok: true as const, data: { answer } },
                 };
@@ -597,10 +668,31 @@ export async function agentLoop(
               }
 
               updateToolCallById({ status: "awaiting_approval" });
+              writeToolApprovalLog({
+                event: "waiting",
+                toolName: tc.function.name,
+                context: toolLog.context,
+                data: {
+                  serverId: mcpTool.serverId,
+                  serverName: mcpTool.serverName,
+                  toolName: mcpTool.toolName,
+                },
+              });
               const approved = await requestApproval(tabId, tcId);
               if (!approved) {
                 const reason = consumeApprovalReason(tabId, tcId);
                 updateToolCallById({ status: "denied" });
+                writeToolApprovalLog({
+                  event: "denied",
+                  toolName: tc.function.name,
+                  context: toolLog.context,
+                  data: {
+                    serverId: mcpTool.serverId,
+                    serverName: mcpTool.serverName,
+                    toolName: mcpTool.toolName,
+                    ...(reason ? { reason } : {}),
+                  },
+                });
                 return {
                   result: {
                     ok: false as const,
@@ -612,6 +704,16 @@ export async function agentLoop(
                   finalStatus: "denied" as const,
                 };
               }
+              writeToolApprovalLog({
+                event: "approved",
+                toolName: tc.function.name,
+                context: toolLog.context,
+                data: {
+                  serverId: mcpTool.serverId,
+                  serverName: mcpTool.serverName,
+                  toolName: mcpTool.toolName,
+                },
+              });
 
               updateToolCallById({ status: "running" });
               try {
@@ -734,6 +836,15 @@ export async function agentLoop(
       }));
     }
 
+    writeRunnerLog({
+      level: "error",
+      tags: ["frontend", "agent-loop", "system"],
+      event: "runner.loop.limit.error",
+      message: "Main agent loop hit the 50-turn limit",
+      kind: "error",
+      data: { maxIterations: 50 },
+      context: runLogContext,
+    });
     patchAgentState(tabId, {
       status: "error",
       error: "Reached maximum iteration limit (50 turns)",
@@ -746,7 +857,7 @@ export async function agentLoop(
         level: "error",
         tags: ["frontend", "agent-loop", "system"],
         event: "runner.mcp.shutdown.error",
-        message: "Failed to shut down MCP run",
+        message: "MCP shutdown failed",
         kind: "error",
         data: error,
         context: runLogContext,

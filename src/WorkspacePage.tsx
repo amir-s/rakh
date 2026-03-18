@@ -104,7 +104,10 @@ import {
 } from "@/agent/tools/git";
 import { upsertSession } from "@/agent/persistence";
 import { cn } from "@/utils/cn";
-import { openLogViewerWindow } from "@/logging/window";
+import {
+  DEFAULT_LOG_VIEWER_LEVELS,
+  openLogViewerWindow,
+} from "@/logging/window";
 
 const OPEN_IN_EDITOR_COMMAND_ID = "__open-in-editor__";
 const OPEN_SHELL_COMMAND_ID = "__open-shell__";
@@ -666,13 +669,15 @@ export default function WorkspacePage() {
   const handleOpenLatestLogs = useCallback(() => {
     void openLogViewerWindow({
       origin: "debug-pane",
-      filter: agent.lastRunTraceId ? { traceId: agent.lastRunTraceId } : {},
+      filter: agent.lastRunTraceId
+        ? { traceId: agent.lastRunTraceId, levels: DEFAULT_LOG_VIEWER_LEVELS }
+        : { levels: DEFAULT_LOG_VIEWER_LEVELS },
     });
   }, [agent.lastRunTraceId]);
   const handleOpenAssistantLogs = useCallback((traceId: string) => {
     void openLogViewerWindow({
       origin: "assistant-message",
-      filter: { traceId },
+      filter: { traceId, levels: DEFAULT_LOG_VIEWER_LEVELS },
     });
   }, []);
   const renderBubbleActions = useCallback(
@@ -758,7 +763,10 @@ export default function WorkspacePage() {
   const handleOpenToolLogs = useCallback((toolCall: ToolCallDisplay) => {
     void openLogViewerWindow({
       origin: "tool-call",
-      filter: { correlationId: toolCall.id },
+      filter: {
+        correlationId: toolCall.id,
+        levels: DEFAULT_LOG_VIEWER_LEVELS,
+      },
     });
   }, []);
   const toggleReasoning = useCallback((messageId: string) => {

@@ -190,6 +190,10 @@ Current conventions:
 - tool call ids are used as `correlationId`
 - assistant messages and debug-pane actions can deep-link back into the same
   trace using that stored trace id
+- runner/frontend messages should read as short subject-first summaries such as
+  `Main turn 2 completed` or `Tool workspace_readFile queued`
+- raw streaming internals (`stream.part`, token deltas, raw tool-call payloads)
+  are emitted at `trace`; higher-value milestones stay at `debug`/`warn`/`error`
 
 ### Backend
 
@@ -269,6 +273,8 @@ Presentation modes:
 
 - general feed: chronological oldest-to-newest, terminal-style tailing
 - trace/correlation view: grouped tree built from `id` and `parentId`
+- app entry points that open the viewer from the workspace default to
+  `debug` verbosity so raw `trace` rows do not dominate the first view
 
 Tailing behavior:
 

@@ -187,7 +187,7 @@ async function createMcpPayloadArtifact(
       level: "warn",
       tags: ["frontend", "tool-calls", "system"],
       event: "runner.mcp.artifactize.warn",
-      message: "Failed to artifactize MCP payload",
+      message: "MCP payload artifactization failed",
       data: {
         serverId: mcpTool.serverId,
         toolName: mcpTool.toolName,
