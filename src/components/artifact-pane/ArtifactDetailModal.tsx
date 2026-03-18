@@ -13,6 +13,8 @@ interface ArtifactDetailModalProps {
   selectedVersion: number;
   loading: boolean;
   error?: string;
+  cwd?: string;
+  onOpenFileReferenceError?: (details: unknown) => void;
   onVersionChange: (version: number) => void;
   onClose: () => void;
 }
@@ -23,6 +25,8 @@ export default function ArtifactDetailModal({
   selectedVersion,
   loading,
   error,
+  cwd,
+  onOpenFileReferenceError,
   onVersionChange,
   onClose,
 }: ArtifactDetailModalProps) {
@@ -118,7 +122,12 @@ export default function ArtifactDetailModal({
           ) : error ? (
             <p className="artifact-inline-error">{error}</p>
           ) : artifact ? (
-            <ArtifactRenderer artifact={artifact} mode="detail" />
+            <ArtifactRenderer
+              artifact={artifact}
+              mode="detail"
+              cwd={cwd}
+              onOpenFileReferenceError={onOpenFileReferenceError}
+            />
           ) : (
             <p className="artifact-empty-copy">Artifact content unavailable.</p>
           )}

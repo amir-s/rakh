@@ -56,6 +56,8 @@ function ArtifactConversationCard({
   card,
   inventory,
   inventoryLoading,
+  cwd,
+  onOpenFileReferenceError,
   getArtifactContentEntry,
   ensureArtifactContent,
   onExecutePlan,
@@ -64,6 +66,8 @@ function ArtifactConversationCard({
   card: Extract<ConversationCard, { kind: "artifact" }>;
   inventory: SessionArtifactInventory;
   inventoryLoading: boolean;
+  cwd?: string;
+  onOpenFileReferenceError?: (details: unknown) => void;
   getArtifactContentEntry: (
     artifactId: string,
     version: number,
@@ -199,7 +203,12 @@ function ArtifactConversationCard({
           ) : previewEntry?.status === "error" ? (
             <p className="artifact-inline-error">{previewEntry.error}</p>
           ) : previewEntry?.status === "loaded" && hydratedArtifact ? (
-            <ArtifactRenderer artifact={hydratedArtifact} mode="compact" />
+            <ArtifactRenderer
+              artifact={hydratedArtifact}
+              mode="compact"
+              cwd={cwd}
+              onOpenFileReferenceError={onOpenFileReferenceError}
+            />
           ) : (
             <p className="artifact-loading-copy">Loading preview…</p>
           )}
@@ -234,9 +243,11 @@ function ArtifactConversationCard({
           group={group}
           selectedVersion={detailVersion}
           loading={detailEntry?.status === "loading" || detailEntry == null}
+          cwd={cwd}
           error={
             detailEntry?.status === "error" ? detailEntry.error : undefined
           }
+          onOpenFileReferenceError={onOpenFileReferenceError}
           onVersionChange={setDetailVersionOverride}
           onClose={() => {
             setDetailOpen(false);
@@ -251,6 +262,8 @@ function ArtifactConversationCard({
 export default function ConversationCards({
   cards,
   accentColor,
+  cwd,
+  onOpenFileReferenceError,
   artifactInventory,
   artifactInventoryLoading,
   getArtifactContentEntry,
@@ -260,6 +273,8 @@ export default function ConversationCards({
 }: {
   cards: ConversationCard[];
   accentColor?: string;
+  cwd?: string;
+  onOpenFileReferenceError?: (details: unknown) => void;
   artifactInventory: SessionArtifactInventory;
   artifactInventoryLoading: boolean;
   getArtifactContentEntry: (
@@ -293,7 +308,12 @@ export default function ConversationCards({
             </div>
             <div className="conversation-card-body">
               <div className="conversation-card-markdown">
-                <Markdown>{card.markdown}</Markdown>
+                <Markdown
+                  cwd={cwd}
+                  onOpenFileReferenceError={onOpenFileReferenceError}
+                >
+                  {card.markdown}
+                </Markdown>
               </div>
             </div>
           </Panel>
@@ -303,6 +323,8 @@ export default function ConversationCards({
             card={card}
             inventory={artifactInventory}
             inventoryLoading={artifactInventoryLoading}
+            cwd={cwd}
+            onOpenFileReferenceError={onOpenFileReferenceError}
             getArtifactContentEntry={getArtifactContentEntry}
             ensureArtifactContent={ensureArtifactContent}
             onExecutePlan={onExecutePlan}

@@ -27,6 +27,18 @@ struct LaunchPlan {
     args: Vec<String>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct EditorLocation {
+    line: u32,
+    column: Option<u32>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum EditorLauncherKind {
+    VscodeLike,
+    Zed,
+}
+
 #[derive(Clone, Debug)]
 struct EditorCandidate {
     cli: &'static str,
@@ -212,6 +224,56 @@ fn mac_app_name_from_cli(program: &str) -> Option<&'static str> {
         .map(|candidate| candidate.mac_app)
 }
 
+fn editor_launcher_kind(program: &str) -> Option<EditorLauncherKind> {
+    let normalized = program.trim().to_ascii_lowercase();
+    match normalized.as_str() {
+        "cursor" | "code" | "code-insiders" | "windsurf" | "codium"
+        | "visual studio code" | "visual studio code - insiders" | "vscodium" => {
+            Some(EditorLauncherKind::VscodeLike)
+        }
+        "zed" => Some(EditorLauncherKind::Zed),
+        _ => None,
+    }
+}
+
+fn kind_from_command_path(command: &Path) -> Option<EditorLauncherKind> {
+    let stem = command
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .unwrap_or_default();
+    editor_launcher_kind(stem)
+}
+
+fn format_editor_reference_target(
+    target_path: &Path,
+    location: EditorLocation,
+    kind: EditorLauncherKind,
+) -> String {
+    let target = target_path.to_string_lossy();
+    match kind {
+        EditorLauncherKind::VscodeLike => match location.column {
+            Some(column) => format!("{}:{}:{}", target, location.line, column),
+            None => format!("{}:{}", target, location.line),
+        },
+        EditorLauncherKind::Zed => match location.column {
+            Some(column) => format!("{}:{}:{}", target, location.line, column),
+            None => format!("{}:{}", target, location.line),
+        },
+    }
+}
+
+fn reference_args_for_kind(
+    target_path: &Path,
+    location: EditorLocation,
+    kind: EditorLauncherKind,
+) -> Vec<String> {
+    let target = format_editor_reference_target(target_path, location, kind);
+    match kind {
+        EditorLauncherKind::VscodeLike => vec!["--goto".to_string(), target],
+        EditorLauncherKind::Zed => vec![target],
+    }
+}
+
 fn normalize_macos_app_name(program: &str) -> Option<String> {
     let trimmed = program.trim();
     if trimmed.is_empty() {
@@ -283,10 +345,80 @@ fn mac_open_app_launch_plan(
     }
 }
 
-fn build_editor_launch_plan(
+fn build_editor_launch_plan_from_raw(
+    raw: &str,
+    target_path: &Path,
+    platform: Platform,
+    path_env: Option<&str>,
+    location: Option<EditorLocation>,
+) -> Option<LaunchPlan> {
+    let target_arg = target_path.to_string_lossy().to_string();
+    let (program, mut args) = split_command(raw)?;
+    let resolved = resolve_command_from_path(&program, path_env);
+
+    if let Some(location) = location {
+        let resolved_kind = resolved
+            .as_deref()
+            .and_then(kind_from_command_path)
+            .or_else(|| editor_launcher_kind(&program));
+        if let Some(kind) = resolved_kind {
+            args.extend(reference_args_for_kind(target_path, location, kind));
+            if let Some(bin) = resolved {
+                return Some(LaunchPlan {
+                    command: bin.to_string_lossy().to_string(),
+                    args,
+                });
+            }
+            if platform == Platform::MacOs {
+                if let Some(app_name) =
+                    normalize_macos_app_name(&program).filter(|name| editor_launcher_kind(name).is_some())
+                {
+                    return Some(mac_open_app_launch_plan(
+                        &app_name,
+                        target_path,
+                        &args,
+                        path_env,
+                    ));
+                }
+            }
+            return Some(LaunchPlan {
+                command: program,
+                args,
+            });
+        }
+    }
+
+    if let Some(bin) = resolved {
+        args.push(target_arg.clone());
+        return Some(LaunchPlan {
+            command: bin.to_string_lossy().to_string(),
+            args,
+        });
+    }
+
+    if platform == Platform::MacOs {
+        if let Some(app_name) = normalize_macos_app_name(&program) {
+            return Some(mac_open_app_launch_plan(
+                &app_name,
+                target_path,
+                &args,
+                path_env,
+            ));
+        }
+    }
+
+    args.push(target_arg);
+    Some(LaunchPlan {
+        command: program,
+        args,
+    })
+}
+
+fn build_editor_launch_plan_with_optional_location(
     env: &LaunchEnv,
     target_path: &Path,
     platform: Platform,
+    location: Option<EditorLocation>,
 ) -> Result<LaunchPlan, String> {
     let target_arg = target_path.to_string_lossy().to_string();
     let path_env = env.path.as_deref();
@@ -295,37 +427,24 @@ fn build_editor_launch_plan(
         let Some(raw) = preferred.as_deref() else {
             continue;
         };
-        if let Some((program, mut args)) = split_command(raw) {
-            let resolved = resolve_command_from_path(&program, path_env);
-            if let Some(bin) = resolved {
-                args.push(target_arg.clone());
-                return Ok(LaunchPlan {
-                    command: bin.to_string_lossy().to_string(),
-                    args,
-                });
-            }
-
-            if platform == Platform::MacOs {
-                if let Some(app_name) = normalize_macos_app_name(&program) {
-                    return Ok(mac_open_app_launch_plan(
-                        &app_name,
-                        target_path,
-                        &args,
-                        path_env,
-                    ));
-                }
-            }
-
-            args.push(target_arg.clone());
-            return Ok(LaunchPlan {
-                command: program,
-                args,
-            });
+        if let Some(plan) =
+            build_editor_launch_plan_from_raw(raw, target_path, platform, path_env, location)
+        {
+            return Ok(plan);
         }
     }
 
     for candidate in EDITOR_CANDIDATES {
         if let Some(bin) = resolve_command_from_path(candidate.cli, path_env) {
+            if let Some(location) = location {
+                if let Some(kind) = editor_launcher_kind(candidate.cli) {
+                    return Ok(LaunchPlan {
+                        command: bin.to_string_lossy().to_string(),
+                        args: reference_args_for_kind(target_path, location, kind),
+                    });
+                }
+                continue;
+            }
             return Ok(LaunchPlan {
                 command: bin.to_string_lossy().to_string(),
                 args: vec![target_arg.clone()],
@@ -334,6 +453,17 @@ fn build_editor_launch_plan(
     }
 
     if platform == Platform::MacOs {
+        if let Some(location) = location {
+            let app_name = preferred_macos_editor_app();
+            if let Some(kind) = editor_launcher_kind(app_name) {
+                return Ok(mac_open_app_launch_plan(
+                    app_name,
+                    target_path,
+                    &reference_args_for_kind(target_path, location, kind),
+                    path_env,
+                ));
+            }
+        }
         return Ok(mac_open_app_launch_plan(
             preferred_macos_editor_app(),
             target_path,
@@ -346,6 +476,14 @@ fn build_editor_launch_plan(
         "Could not find an editor launcher. Set VISUAL or EDITOR, or install a supported editor CLI."
             .to_string(),
     )
+}
+
+fn build_editor_launch_plan(
+    env: &LaunchEnv,
+    target_path: &Path,
+    platform: Platform,
+) -> Result<LaunchPlan, String> {
+    build_editor_launch_plan_with_optional_location(env, target_path, platform, None)
 }
 
 fn terminal_app_from_term_program(value: &str) -> Option<String> {
@@ -571,6 +709,75 @@ pub fn open_in_editor(cwd: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+pub fn open_editor_reference(
+    path: String,
+    line: Option<u32>,
+    column: Option<u32>,
+) -> Result<(), String> {
+    let line = line.ok_or_else(|| "line is required".to_string())?;
+    if line == 0 {
+        return Err("line must be a positive 1-based number".to_string());
+    }
+    if matches!(column, Some(0)) {
+        return Err("column must be a positive 1-based number".to_string());
+    }
+
+    let start = Instant::now();
+    tool_log(
+        "open_editor_reference",
+        "start",
+        json!({ "path": path, "line": line, "column": column }),
+    );
+
+    let result: Result<(), String> = (|| {
+        let validated_target = ensure_valid_target(&path, true)?;
+        if !validated_target.is_file() {
+            return Err(format!("target is not a file: {}", path));
+        }
+        let env = current_launch_env();
+        let location = EditorLocation { line, column };
+        let plan = build_editor_launch_plan_with_optional_location(
+            &env,
+            &validated_target,
+            current_platform(),
+            Some(location),
+        )?;
+        let plan_command = plan.command.clone();
+        let plan_args = plan.args.clone();
+        spawn_plan("open_editor_reference", &plan, &validated_target)?;
+        tool_log(
+            "open_editor_reference",
+            "ok",
+            json!({
+                "target": validated_target,
+                "line": line,
+                "column": column,
+                "command": plan_command,
+                "args": plan_args,
+                "durationMs": start.elapsed().as_millis() as u64,
+            }),
+        );
+        Ok(())
+    })();
+
+    if let Err(error) = &result {
+        tool_log(
+            "open_editor_reference",
+            "err",
+            json!({
+                "path": path,
+                "line": line,
+                "column": column,
+                "error": error,
+                "durationMs": start.elapsed().as_millis() as u64,
+            }),
+        );
+    }
+
+    result
+}
+
+#[tauri::command]
 pub fn open_shell(cwd: String) -> Result<(), String> {
     launch_external_tool("open_shell", cwd, false, build_shell_launch_plan)
 }
@@ -699,6 +906,154 @@ mod tests {
                 "-a".to_string(),
                 "iTerm".to_string(),
                 cwd.to_string_lossy().to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_build_editor_reference_launch_plan_uses_vscode_goto() {
+        let temp = tempdir().expect("tempdir");
+        let code = temp.path().join("code");
+        std::fs::write(&code, "").expect("write fake editor");
+        let file = temp.path().join("repo").join("src").join("main.ts");
+        std::fs::create_dir_all(file.parent().expect("parent")).expect("create parent");
+        std::fs::write(&file, "console.log('hello');").expect("write file");
+
+        let env = LaunchEnv {
+            visual: Some("code --reuse-window".to_string()),
+            editor: None,
+            terminal: None,
+            term_program: None,
+            path: Some(temp.path().to_string_lossy().to_string()),
+        };
+
+        let plan = build_editor_launch_plan_with_optional_location(
+            &env,
+            &file,
+            Platform::Linux,
+            Some(EditorLocation {
+                line: 21,
+                column: Some(7),
+            }),
+        )
+        .expect("plan");
+
+        assert_eq!(plan.command, code.to_string_lossy());
+        assert_eq!(
+            plan.args,
+            vec![
+                "--reuse-window".to_string(),
+                "--goto".to_string(),
+                format!("{}:21:7", file.to_string_lossy()),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_build_editor_reference_launch_plan_uses_zed_cli_syntax() {
+        let temp = tempdir().expect("tempdir");
+        let zed = temp.path().join("zed");
+        std::fs::write(&zed, "").expect("write fake editor");
+        let file = temp.path().join("repo").join("src").join("main.ts");
+        std::fs::create_dir_all(file.parent().expect("parent")).expect("create parent");
+        std::fs::write(&file, "console.log('hello');").expect("write file");
+
+        let env = LaunchEnv {
+            visual: Some("zed".to_string()),
+            editor: None,
+            terminal: None,
+            term_program: None,
+            path: Some(temp.path().to_string_lossy().to_string()),
+        };
+
+        let plan = build_editor_launch_plan_with_optional_location(
+            &env,
+            &file,
+            Platform::Linux,
+            Some(EditorLocation {
+                line: 12,
+                column: Some(3),
+            }),
+        )
+        .expect("plan");
+
+        assert_eq!(plan.command, zed.to_string_lossy());
+        assert_eq!(plan.args, vec![format!("{}:12:3", file.to_string_lossy())]);
+    }
+
+    #[test]
+    fn test_build_editor_reference_launch_plan_falls_back_to_file_open_for_unknown_editor() {
+        let temp = tempdir().expect("tempdir");
+        let custom = temp.path().join("custom-editor");
+        std::fs::write(&custom, "").expect("write fake editor");
+        let file = temp.path().join("repo").join("src").join("main.ts");
+        std::fs::create_dir_all(file.parent().expect("parent")).expect("create parent");
+        std::fs::write(&file, "console.log('hello');").expect("write file");
+
+        let env = LaunchEnv {
+            visual: Some("custom-editor --wait".to_string()),
+            editor: None,
+            terminal: None,
+            term_program: None,
+            path: Some(temp.path().to_string_lossy().to_string()),
+        };
+
+        let plan = build_editor_launch_plan_with_optional_location(
+            &env,
+            &file,
+            Platform::Linux,
+            Some(EditorLocation {
+                line: 8,
+                column: None,
+            }),
+        )
+        .expect("plan");
+
+        assert_eq!(plan.command, custom.to_string_lossy());
+        assert_eq!(
+            plan.args,
+            vec!["--wait".to_string(), file.to_string_lossy().to_string()]
+        );
+    }
+
+    #[test]
+    fn test_build_editor_reference_launch_plan_uses_macos_app_goto_args() {
+        let temp = tempdir().expect("tempdir");
+        let open = temp.path().join("open");
+        std::fs::write(&open, "").expect("write fake open");
+        let file = temp.path().join("repo").join("src").join("main.ts");
+        std::fs::create_dir_all(file.parent().expect("parent")).expect("create parent");
+        std::fs::write(&file, "console.log('hello');").expect("write file");
+
+        let env = LaunchEnv {
+            visual: None,
+            editor: Some("Cursor".to_string()),
+            terminal: None,
+            term_program: None,
+            path: Some(temp.path().to_string_lossy().to_string()),
+        };
+
+        let plan = build_editor_launch_plan_with_optional_location(
+            &env,
+            &file,
+            Platform::MacOs,
+            Some(EditorLocation {
+                line: 34,
+                column: Some(2),
+            }),
+        )
+        .expect("plan");
+
+        assert_eq!(plan.command, open.to_string_lossy());
+        assert_eq!(
+            plan.args,
+            vec![
+                "-a".to_string(),
+                "Cursor".to_string(),
+                file.to_string_lossy().to_string(),
+                "--args".to_string(),
+                "--goto".to_string(),
+                format!("{}:34:2", file.to_string_lossy()),
             ]
         );
     }

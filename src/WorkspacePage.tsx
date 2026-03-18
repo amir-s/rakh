@@ -680,6 +680,12 @@ export default function WorkspacePage() {
       filter: { traceId, levels: DEFAULT_LOG_VIEWER_LEVELS },
     });
   }, []);
+  const handleOpenFileReferenceError = useCallback((details: unknown) => {
+    setErrorModal({
+      title: "Could not open editor",
+      details,
+    });
+  }, []);
   const renderBubbleActions = useCallback(
     (group: ChatBubbleGroup) => {
       const forkDisabled = bubbleGroupContainsStreaming(group);
@@ -1488,7 +1494,12 @@ export default function WorkspacePage() {
                     images={group.message.attachments}
                     actions={renderBubbleActions(group)}
                   >
-                    <Markdown>{group.message.content}</Markdown>
+                    <Markdown
+                      cwd={cwd}
+                      onOpenFileReferenceError={handleOpenFileReferenceError}
+                    >
+                      {group.message.content}
+                    </Markdown>
                   </UserMessage>
                 );
               }
@@ -1573,7 +1584,16 @@ export default function WorkspacePage() {
                             )}
 
                             {/* Text content */}
-                            {msg.content && <Markdown>{msg.content}</Markdown>}
+                            {msg.content && (
+                              <Markdown
+                                cwd={cwd}
+                                onOpenFileReferenceError={
+                                  handleOpenFileReferenceError
+                                }
+                              >
+                                {msg.content}
+                              </Markdown>
+                            )}
 
                             {/* Streaming cursor or thinking animation */}
                             {showThinkingDots ? (
@@ -1639,6 +1659,8 @@ export default function WorkspacePage() {
                     <ConversationCards
                       cards={cards}
                       accentColor={subagentMeta?.color}
+                      cwd={cwd}
+                      onOpenFileReferenceError={handleOpenFileReferenceError}
                       artifactInventory={artifactInventory}
                       artifactInventoryLoading={artifactInventoryLoading}
                       getArtifactContentEntry={getArtifactContentEntry}
@@ -1863,6 +1885,7 @@ export default function WorkspacePage() {
               />
               <ArtifactPane
                 onOpenLogs={handleOpenLatestLogs}
+                onOpenFileReferenceError={handleOpenFileReferenceError}
                 onCollapse={toggleArtifacts}
                 activeTab={activeArtifactTab}
                 unseenTabs={unseenTabs}

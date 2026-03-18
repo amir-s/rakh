@@ -34,6 +34,8 @@ function ArtifactCard({
   group,
   selectedManifest,
   entry,
+  cwd,
+  onOpenFileReferenceError,
   onVersionChange,
   onOpen,
   ensureArtifactContent,
@@ -41,6 +43,8 @@ function ArtifactCard({
   group: SessionArtifactGroup;
   selectedManifest: ArtifactManifest;
   entry?: ArtifactContentEntry;
+  cwd?: string;
+  onOpenFileReferenceError?: (details: unknown) => void;
   onVersionChange: (version: number) => void;
   onOpen: () => void;
   ensureArtifactContent: (artifactId: string, version: number) => Promise<void>;
@@ -102,7 +106,12 @@ function ArtifactCard({
         {entry?.status === "error" ? (
           <p className="artifact-inline-error">{entry.error}</p>
         ) : entry?.status === "loaded" && hydratedArtifact ? (
-          <ArtifactRenderer artifact={hydratedArtifact} mode="compact" />
+          <ArtifactRenderer
+            artifact={hydratedArtifact}
+            mode="compact"
+            cwd={cwd}
+            onOpenFileReferenceError={onOpenFileReferenceError}
+          />
         ) : (
           <p className="artifact-loading-copy">Loading preview…</p>
         )}
@@ -115,6 +124,8 @@ interface ArtifactsPaneProps {
   inventory: SessionArtifactInventory;
   loading: boolean;
   error: string | null;
+  cwd?: string;
+  onOpenFileReferenceError?: (details: unknown) => void;
   getContentEntry: (artifactId: string, version: number) => ArtifactContentEntry | undefined;
   ensureArtifactContent: (artifactId: string, version: number) => Promise<void>;
 }
@@ -123,6 +134,8 @@ export default function ArtifactsPane({
   inventory,
   loading,
   error,
+  cwd,
+  onOpenFileReferenceError,
   getContentEntry,
   ensureArtifactContent,
 }: ArtifactsPaneProps) {
@@ -220,6 +233,8 @@ export default function ArtifactsPane({
                   group={group}
                   selectedManifest={selectedManifest}
                   entry={getContentEntry(group.artifactId, selectedManifest.version)}
+                  cwd={cwd}
+                  onOpenFileReferenceError={onOpenFileReferenceError}
                   ensureArtifactContent={ensureArtifactContent}
                   onVersionChange={(version) =>
                     setSelectedVersions((prev) => ({
@@ -242,6 +257,8 @@ export default function ArtifactsPane({
           artifact={openEntry?.artifact ?? null}
           loading={openEntry?.status === "loading" || openEntry == null}
           error={openEntry?.status === "error" ? openEntry.error : undefined}
+          cwd={cwd}
+          onOpenFileReferenceError={onOpenFileReferenceError}
           onVersionChange={(version) =>
             setSelectedVersions((prev) => ({
               ...prev,

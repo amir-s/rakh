@@ -79,6 +79,7 @@ pub fn run() {
             todos::todo_store_record_mutation,
             todos::todo_store_get_path,
             external_tools::open_in_editor,
+            external_tools::open_editor_reference,
             external_tools::open_shell,
             pty::spawn_pty,
             pty::write_pty,
