@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.17.1](https://github.com/amir-s/rakh/compare/rakh-v0.17.0...rakh-v0.17.1) (2026-03-18)
+
+
+### Bug Fixes
+
+* hide tool io compaction when disabled ([b204581](https://github.com/amir-s/rakh/commit/b204581f35b4c1f0ca107b9b9773f88d1e544de9))
+* **logging:** organize agent runtime logs ([52001fd](https://github.com/amir-s/rakh/commit/52001fd2d39907ab388ec3d55ba6c31888aee5cc))
+* **ui:** correct session cost chart axes ([11699a9](https://github.com/amir-s/rakh/commit/11699a9b553c1017bb7c2e1a3d00948194250bc9))
+
 ## [0.17.0](https://github.com/amir-s/rakh/compare/rakh-v0.16.0...rakh-v0.17.0) (2026-03-18)
 
 
