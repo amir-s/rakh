@@ -1,7 +1,8 @@
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import type {
   ComponentPropsWithoutRef,
   MouseEvent as ReactMouseEvent,
+  PointerEvent as ReactPointerEvent,
 } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -55,6 +56,9 @@ const TRAILING_PUNCTUATION = new Set([
   ";",
   ":",
 ]);
+const MIN_MERMAID_ZOOM = 0.5;
+const MAX_MERMAID_ZOOM = 3;
+const MERMAID_ZOOM_STEP = 0.15;
 
 let mermaidApiPromise: Promise<MermaidApi> | null = null;
 
@@ -223,11 +227,30 @@ function getMermaidConfig() {
   };
 }
 
+function clampMermaidZoom(value: number) {
+  return Math.min(
+    MAX_MERMAID_ZOOM,
+    Math.max(MIN_MERMAID_ZOOM, Number(value.toFixed(2))),
+  );
+}
+
+function getPointerDistance(points: Map<number, { x: number; y: number }>) {
+  const [first, second] = [...points.values()];
+  if (!first || !second) return null;
+  return Math.hypot(second.x - first.x, second.y - first.y);
+}
+
 function MermaidDiagram({ source }: { source: string }) {
   const instanceId = useId().replace(/:/g, "");
   const [svg, setSvg] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [themeVersion, setThemeVersion] = useState(0);
+  const [zoom, setZoom] = useState(1);
+  const canvasRef = useRef<HTMLDivElement | null>(null);
+  const touchPointsRef = useRef<Map<number, { x: number; y: number }>>(new Map());
+  const pinchDistanceRef = useRef<number | null>(null);
+  const pinchZoomRef = useRef<number | null>(null);
+  const zoomPercent = Math.round(zoom * 100);
 
   useEffect(() => {
     if (typeof MutationObserver === "undefined") {
@@ -289,6 +312,95 @@ function MermaidDiagram({ source }: { source: string }) {
     };
   }, [instanceId, source, themeVersion]);
 
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const svgElement = canvas.querySelector("svg");
+    if (!(svgElement instanceof SVGElement)) return;
+
+    if (zoom === 1) {
+      svgElement.style.width = "100%";
+      svgElement.style.maxWidth = "100%";
+    } else {
+      svgElement.style.width = `${zoom * 100}%`;
+      svgElement.style.maxWidth = "none";
+    }
+    svgElement.style.height = "auto";
+  }, [svg, zoom]);
+
+  function updateZoom(nextZoom: number) {
+    setZoom(clampMermaidZoom(nextZoom));
+  }
+
+  function nudgeZoom(delta: number) {
+    setZoom((currentZoom) => clampMermaidZoom(currentZoom + delta));
+  }
+
+  function resetPinchState() {
+    pinchDistanceRef.current = null;
+    pinchZoomRef.current = null;
+  }
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    function handleNativeWheel(event: WheelEvent) {
+      if (!svg) return;
+      if (!event.ctrlKey && !event.metaKey) return;
+      event.preventDefault();
+      event.stopPropagation();
+      nudgeZoom(event.deltaY < 0 ? MERMAID_ZOOM_STEP : -MERMAID_ZOOM_STEP);
+    }
+
+    canvas.addEventListener("wheel", handleNativeWheel, { passive: false });
+
+    return () => {
+      canvas.removeEventListener("wheel", handleNativeWheel);
+    };
+  }, [svg]);
+
+  function handlePointerDown(event: ReactPointerEvent<HTMLDivElement>) {
+    if (!svg || event.pointerType !== "touch") return;
+    touchPointsRef.current.set(event.pointerId, {
+      x: event.clientX,
+      y: event.clientY,
+    });
+  }
+
+  function handlePointerMove(event: ReactPointerEvent<HTMLDivElement>) {
+    if (!svg || event.pointerType !== "touch") return;
+    if (!touchPointsRef.current.has(event.pointerId)) return;
+
+    touchPointsRef.current.set(event.pointerId, {
+      x: event.clientX,
+      y: event.clientY,
+    });
+
+    if (touchPointsRef.current.size < 2) return;
+
+    const distance = getPointerDistance(touchPointsRef.current);
+    if (!distance) return;
+
+    if (pinchDistanceRef.current === null || pinchZoomRef.current === null) {
+      pinchDistanceRef.current = distance;
+      pinchZoomRef.current = zoom;
+      return;
+    }
+
+    event.preventDefault();
+    updateZoom((pinchZoomRef.current * distance) / pinchDistanceRef.current);
+  }
+
+  function handlePointerUp(event: ReactPointerEvent<HTMLDivElement>) {
+    if (event.pointerType !== "touch") return;
+    touchPointsRef.current.delete(event.pointerId);
+    if (touchPointsRef.current.size < 2) {
+      resetPinchState();
+    }
+  }
+
   if (error) {
     return (
       <div className="md-mermaid md-mermaid--error" data-mermaid-state="error">
@@ -301,11 +413,50 @@ function MermaidDiagram({ source }: { source: string }) {
   }
 
   return (
-    <div className="md-mermaid" data-mermaid-state={svg ? "ready" : "loading"}>
+    <div
+      className="md-mermaid"
+      data-mermaid-state={svg ? "ready" : "loading"}
+      data-mermaid-zoom={zoomPercent}
+    >
+      <div className="md-mermaid__toolbar">
+        <span className="md-mermaid__zoom-label">{zoomPercent}%</span>
+        <button
+          type="button"
+          className="md-mermaid__zoom-btn"
+          onClick={() => nudgeZoom(-MERMAID_ZOOM_STEP)}
+          disabled={!svg || zoom <= MIN_MERMAID_ZOOM}
+          aria-label="Zoom out Mermaid diagram"
+        >
+          -
+        </button>
+        <button
+          type="button"
+          className="md-mermaid__zoom-btn"
+          onClick={() => updateZoom(1)}
+          disabled={!svg || zoom === 1}
+          aria-label="Reset Mermaid diagram zoom"
+        >
+          Reset
+        </button>
+        <button
+          type="button"
+          className="md-mermaid__zoom-btn"
+          onClick={() => nudgeZoom(MERMAID_ZOOM_STEP)}
+          disabled={!svg || zoom >= MAX_MERMAID_ZOOM}
+          aria-label="Zoom in Mermaid diagram"
+        >
+          +
+        </button>
+      </div>
       {!svg ? <div className="md-mermaid__status">Rendering Mermaid diagram…</div> : null}
       <div
+        ref={canvasRef}
         className="md-mermaid__canvas"
         aria-label="Mermaid diagram"
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        onPointerCancel={handlePointerUp}
         dangerouslySetInnerHTML={svg ? { __html: svg } : undefined}
       />
     </div>
@@ -327,7 +478,7 @@ function MarkdownCode({ className, children, node: _node, ...props }: MarkdownCo
   const language = match?.[1]?.toLowerCase() ?? "plaintext";
 
   if (language === "mermaid") {
-    return <MermaidDiagram source={content} />;
+    return <MermaidDiagram key={content} source={content} />;
   }
 
   return renderCodeBlock(content, language);
