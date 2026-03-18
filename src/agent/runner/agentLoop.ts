@@ -13,7 +13,7 @@ import {
 import { getModelCatalogEntry } from "../modelCatalog";
 import { requestApproval, consumeApprovalReason, requestUserInput } from "../approvals";
 import { getSubagent } from "../subagents";
-import { TOOL_DEFINITIONS } from "../tools";
+import { buildToolDefinitions } from "../tools";
 import { buildConversationCard, type CardAddInput } from "../tools/agentControl";
 import type { ProviderInstance } from "../db";
 import type {
@@ -156,10 +156,6 @@ export async function agentLoop(
     getAgentState(tabId).config.cwd,
     runLogContext,
   );
-  const toolDefinitions = {
-    ...TOOL_DEFINITIONS,
-    ...mcpRuntime.toolDefinitions,
-  };
 
   try {
     for (let iteration = 0; iteration < 50; iteration++) {
@@ -211,6 +207,10 @@ export async function agentLoop(
       const currentApiMessages = getAgentState(tabId).apiMessages;
       const toolContextCompactionEnabled =
         jotaiStore.get(toolContextCompactionEnabledAtom) !== false;
+      const toolDefinitions = {
+        ...buildToolDefinitions(toolContextCompactionEnabled),
+        ...mcpRuntime.toolDefinitions,
+      };
       const turnStartId = nextLogId(`turn:${runId}:${iteration}`);
       const turnContext: LogContext = {
         ...runLogContext,

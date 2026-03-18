@@ -20,8 +20,14 @@ const toolContextCompactionParamSchema = z.object({
 
 export function allowHiddenToolContextCompaction(
   schema: z.ZodTypeAny,
+  enabled = true,
 ): z.ZodTypeAny {
   if (!(schema instanceof z.ZodObject)) return schema;
+  if (!enabled) {
+    return "__contextCompaction" in schema.shape
+      ? schema.omit({ __contextCompaction: true })
+      : schema;
+  }
 
   return schema.extend({
     __contextCompaction: toolContextCompactionParamSchema
@@ -32,10 +38,13 @@ export function allowHiddenToolContextCompaction(
   });
 }
 
-function tool(spec: ToolSpec): ToolSpec {
+function tool(spec: ToolSpec, toolContextCompactionEnabled = true): ToolSpec {
   return {
     ...spec,
-    inputSchema: allowHiddenToolContextCompaction(spec.inputSchema),
+    inputSchema: allowHiddenToolContextCompaction(
+      spec.inputSchema,
+      toolContextCompactionEnabled,
+    ),
   };
 }
 
@@ -634,9 +643,19 @@ path/to/other.ts
   }),
 ] as const;
 
-export const TOOL_DEFINITIONS = Object.fromEntries(
-  TOOL_SPECS.map(({ name, ...definition }) => [name, aiTool(definition)]),
-);
+export function buildToolDefinitions(
+  toolContextCompactionEnabled = true,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+): Record<string, any> {
+  return Object.fromEntries(
+    TOOL_SPECS.map((spec) => {
+      const { name, ...definition } = tool(spec, toolContextCompactionEnabled);
+      return [name, aiTool(definition)];
+    }),
+  );
+}
+
+export const TOOL_DEFINITIONS = buildToolDefinitions();
 
 /**
  * Return a subset of TOOL_DEFINITIONS containing only the named tools.
@@ -644,10 +663,12 @@ export const TOOL_DEFINITIONS = Object.fromEntries(
  */
 export function getToolDefinitionsByNames(
   names: string[],
+  toolContextCompactionEnabled = true,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
 ): Record<string, any> {
   const allowed = new Set(names);
+  const toolDefinitions = buildToolDefinitions(toolContextCompactionEnabled);
   return Object.fromEntries(
-    Object.entries(TOOL_DEFINITIONS).filter(([name]) => allowed.has(name)),
+    Object.entries(toolDefinitions).filter(([name]) => allowed.has(name)),
   );
 }

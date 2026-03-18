@@ -66,6 +66,7 @@ const {
   globalCommunicationProfileAtomMock,
   profilesAtomMock,
   jotaiStoreMock,
+  buildToolDefinitionsMock,
   dispatchToolMock,
   validateToolMock,
   requiresApprovalMock,
@@ -104,6 +105,7 @@ const {
   jotaiStoreMock: {
     get: vi.fn(),
   },
+  buildToolDefinitionsMock: vi.fn(),
   dispatchToolMock: vi.fn(),
   validateToolMock: vi.fn(),
   requiresApprovalMock: vi.fn(),
@@ -162,6 +164,7 @@ vi.mock("@tauri-apps/api/core", () => ({
 }));
 
 vi.mock("./tools", () => ({
+  buildToolDefinitions: (...args: unknown[]) => buildToolDefinitionsMock(...args),
   TOOL_DEFINITIONS: [],
   getToolDefinitionsByNames: () => ({}),
   dispatchTool: (...args: unknown[]) => dispatchToolMock(...args),
@@ -531,6 +534,7 @@ describe("runner", () => {
     switchToGitBranchMock.mockReset();
     logFrontendSoonMock.mockReset();
     jotaiStoreMock.get.mockReset();
+    buildToolDefinitionsMock.mockReset();
 
     jotaiStoreMock.get.mockImplementation((atom: unknown) => {
       if (atom === providersAtomMock) {
@@ -595,6 +599,7 @@ describe("runner", () => {
     requestApprovalMock.mockResolvedValue(true);
     consumeApprovalReasonMock.mockReturnValue(undefined);
     dispatchToolMock.mockResolvedValue({ ok: true, data: { ok: true } });
+    buildToolDefinitionsMock.mockReturnValue({});
     validateToolMock.mockResolvedValue(null);
     execStopMock.mockResolvedValue(true);
     tauriInvokeMock.mockImplementation(async (cmd: unknown) => {
@@ -786,6 +791,70 @@ describe("runner", () => {
       },
     ]);
     expect(dispatchToolMock).not.toHaveBeenCalled();
+  });
+
+  it("refreshes the main system prompt and tool schemas when tool IO compaction is disabled", async () => {
+    const tabId = "tab-compaction-disabled";
+    setState(tabId, {
+      apiMessages: [
+        {
+          role: "system",
+          content: "TOOL IO CONTEXT COMPACTION\n__contextCompaction",
+        },
+        {
+          role: "assistant",
+          content: "Prior assistant state.",
+        },
+      ],
+    });
+    jotaiStoreMock.get.mockImplementation((atom: unknown) => {
+      if (atom === providersAtomMock) {
+        return [
+          {
+            id: "test-openai-id",
+            name: "test-openai",
+            type: "openai",
+            apiKey: "test-key",
+          },
+        ];
+      }
+      if (atom === mcpServersAtomMock) return [];
+      if (atom === mcpSettingsAtomMock) {
+        return { artifactizeReturnedFiles: false };
+      }
+      if (atom === toolContextCompactionEnabledAtomMock) return false;
+      if (atom === autoContextCompactionSettingsAtomMock) {
+        return {
+          enabled: false,
+          thresholdMode: "percentage",
+          thresholdPercent: 85,
+          thresholdKb: 256,
+        };
+      }
+      if (atom === profilesAtomMock) return [];
+      if ((atom as { kind?: string })?.kind === "command-list-atom") {
+        return { allow: [], deny: [] };
+      }
+      if (atom === globalCommunicationProfileAtomMock) {
+        return "global-test-profile";
+      }
+      return undefined;
+    });
+    turns.push({ deltas: ["Done"], toolCalls: [] });
+
+    await runAgent(tabId, "hi");
+
+    expect(buildToolDefinitionsMock).toHaveBeenCalledWith(false);
+    expect(String(states[tabId].apiMessages[0]?.content)).not.toContain(
+      "TOOL IO CONTEXT COMPACTION",
+    );
+    expect(String(states[tabId].apiMessages[0]?.content)).not.toContain(
+      "__contextCompaction",
+    );
+    expect(states[tabId].apiMessages[1]).toMatchObject({
+      role: "assistant",
+      content: "Prior assistant state.",
+    });
   });
 
   it("merges discovered MCP tools into the main run and routes them through approval", async () => {

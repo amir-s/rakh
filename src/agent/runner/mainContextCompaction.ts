@@ -8,6 +8,7 @@ import {
   getAgentState,
   jotaiStore,
   patchAgentState,
+  toolContextCompactionEnabledAtom,
 } from "../atoms";
 import { providersAtom } from "../db";
 import { estimateCurrentContextStats } from "../sessionStats";
@@ -160,6 +161,8 @@ export async function buildMainSystemPromptForState(
     state.config.projectPath,
     cwd,
   );
+  const toolContextCompactionEnabled =
+    jotaiStore.get(toolContextCompactionEnabledAtom) !== false;
 
   return buildSystemPrompt(
     cwd,
@@ -169,6 +172,7 @@ export async function buildMainSystemPromptForState(
     buildSystemPromptRuntimeContext(),
     project?.learnedFacts,
     state.config.communicationProfile,
+    toolContextCompactionEnabled,
   );
 }
 

@@ -213,6 +213,23 @@ describe("buildSystemPrompt", () => {
     expect(systemPrompt).toContain("Supported local-tool input compaction");
     expect(systemPrompt).toContain("Supported local-tool output compaction");
   });
+
+  it("omits tool-context compaction guidance from the main prompt when disabled", () => {
+    const systemPrompt = buildSystemPrompt(
+      "/workspace",
+      false,
+      false,
+      false,
+      runtimeContext,
+      undefined,
+      undefined,
+      false,
+    );
+
+    expect(systemPrompt).not.toContain("TOOL IO CONTEXT COMPACTION");
+    expect(systemPrompt).not.toContain("__contextCompaction");
+    expect(systemPrompt).not.toContain("Supported local-tool input compaction");
+  });
 });
 
 describe("buildSubagentSystemPrompt", () => {
@@ -223,5 +240,17 @@ describe("buildSubagentSystemPrompt", () => {
     expect(systemPrompt).toContain("__contextCompaction");
     expect(systemPrompt).toContain("workspace_readFile");
     expect(systemPrompt).toContain("agent_artifact_get");
+  });
+
+  it("omits tool-context compaction guidance for subagents when disabled", () => {
+    const systemPrompt = buildSubagentSystemPrompt(
+      plannerSubagent,
+      undefined,
+      false,
+    );
+
+    expect(systemPrompt).not.toContain("TOOL IO CONTEXT COMPACTION");
+    expect(systemPrompt).not.toContain("__contextCompaction");
+    expect(systemPrompt).not.toContain("workspace_readFile");
   });
 });

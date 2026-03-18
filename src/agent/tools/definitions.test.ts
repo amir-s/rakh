@@ -38,4 +38,33 @@ describe("allowHiddenToolContextCompaction", () => {
       },
     });
   });
+
+  it("omits __contextCompaction when the feature is disabled", () => {
+    const schema = allowHiddenToolContextCompaction(
+      z.object({
+        path: z.string(),
+      }),
+      false,
+    );
+    const parsed = schema.parse({
+      path: "README.md",
+      __contextCompaction: {
+        outputNote: "Should not be accepted when disabled.",
+        outputMode: "always",
+      },
+    });
+
+    expect(parsed).toEqual({ path: "README.md" });
+
+    expect(toJSONSchema(schema, { target: "draft-7" })).toMatchObject({
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        path: { type: "string" },
+      },
+    });
+    expect(
+      toJSONSchema(schema, { target: "draft-7" }).properties,
+    ).not.toHaveProperty("__contextCompaction");
+  });
 });
