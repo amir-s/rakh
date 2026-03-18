@@ -2,7 +2,8 @@ import { useState } from "react";
 import type { ToolCallDisplay } from "@/agent/types";
 import CompactToolCall from "@/components/CompactToolCall";
 import { CompactToolCallSummaryRow } from "@/components/compactToolCallSummary";
-import { getToolCallIcon, getToolCallLabel } from "@/components/toolDisplay";
+import ToolCallIcon from "@/components/ToolCallIcon";
+import { getToolCallLabel } from "@/components/toolDisplay";
 import { cn } from "@/utils/cn";
 import { Badge } from "@/components/ui";
 
@@ -63,13 +64,13 @@ export default function GroupedInlineToolCall({
               aria-label={`${uniqueToolTypes.length} unique inline tool types`}
             >
               {uniqueToolTypes.map((toolCall) => (
-                <span
+                <ToolCallIcon
                   key={toolCall.mcp ? `${toolCall.mcp.serverId}:${toolCall.mcp.toolName}` : toolCall.tool}
-                  className="material-symbols-outlined inline-tool-group__icon"
+                  toolCall={toolCall}
+                  className="inline-tool-group__icon"
+                  iconClassName="inline-tool-group__icon-symbol"
                   title={getToolCallLabel(toolCall)}
-                >
-                  {getToolCallIcon(toolCall)}
-                </span>
+                />
               ))}
             </div>
             <Badge variant="muted" className="shrink-0">

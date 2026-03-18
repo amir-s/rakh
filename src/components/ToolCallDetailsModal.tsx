@@ -1,7 +1,8 @@
 import { useEffect } from "react";
 import { createPortal } from "react-dom";
 import type { ToolCallDisplay } from "@/agent/types";
-import { getToolCallIcon, getToolCallLabel } from "@/components/toolDisplay";
+import ToolCallIcon from "@/components/ToolCallIcon";
+import { getToolCallLabel } from "@/components/toolDisplay";
 import { cn } from "@/utils/cn";
 import { Button, ModalShell } from "@/components/ui";
 
@@ -71,7 +72,6 @@ export default function ToolCallDetailsModal({
 }: ToolCallDetailsModalProps) {
   const { tool, args, result, status, contextCompaction } = toolCall;
 
-  const icon = getToolCallIcon(toolCall);
   const label = getToolCallLabel(toolCall);
   const badge = STATUS_BADGE[status];
 
@@ -128,9 +128,11 @@ export default function ToolCallDetailsModal({
         {/* ── Header ──────────────────────────────────────────────────────── */}
         <div className="error-modal-header">
           <span className="error-modal-title tool-modal-title">
-            <span className="material-symbols-outlined text-muted shrink-0 text-md">
-              {icon}
-            </span>
+            <ToolCallIcon
+              toolCall={toolCall}
+              className="shrink-0"
+              iconClassName="text-muted text-md"
+            />
             {label}
             <span className="text-xxs font-normal tracking-[0.04em] text-muted normal-case opacity-70">
               {tool}
