@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.17.0](https://github.com/amir-s/rakh/compare/rakh-v0.16.0...rakh-v0.17.0) (2026-03-18)
+
+
+### Features
+
+* **ui:** show compaction flare on tool icons ([b03d7a1](https://github.com/amir-s/rakh/commit/b03d7a111559a13c3506d9986a49ba8915738e02))
+
+
+### Bug Fixes
+
+* allow hidden tool io compaction params ([d5b9124](https://github.com/amir-s/rakh/commit/d5b9124efc01a3093eaaef9c25e778df7e47813c))
+
 ## [0.16.0](https://github.com/amir-s/rakh/compare/rakh-v0.15.1...rakh-v0.16.0) (2026-03-17)
 
 
