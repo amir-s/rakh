@@ -6,6 +6,7 @@
 - [`docs/artifacts.md`](./artifacts.md): durable artifact model and validation flow
 - [`docs/logging.md`](./logging.md): structured log schema, storage, and query/export APIs
 - [`docs/subagents.md`](./subagents.md): subagent registry, contracts, and execution model
+- [`docs/tools.md`](./tools.md): tool kinds, access matrix, and tool-IO compaction matrix
 
 ## Overview
 
@@ -235,6 +236,12 @@ Current tool groups:
 - `agent_todo_*`
 - `agent_artifact_*`
 - `agent_title_*`
+
+The detailed per-tool access matrix and tool-IO compaction allowlists now live
+in [`docs/tools.md`](./tools.md). That document also distinguishes:
+
+- tool-IO compaction on individual tool calls
+- automatic main-context compaction driven by overall history size
 
 Sensitive actions go through [`src/agent/approvals.ts`](../src/agent/approvals.ts).
 That includes file edits, shell execution, worktree creation, and explicit user
