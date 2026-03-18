@@ -733,6 +733,13 @@ describe("runner", () => {
     expect(states[tabId].status).toBe("error");
     expect(states[tabId].error).toContain("references an unknown provider");
     expect(streamTextMock).not.toHaveBeenCalled();
+    expect(logFrontendSoonMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: "runner.run.preflight.error",
+        message: 'Model "openai/gpt-5.2" references an unknown provider.',
+        kind: "error",
+      }),
+    );
   });
 
   it("completes a normal assistant turn with no tool calls", async () => {
@@ -1257,7 +1264,7 @@ describe("runner", () => {
     expect(state.status).toBe("idle");
   });
 
-  it("logs stream parts and deltas when debug mode is enabled", async () => {
+  it("logs stream milestones at debug level and raw deltas at trace level", async () => {
     const tabId = "tab-debug-stream";
     setState(tabId, { showDebug: true });
     turns.push({
@@ -1272,41 +1279,34 @@ describe("runner", () => {
 
     await runAgent(tabId, "hi");
 
-    const debugCalls = logFrontendSoonMock.mock.calls
+    const streamCalls = logFrontendSoonMock.mock.calls
       .map(([entry]) => entry as Record<string, unknown>)
-      .filter((entry) => entry.level === "debug");
+      .filter(
+        (entry) =>
+          typeof entry.event === "string" &&
+          (entry.event as string).startsWith("runner.stream."),
+      );
+    const debugCalls = streamCalls.filter((entry) => entry.level === "debug");
+    const traceCalls = streamCalls.filter((entry) => entry.level === "trace");
 
     expect(debugCalls.length).toBeGreaterThan(0);
     expect(debugCalls).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          event: "runner.turn:start",
-          message: "turn:start",
-          context: expect.objectContaining({ tabId }),
+          event: "runner.stream.reasoning-start",
+          message: "Reasoning stream started",
         }),
         expect.objectContaining({
-          event: "runner.stream:part",
-          message: "stream:part",
+          event: "runner.stream.reasoning-end",
+          message: expect.stringMatching(/^Reasoning stream ended/),
         }),
         expect.objectContaining({
-          event: "runner.stream:reasoning-start",
-          message: "stream:reasoning-start",
+          event: "runner.stream.tool-calls.parsed",
+          message: "Parsed no tool calls",
         }),
         expect.objectContaining({
-          event: "runner.stream:reasoning-delta",
-          message: "stream:reasoning-delta",
-        }),
-        expect.objectContaining({
-          event: "runner.stream:text-delta",
-          message: "stream:text-delta",
-        }),
-        expect.objectContaining({
-          event: "runner.stream:tool-calls:raw",
-          message: "stream:tool-calls:raw",
-        }),
-        expect.objectContaining({
-          event: "runner.stream:finish",
-          message: "stream:finish",
+          event: "runner.stream.finish",
+          message: "Stream finished after 1 step (stop)",
           data: expect.objectContaining({
             finishReason: "stop",
             stepCount: 1,
@@ -1322,8 +1322,28 @@ describe("runner", () => {
           }),
         }),
         expect.objectContaining({
-          event: "runner.stream:summary",
-          message: "stream:summary",
+          event: "runner.stream.summary",
+          message: "Stream summary: 13 text chars, 14 reasoning chars, 0 tool calls",
+        }),
+      ]),
+    );
+    expect(traceCalls).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          event: "runner.stream.part",
+          message: "Stream part received: reasoning-start",
+        }),
+        expect.objectContaining({
+          event: "runner.stream.reasoning-delta",
+          message: "Reasoning delta: +14 chars (14 total)",
+        }),
+        expect.objectContaining({
+          event: "runner.stream.text-delta",
+          message: "Text delta: +13 chars (13 total)",
+        }),
+        expect.objectContaining({
+          event: "runner.stream.tool-calls.raw",
+          message: "Raw tool call payload received",
         }),
       ]),
     );
@@ -1419,6 +1439,20 @@ describe("runner", () => {
     expect(mappedToolPart?.type).toBe("tool-result");
     expect(mappedToolPart).toHaveProperty("output");
     expect(mappedToolPart).not.toHaveProperty("result");
+    expect(logFrontendSoonMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: "runner.tool.approval.waiting",
+        message: "Tool exec_run waiting for approval",
+      }),
+    );
+    expect(logFrontendSoonMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: "runner.tool.approval.denied",
+        message: "Tool exec_run was denied",
+        kind: "error",
+        data: { reason: "Denied for safety" },
+      }),
+    );
     expect(state.status).toBe("idle");
   });
 
@@ -2338,6 +2372,17 @@ describe("runner", () => {
       "number",
     );
     expect(cancelAllApprovalsMock).toHaveBeenCalled();
+    expect(logFrontendSoonMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: "runner.run.aborted",
+        message: "Main run aborted by the user",
+        kind: "error",
+        data: expect.objectContaining({
+          reason: "user_stop",
+          pauseQueue: true,
+        }),
+      }),
+    );
   });
 
   it("stopAgent aborts running exec commands and marks them aborted", () => {
@@ -2392,6 +2437,36 @@ describe("runner", () => {
     expect(states[tabId].queuedMessages).toEqual([
       { id: "queued-1", content: "follow up later", createdAtMs: 10 },
     ]);
+  });
+
+  it("logs when the main loop hits the iteration limit", async () => {
+    const tabId = "tab-iteration-limit";
+    setState(tabId);
+    turns.push(
+      ...Array.from({ length: 50 }, (_unused, index) => ({
+        deltas: [],
+        toolCalls: [
+          {
+            id: `tc-limit-${index}`,
+            name: "agent_todo_list",
+            arguments: {},
+          },
+        ],
+      })),
+    );
+
+    await runAgent(tabId, "loop forever");
+
+    expect(states[tabId].status).toBe("error");
+    expect(states[tabId].error).toBe("Reached maximum iteration limit (50 turns)");
+    expect(logFrontendSoonMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: "runner.loop.limit.error",
+        message: "Main agent loop hit the 50-turn limit",
+        kind: "error",
+        data: { maxIterations: 50 },
+      }),
+    );
   });
 
   it("drains queued messages sequentially after a clean idle", async () => {

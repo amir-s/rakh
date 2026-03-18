@@ -455,6 +455,7 @@ vi.mock("@/components/CompactToolCall", () => ({
 }));
 
 vi.mock("@/logging/window", () => ({
+  DEFAULT_LOG_VIEWER_LEVELS: ["error", "warn", "info", "debug"],
   openLogViewerWindow: (...args: unknown[]) =>
     workspaceMocks.openLogViewerWindowMock(...args),
 }));
@@ -955,7 +956,10 @@ describe("WorkspacePage chat input", () => {
 
     expect(workspaceMocks.openLogViewerWindowMock).toHaveBeenCalledWith({
       origin: "debug-pane",
-      filter: { traceId: "trace-run-42" },
+      filter: {
+        traceId: "trace-run-42",
+        levels: ["error", "warn", "info", "debug"],
+      },
     });
   });
 
@@ -987,7 +991,10 @@ describe("WorkspacePage chat input", () => {
     await waitFor(() => {
       expect(workspaceMocks.openLogViewerWindowMock).toHaveBeenCalledWith({
         origin: "assistant-message",
-        filter: { traceId: "trace-assistant-1" },
+        filter: {
+          traceId: "trace-assistant-1",
+          levels: ["error", "warn", "info", "debug"],
+        },
       });
     });
   });
@@ -1062,7 +1069,10 @@ describe("WorkspacePage chat input", () => {
     await waitFor(() => {
       expect(workspaceMocks.openLogViewerWindowMock).toHaveBeenCalledWith({
         origin: "assistant-message",
-        filter: { traceId: "trace-assistant-newer" },
+        filter: {
+          traceId: "trace-assistant-newer",
+          levels: ["error", "warn", "info", "debug"],
+        },
       });
     });
   });
@@ -1174,7 +1184,10 @@ describe("WorkspacePage chat input", () => {
     await waitFor(() => {
       expect(workspaceMocks.openLogViewerWindowMock).toHaveBeenCalledWith({
         origin: "tool-call",
-        filter: { correlationId: "tc-2" },
+        filter: {
+          correlationId: "tc-2",
+          levels: ["error", "warn", "info", "debug"],
+        },
       });
     });
   });

@@ -56,6 +56,7 @@ vi.mock("@/agent/sessionRestore", () => ({
 
 vi.mock("@/logging/window", () => ({
   DEFAULT_LOG_LIMIT: 500,
+  DEFAULT_LOG_VIEWER_LEVELS: ["error", "warn", "info", "debug"],
   openLogViewerWindow: (...args: unknown[]) =>
     loggingWindowMock.openLogViewerWindow(...args),
 }));
@@ -241,7 +242,10 @@ describe("TopChrome", () => {
 
     expect(loggingWindowMock.openLogViewerWindow).toHaveBeenCalledWith({
       origin: "manual",
-      filter: { limit: 500 },
+      filter: {
+        limit: 500,
+        levels: ["error", "warn", "info", "debug"],
+      },
       tailEnabled: true,
     });
   });

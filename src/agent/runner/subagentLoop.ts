@@ -138,6 +138,27 @@ function validateSubagentArtifactContent(
   );
 }
 
+function writeSubagentUserInputLifecycleLog(input: {
+  event: "waiting" | "received" | "skipped";
+  context: LogContext;
+  data?: Record<string, unknown>;
+}): void {
+  writeRunnerLog({
+    level: input.event === "skipped" ? "warn" : "info",
+    tags: ["frontend", "agent-loop", "tool-calls"],
+    event: `runner.tool.user-input.${input.event}`,
+    message:
+      input.event === "waiting"
+        ? "Tool user_input waiting for a user response"
+        : input.event === "received"
+          ? "Tool user_input received a user response"
+          : "Tool user_input was skipped by the user",
+    ...(input.event === "skipped" ? { kind: "error" as const } : {}),
+    ...(input.data ? { data: input.data } : {}),
+    context: input.context,
+  });
+}
+
 function prepareConversationCardToolCall(
   rawArgs: Record<string, unknown>,
 ): { ok: true; data: PreparedConversationCardToolCall } | {
@@ -248,7 +269,7 @@ export async function runSubagentLoop(
     level: "info",
     tags: ["frontend", "agent-loop", "messages"],
     event: "runner.subagent.start",
-    message: `${subagentDef.name} started`,
+    message: `Subagent ${subagentDef.name} started`,
     kind: "start",
     expandable: true,
     data: {
@@ -643,7 +664,7 @@ export async function runSubagentLoop(
             level: "warn",
             tags: ["frontend", "agent-loop", "tool-calls"],
             event: "runner.subagent.tool.context-compaction.ignored",
-            message: `Ignored tool context compaction metadata on ${tc.function.name}`,
+            message: `Subagent tool ${tc.function.name} ignored context compaction metadata`,
             data: {
               toolName: tc.function.name,
               warnings: prepared.warnings,
@@ -736,7 +757,7 @@ export async function runSubagentLoop(
           level: "info",
           tags: ["frontend", "agent-loop", "tool-calls"],
           event: "runner.subagent.tool.start",
-          message: `${subagentDef.name} queued ${tc.function.name}`,
+          message: `Subagent ${subagentDef.name} queued tool ${tc.function.name}`,
           kind: "start",
           expandable: true,
           data: {
@@ -790,9 +811,17 @@ export async function runSubagentLoop(
           syntheticExecutors: {
             user_input: async () => {
               updateToolCallById({ status: "awaiting_approval" });
+              writeSubagentUserInputLifecycleLog({
+                event: "waiting",
+                context: toolLog.context,
+              });
               const answer = await requestUserInput(tabId, tcId);
               if (answer === null) {
                 updateToolCallById({ status: "denied" });
+                writeSubagentUserInputLifecycleLog({
+                  event: "skipped",
+                  context: toolLog.context,
+                });
                 return {
                   result: {
                     ok: false as const,
@@ -804,6 +833,11 @@ export async function runSubagentLoop(
                   finalStatus: "denied" as const,
                 };
               }
+              writeSubagentUserInputLifecycleLog({
+                event: "received",
+                context: toolLog.context,
+                data: { answerLength: answer.length },
+              });
               return {
                 result: { ok: true as const, data: { answer } },
               };
@@ -935,7 +969,7 @@ export async function runSubagentLoop(
         level: "debug",
         tags: ["frontend", "agent-loop", "messages"],
         event: "runner.subagent.iteration",
-        message: `${subagentDef.name} iteration ${iteration}`,
+        message: `Subagent ${subagentDef.name} completed iteration ${iteration}`,
         data: { iteration, toolCallCount: streamed.parsedToolCalls.length },
         context: subagentContext,
       });
@@ -948,7 +982,7 @@ export async function runSubagentLoop(
       level: "error",
       tags: ["frontend", "agent-loop", "messages"],
       event: "runner.subagent.error",
-      message: `${subagentDef.name} failed artifact validation`,
+      message: `Subagent ${subagentDef.name} failed artifact validation`,
       kind: "error",
       data: contractResult.result.error,
       context: subagentContext,
@@ -964,7 +998,7 @@ export async function runSubagentLoop(
     level: "info",
     tags: ["frontend", "agent-loop", "messages"],
     event: "runner.subagent.end",
-    message: `${subagentDef.name} completed`,
+    message: `Subagent ${subagentDef.name} completed`,
     kind: "end",
     durationMs: Math.max(0, Date.now() - startedAtMs),
     data: {

@@ -8,7 +8,10 @@ export const KNOWN_LOG_TAGS = [
   "db",
   "frontend",
   "messages",
+  "reasoning",
+  "streaming",
   "system",
+  "tokens",
   "tool-calls",
 ] as const;
 export type KnownLogTag = (typeof KNOWN_LOG_TAGS)[number];

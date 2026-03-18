@@ -26,7 +26,11 @@ import CloseTabModal from "@/components/CloseTabModal";
 import ArchivedTabsMenu from "@/components/ArchivedTabsMenu";
 import { cn } from "@/utils/cn";
 import { shouldShowAppUpdateBadge } from "@/updater";
-import { DEFAULT_LOG_LIMIT, openLogViewerWindow } from "@/logging/window";
+import {
+  DEFAULT_LOG_LIMIT,
+  DEFAULT_LOG_VIEWER_LEVELS,
+  openLogViewerWindow,
+} from "@/logging/window";
 
 /* ── Types ──────────────────────────────────────────────────────────────── */
 type Platform = "mac" | "windows" | "other";
@@ -597,7 +601,10 @@ export default function TopChrome() {
               onClick={() =>
                 void openLogViewerWindow({
                   origin: "manual",
-                  filter: { limit: DEFAULT_LOG_LIMIT },
+                  filter: {
+                    limit: DEFAULT_LOG_LIMIT,
+                    levels: DEFAULT_LOG_VIEWER_LEVELS,
+                  },
                   tailEnabled: true,
                 })
               }

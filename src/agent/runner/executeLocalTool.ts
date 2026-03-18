@@ -32,6 +32,7 @@ import {
   ensureManagedWorktreeLease,
   isManagedWorktreeWriteTool,
 } from "./worktreeLease";
+import { writeRunnerLog } from "./logging";
 import { recordTodoMutation, resolveTodoOwner } from "../tools/todos";
 import { stripToolContextCompactionFields } from "./toolContextCompaction";
 
@@ -108,6 +109,8 @@ export async function executeLocalTool(
     const leaseError = await ensureManagedWorktreeLease(
       tabId,
       toolCallId,
+      toolName,
+      logContext,
       updateToolCallById,
     );
     if (leaseError) {
@@ -179,6 +182,16 @@ export async function executeLocalTool(
       status: "awaiting_approval",
       dangerous: approvalResult.dangerous,
     });
+    writeRunnerLog({
+      level: "info",
+      tags: ["frontend", "agent-loop", "tool-calls"],
+      event: "runner.tool.approval.waiting",
+      message: `Tool ${toolName} waiting for approval`,
+      data: {
+        dangerous: approvalResult.dangerous,
+      },
+      context: logContext,
+    });
 
     const approved = await requestApproval(tabId, toolCallId);
     if (!approved) {
@@ -191,8 +204,26 @@ export async function executeLocalTool(
         },
       };
       updateToolCallById({ status: "denied" });
+      writeRunnerLog({
+        level: "warn",
+        tags: ["frontend", "agent-loop", "tool-calls"],
+        event: "runner.tool.approval.denied",
+        message: `Tool ${toolName} was denied`,
+        kind: "error",
+        data: {
+          ...(reason ? { reason } : {}),
+        },
+        context: logContext,
+      });
       return { result: deniedResult, finalStatus: "denied" };
     }
+    writeRunnerLog({
+      level: "info",
+      tags: ["frontend", "agent-loop", "tool-calls"],
+      event: "runner.tool.approval.approved",
+      message: `Tool ${toolName} was approved`,
+      context: logContext,
+    });
   }
 
   const currentCwd = getAgentState(tabId).config.cwd;

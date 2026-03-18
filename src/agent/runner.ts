@@ -52,6 +52,34 @@ import {
 export { buildProviderOptions } from "./runner/providerOptions";
 export { serializeError } from "./runner/utils";
 
+function activeRunLogContext(tabId: string): {
+  sessionId: string;
+  tabId: string;
+  traceId?: string;
+  depth: number;
+  agentId: "agent_main";
+} {
+  const state = getAgentState(tabId);
+  return {
+    sessionId: tabId,
+    tabId,
+    ...(state.lastRunTraceId ? { traceId: state.lastRunTraceId } : {}),
+    depth: 0,
+    agentId: "agent_main",
+  };
+}
+
+function abortReasonMessage(reason: AgentAbortReason): string {
+  switch (reason) {
+    case "user_stop":
+      return "Main run aborted by the user";
+    case "steer":
+      return "Main run aborted for steering";
+    case "superseded":
+      return "Main run was superseded by a newer message";
+  }
+}
+
 function normalizeQueueState(
   queuedMessages: QueuedUserMessage[],
   queueState: AgentQueueState,
@@ -226,6 +254,7 @@ function interruptActiveRun(
   options: { pauseQueue: boolean },
 ): void {
   const stoppedAtMs = Date.now();
+  const state = getAgentState(tabId);
   const runningExecIds = findRunningExecToolCallIds(tabId);
   for (const toolCallId of runningExecIds) {
     void execAbort(toolCallId);
@@ -250,6 +279,30 @@ function interruptActiveRun(
       }),
     }),
   );
+
+  if (
+    activeRun ||
+    state.status === "thinking" ||
+    state.status === "working" ||
+    state.streamingContent !== null ||
+    runningExecIds.length > 0 ||
+    incompleteToolCalls.length > 0
+  ) {
+    writeRunnerLog({
+      level: "warn",
+      tags: ["frontend", "agent-loop", "system"],
+      event: "runner.run.aborted",
+      message: abortReasonMessage(reason),
+      kind: "error",
+      data: {
+        reason,
+        pauseQueue: options.pauseQueue,
+        runningExecToolCallIds: runningExecIds,
+        incompleteToolCallCount: incompleteToolCalls.length,
+      },
+      context: activeRunLogContext(tabId),
+    });
+  }
 
   const isIncompleteStatus = (status: ToolCallDisplay["status"]): boolean =>
     status === "pending" ||
@@ -354,7 +407,7 @@ export function queueMessage(tabId: string, userMessage: string): void {
       level: "error",
       tags: ["frontend", "agent-loop", "system"],
       event: "runner.queue.start.error",
-      message: "Failed to start queued run",
+      message: "Queue start failed",
       kind: "error",
       data: error,
       context: { sessionId: tabId, tabId, depth: 0 },
@@ -387,7 +440,7 @@ export function resumeQueue(tabId: string): void {
       level: "error",
       tags: ["frontend", "agent-loop", "system"],
       event: "runner.queue.resume.error",
-      message: "Failed to resume queued run",
+      message: "Queue resume failed",
       kind: "error",
       data: error,
       context: { sessionId: tabId, tabId, depth: 0 },
@@ -536,7 +589,7 @@ async function runAgentTurn(
     level: "info",
     tags: ["frontend", "agent-loop", "messages"],
     event: "runner.run.start",
-    message: "Agent run started",
+    message: "Main run started",
     kind: "start",
     expandable: true,
     data: {
@@ -545,6 +598,25 @@ async function runAgentTurn(
     },
     context: runRootLogContext,
   });
+
+  const failPreflight = (
+    message: string,
+    data?: Record<string, unknown>,
+    errorDetails?: unknown,
+    errorAction: { type: "open-settings-section"; section: "providers"; label: string } | null = null,
+  ): void => {
+    writeRunnerLog({
+      level: "error",
+      tags: ["frontend", "agent-loop", "system"],
+      event: "runner.run.preflight.error",
+      message,
+      kind: "error",
+      ...(data ? { data } : {}),
+      context: runLogContext,
+    });
+    setAgentErrorState(tabId, message, errorDetails, errorAction);
+    clearActiveRun(tabId, activeRun);
+  };
 
   let completedCleanly = false;
 
@@ -592,7 +664,7 @@ async function runAgentTurn(
             level: "error",
             tags: ["frontend", "agent-loop", "messages"],
             event: "runner.run.error",
-            message: "Manual compaction failed",
+            message: "Manual compaction run failed",
             kind: "error",
             ...(compactResult.error !== undefined ? { data: compactResult.error } : {}),
             context: runLogContext,
@@ -647,7 +719,7 @@ async function runAgentTurn(
         event: "runner.run.error",
         message: isCompactTrigger
           ? "Manual compaction threw"
-          : "Trigger subagent run threw",
+          : "Trigger subagent threw",
         kind: "error",
         data: err,
         context: runLogContext,
@@ -672,7 +744,7 @@ async function runAgentTurn(
           level: "info",
           tags: ["frontend", "agent-loop", "messages"],
           event: "runner.run.end",
-          message: "Agent run completed",
+          message: "Main run completed",
           kind: "end",
           context: runLogContext,
         });
@@ -687,7 +759,7 @@ async function runAgentTurn(
             level: "error",
             tags: ["frontend", "agent-loop", "system"],
             event: "runner.queue.drain.error",
-            message: "Failed to drain queued messages",
+            message: "Queue drain failed",
             kind: "error",
             data: error,
             context: runLogContext,
@@ -709,26 +781,27 @@ async function runAgentTurn(
     level: "info",
     tags: ["frontend", "agent-loop", "system"],
     event: "runner.model.resolve",
-    message: `Starting agent with model ${model}`,
+    message: `Preparing main run with model ${model}`,
     data: { model, provider, cwd },
     context: runLogContext,
   });
 
   if (!modelEntry || !provider) {
-    setAgentErrorState(
-      tabId,
-      "Unknown model. Please choose a model from the New Session list.",
-    );
-    clearActiveRun(tabId, activeRun);
+    failPreflight("Unknown model. Please choose a model from the New Session list.", {
+      model,
+      provider,
+    });
     return;
   }
 
   if (!modelEntry.sdk_id.trim()) {
-    setAgentErrorState(
-      tabId,
+    failPreflight(
       `Selected model is missing a provider model ID. Please update src/agent/models.catalog.json for ${modelEntry.id}.`,
+      {
+        modelId: modelEntry.id,
+        provider,
+      },
     );
-    clearActiveRun(tabId, activeRun);
     return;
   }
 
@@ -736,18 +809,22 @@ async function runAgentTurn(
     (p) => p.id === modelEntry.providerId,
   );
   if (!providerInstance) {
-    setAgentErrorState(
-      tabId,
-      `Model "${modelEntry.id}" references an unknown provider.`,
-    );
-    clearActiveRun(tabId, activeRun);
+    failPreflight(`Model "${modelEntry.id}" references an unknown provider.`, {
+      modelId: modelEntry.id,
+      providerId: modelEntry.providerId,
+      provider,
+    });
     return;
   }
 
   if (provider === "openai" && !providerInstance.apiKey) {
-    setAgentErrorState(
-      tabId,
+    failPreflight(
       "No OpenAI API key. Please open the settings to enter your OpenAI API key.",
+      {
+        providerId: providerInstance.id,
+        providerName: providerInstance.name,
+        providerType: provider,
+      },
       null,
       {
         type: "open-settings-section",
@@ -755,14 +832,17 @@ async function runAgentTurn(
         label: "Open AI Providers",
       },
     );
-    clearActiveRun(tabId, activeRun);
     return;
   }
 
   if (provider === "anthropic" && !providerInstance.apiKey) {
-    setAgentErrorState(
-      tabId,
+    failPreflight(
       "No Claude API key. Please open the settings to enter your Claude (Anthropic) API key.",
+      {
+        providerId: providerInstance.id,
+        providerName: providerInstance.name,
+        providerType: provider,
+      },
       null,
       {
         type: "open-settings-section",
@@ -770,7 +850,6 @@ async function runAgentTurn(
         label: "Open AI Providers",
       },
     );
-    clearActiveRun(tabId, activeRun);
     return;
   }
 
@@ -871,7 +950,7 @@ async function runAgentTurn(
       level: "error",
       tags: ["frontend", "agent-loop", "messages"],
       event: "runner.run.error",
-      message: "Agent loop failed",
+      message: "Main agent loop failed",
       kind: "error",
       data: err,
       context: runLogContext,
@@ -900,7 +979,7 @@ async function runAgentTurn(
       level: "info",
       tags: ["frontend", "agent-loop", "messages"],
       event: "runner.run.end",
-      message: "Agent run completed",
+      message: "Main run completed",
       kind: "end",
       context: runLogContext,
     });
@@ -909,7 +988,7 @@ async function runAgentTurn(
         level: "error",
         tags: ["frontend", "agent-loop", "system"],
         event: "runner.queue.drain.error",
-        message: "Failed to drain queued messages",
+        message: "Queue drain failed",
         kind: "error",
         data: error,
         context: runLogContext,

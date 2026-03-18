@@ -1,12 +1,18 @@
 import { emitTo } from "@tauri-apps/api/event";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
-import type { LogQueryFilter } from "./types";
+import type { LogLevel, LogQueryFilter } from "./types";
 
 export const LOG_WINDOW_LABEL = "logs";
 export const LOG_WINDOW_MODE = "logs";
 export const LOG_WINDOW_NAVIGATE_EVENT = "logs:navigate";
 export const LOG_WINDOW_PAYLOAD_QUERY_KEY = "logsPayload";
 export const DEFAULT_LOG_LIMIT = 500;
+export const DEFAULT_LOG_VIEWER_LEVELS: LogLevel[] = [
+  "error",
+  "warn",
+  "info",
+  "debug",
+];
 
 export interface LogWindowNavigatePayload {
   filter: LogQueryFilter;
