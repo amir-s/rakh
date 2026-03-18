@@ -147,4 +147,51 @@ describe("Markdown", () => {
     expect(container.textContent).toContain("A[Broken --> B[Done]");
     expect(container.querySelector('.md-mermaid[data-mermaid-state="error"]')).not.toBeNull();
   });
+
+  it("supports zoom controls and modifier wheel zoom for mermaid diagrams", async () => {
+    const { container } = render(<Markdown>{"```mermaid\ngraph TD\nA[Auth] --> B[Done]\n```"}</Markdown>);
+
+    await waitFor(() => {
+      expect(
+        container.querySelector('.md-mermaid[data-mermaid-state="ready"][data-mermaid-zoom="100"]'),
+      ).not.toBeNull();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Zoom in Mermaid diagram" }));
+
+    await waitFor(() => {
+      expect(
+        container.querySelector('.md-mermaid[data-mermaid-zoom="115"]'),
+      ).not.toBeNull();
+    });
+
+    fireEvent.wheel(container.querySelector(".md-mermaid__canvas") as Element, {
+      deltaY: -120,
+    });
+
+    await waitFor(() => {
+      expect(
+        container.querySelector('.md-mermaid[data-mermaid-zoom="115"]'),
+      ).not.toBeNull();
+    });
+
+    fireEvent.wheel(container.querySelector(".md-mermaid__canvas") as Element, {
+      deltaY: -120,
+      ctrlKey: true,
+    });
+
+    await waitFor(() => {
+      expect(
+        container.querySelector('.md-mermaid[data-mermaid-zoom="130"]'),
+      ).not.toBeNull();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Reset Mermaid diagram zoom" }));
+
+    await waitFor(() => {
+      expect(
+        container.querySelector('.md-mermaid[data-mermaid-zoom="100"]'),
+      ).not.toBeNull();
+    });
+  });
 });
