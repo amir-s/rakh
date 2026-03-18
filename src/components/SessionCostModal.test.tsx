@@ -135,6 +135,12 @@ describe("SessionCostModal", () => {
       '[data-chart-id="per-call-cost"]',
     );
     expect(perCallChart).not.toBeNull();
+    expect(
+      perCallChart!.querySelector(".session-cost-chart-scale + .session-cost-chart-panel"),
+    ).not.toBeNull();
+    expect(
+      perCallChart!.querySelector(".session-cost-chart-panel .session-cost-chart-axis"),
+    ).not.toBeNull();
 
     const circles = Array.from(perCallChart!.querySelectorAll("circle"));
     expect(circles.length).toBe(3);
@@ -150,6 +156,9 @@ describe("SessionCostModal", () => {
     fireEvent.mouseEnter(call2!);
 
     expect(screen.getByRole("tooltip")).not.toBeNull();
+    expect(
+      perCallChart!.querySelector(".session-cost-chart-plot [role='tooltip']"),
+    ).not.toBeNull();
     expect(screen.getByText(/Call 2/)).not.toBeNull();
     expect(screen.getByText(/Planner - assistant turn/)).not.toBeNull();
   });
@@ -167,6 +176,9 @@ describe("SessionCostModal", () => {
       '[data-chart-id="cumulative-cost"]',
     );
     expect(cumulativeChart).not.toBeNull();
+    expect(
+      cumulativeChart!.querySelector(".session-cost-chart-scale + .session-cost-chart-panel"),
+    ).not.toBeNull();
 
     const call3 = cumulativeChart!.querySelector('circle[data-call-index="3"]');
     expect(call3).not.toBeNull();
@@ -174,6 +186,9 @@ describe("SessionCostModal", () => {
     fireEvent.mouseEnter(call3!);
 
     const tooltip = screen.getByRole("tooltip");
+    expect(
+      cumulativeChart!.querySelector(".session-cost-chart-plot [role='tooltip']"),
+    ).not.toBeNull();
     expect(tooltip.textContent).toContain("Call 3");
     expect(tooltip.textContent).toContain("Total so far $0.060");
     expect(tooltip.textContent).toContain("Call cost $0.030");
