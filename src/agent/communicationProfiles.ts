@@ -1,16 +1,11 @@
 import type { CommunicationProfileRecord } from "./db";
 
-export const LEGACY_GLOBAL_COMMUNICATION_PROFILE_ID = "global";
-
 export function normalizeCommunicationProfileId(
   profileId?: string | null,
 ): string | undefined {
   if (!profileId) return undefined;
   const normalized = profileId.trim();
-  if (
-    normalized.length === 0 ||
-    normalized === LEGACY_GLOBAL_COMMUNICATION_PROFILE_ID
-  ) {
+  if (normalized.length === 0) {
     return undefined;
   }
   return normalized;
