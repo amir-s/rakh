@@ -12,8 +12,31 @@ type ToolSpec = {
   inputSchema: z.ZodTypeAny;
 };
 
+const toolContextCompactionParamSchema = z.object({
+  inputNote: z.string().optional(),
+  outputNote: z.string().optional(),
+  outputMode: z.enum(["always", "on_success"]).optional(),
+});
+
+export function allowHiddenToolContextCompaction(
+  schema: z.ZodTypeAny,
+): z.ZodTypeAny {
+  if (!(schema instanceof z.ZodObject)) return schema;
+
+  return schema.extend({
+    __contextCompaction: toolContextCompactionParamSchema
+      .optional()
+      .describe(
+        "Optional hidden runner metadata for model-facing tool IO compaction.",
+      ),
+  });
+}
+
 function tool(spec: ToolSpec): ToolSpec {
-  return spec;
+  return {
+    ...spec,
+    inputSchema: allowHiddenToolContextCompaction(spec.inputSchema),
+  };
 }
 
 const mutationIntentEnum = z.enum([
