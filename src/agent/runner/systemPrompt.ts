@@ -95,6 +95,7 @@ export function buildSystemPrompt(
   runtimeContext: SystemPromptRuntimeContext,
   projectLearnedFacts: readonly ProjectLearnedFact[] | undefined,
   communicationProfile: string | undefined,
+  toolContextCompactionEnabled = true,
 ): string {
   const gitSection = isGitRepo
     ? `
@@ -152,8 +153,9 @@ TOOL USAGE
 |- Mutating tools (workspace_writeFile, workspace_editFile, exec_run, git_worktree_init) MUST include mutationIntent and todoHandling.
 |- For tracked mutations, set todoHandling.mode to track_active and ensure exactly one todo is currently in the doing state.
 |- To mutate without a todo, set todoHandling.mode to skip and include a concrete todoHandling.skipReason.
-
-${renderToolContextCompactionSection()}
+${toolContextCompactionEnabled
+    ? `\n\n${renderToolContextCompactionSection()}`
+    : ""}
 
 PLANNING
 - For complex, multi-step tasks, call agent_plan_set BEFORE starting work.
@@ -258,6 +260,7 @@ function renderSubagentArtifactSpec(spec: SubagentArtifactSpec): string {
 export function buildSubagentSystemPrompt(
   def: SubagentDefinition,
   communicationProfile?: string,
+  toolContextCompactionEnabled = true,
 ): string {
   const prompt = def.systemPrompt.trim();
   if (!def.output) return prompt;
@@ -291,7 +294,9 @@ export function buildSubagentSystemPrompt(
     ["FINAL MESSAGE", def.output.finalMessageInstructions.trim()].join("\n"),
   );
 
-  outputSections.push(renderToolContextCompactionSection());
+  if (toolContextCompactionEnabled) {
+    outputSections.push(renderToolContextCompactionSection());
+  }
 
   const commInstruction = getCommunicationInstruction(communicationProfile);
   if (commInstruction) {

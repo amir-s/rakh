@@ -46,7 +46,11 @@ import { serializeDiff } from "@/components/diffSerialization";
 import { patchAgentState, getAgentState } from "../atoms";
 import type { LogContext } from "@/logging/types";
 
-export { TOOL_DEFINITIONS, getToolDefinitionsByNames } from "./definitions";
+export {
+  buildToolDefinitions,
+  TOOL_DEFINITIONS,
+  getToolDefinitionsByNames,
+} from "./definitions";
 
 /* ── Review edit helpers ───────────────────────────────────────────────────── */
 

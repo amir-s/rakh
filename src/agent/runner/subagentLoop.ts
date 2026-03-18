@@ -272,11 +272,18 @@ export async function runSubagentLoop(
     };
   }
 
-  const toolDefs = getToolDefinitionsByNames(subagentDef.tools);
   const communicationProfile = getAgentState(tabId).config.communicationProfile;
   const toolContextCompactionEnabled =
     jotaiStore.get(toolContextCompactionEnabledAtom) !== false;
-  const systemPromptText = buildSubagentSystemPrompt(subagentDef, communicationProfile);
+  const toolDefs = getToolDefinitionsByNames(
+    subagentDef.tools,
+    toolContextCompactionEnabled,
+  );
+  const systemPromptText = buildSubagentSystemPrompt(
+    subagentDef,
+    communicationProfile,
+    toolContextCompactionEnabled,
+  );
 
   const localApiMessages: ApiMessage[] = [
     { role: "system", content: systemPromptText },

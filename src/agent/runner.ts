@@ -817,17 +817,20 @@ async function runAgentTurn(
     ...(attachments && attachments.length > 0 ? { attachments } : {}),
   };
   dequeueQueuedMessage(tabId, options.queuedMessageId);
+  const refreshedSystemPrompt = await buildMainSystemPromptForState(
+    stateAfterPreflight,
+  );
+  const priorApiMessages =
+    stateAfterPreflight.apiMessages[0]?.role === "system"
+      ? stateAfterPreflight.apiMessages.slice(1)
+      : stateAfterPreflight.apiMessages;
 
   const newApiMessages = [
-    ...(stateAfterPreflight.apiMessages.length === 0
-      ? [
-          {
-            role: "system" as const,
-            content: await buildMainSystemPromptForState(stateAfterPreflight),
-          },
-        ]
-      : []),
-    ...stateAfterPreflight.apiMessages,
+    {
+      role: "system" as const,
+      content: refreshedSystemPrompt,
+    },
+    ...priorApiMessages,
     {
       role: "user" as const,
       content: userMessage,
