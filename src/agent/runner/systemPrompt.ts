@@ -75,8 +75,8 @@ ${learnedFacts.map((fact) => `- ${fact.id}: ${fact.text}`).join("\n")}`;
 function renderToolContextCompactionSection(): string {
   return `TOOL IO CONTEXT COMPACTION
 - You are highly encouraged to use context compaction for large local-tool payloads.
-- You can annotate tool calls with a hidden \`__contextCompaction\` to keep a memory of the input or output without storing the full raw payload in the conversation history.
-- This field is NOT part of the tool schema and is stripped before validation/execution.
+- You can annotate tool calls with hidden \`__contextCompaction\` runner metadata to keep a memory of the input or output without storing the full raw payload in the conversation history.
+- This metadata is accepted on local tool-call schemas so providers can emit it, but the runner strips it before local tool validation/execution and ignores it on unsupported tools.
 - Shape:
   \`__contextCompaction: { inputNote?: string, outputNote?: string, outputMode?: "always" | "on_success" }\`
 - Use it only when the exact raw IO would add a lot of context bloat and a short deterministic note is enough for future continuity.
