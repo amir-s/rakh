@@ -186,13 +186,17 @@
 
 .github-issues-popover__header {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 12px;
+  min-height: 46px;
   padding-inline: 12px;
 }
 
 .github-issues-popover__header-main {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
   min-width: 0;
   flex: 1 1 auto;
 }
@@ -354,10 +358,36 @@
 }
 
 .github-issues-popover__item-title {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: 8px;
   font-size: var(--text-xs);
   font-weight: 600;
   color: var(--color-text);
   line-height: 1.45;
+}
+
+.github-issues-popover__item-title-text {
+  min-width: 0;
+}
+
+.github-issues-popover__issue-state-icon {
+  flex: none;
+  margin-top: 1px;
+  font-size: 15px !important;
+  line-height: 1;
+}
+
+.github-issues-popover__issue-state-icon--open {
+  color: var(--color-success);
+}
+
+.github-issues-popover__issue-state-icon--closed {
+  color: var(--color-error);
+}
+
+.github-issues-popover__issue-state-icon--other {
+  color: var(--color-muted);
 }
 
 .github-issues-popover__item-number {
@@ -374,22 +404,6 @@
   align-items: center;
   font-size: var(--text-xxs);
   color: var(--color-muted);
-}
-
-.github-issues-popover__state-badge {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 18px;
-  padding: 0 7px;
-  border-radius: 999px;
-  border: 1px solid color-mix(in srgb, var(--color-success) 35%, transparent);
-  background: color-mix(in srgb, var(--color-success) 12%, transparent);
-  color: var(--color-success);
-  font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
 }
 
 .github-issues-popover__labels {
@@ -426,6 +440,10 @@
   align-items: center;
   font-size: var(--text-xxs);
   color: var(--color-muted);
+}
+
+.github-issue-modal__title-inline {
+  display: inline-flex;
 }
 
 .github-issue-modal__markdown {

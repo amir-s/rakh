@@ -2109,6 +2109,14 @@ describe("WorkspacePage chat input", () => {
   });
 
   it("loads more GitHub issues on scroll and opens issue details in a modal", async () => {
+    const issueDetailsRequest = (() => {
+      let resolve!: (value: ReturnType<typeof makeExecRunResult>) => void;
+      const promise = new Promise<ReturnType<typeof makeExecRunResult>>((next) => {
+        resolve = next;
+      });
+      return { promise, resolve };
+    })();
+
     workspaceMocks.agentState = {
       ...workspaceMocks.agentState,
       config: {
@@ -2155,14 +2163,7 @@ describe("WorkspacePage chat input", () => {
           });
         }
         if (input.command === "gh" && input.args?.[1] === "view") {
-          return makeExecRunResult({
-            stdout: JSON.stringify(
-              makeGitHubIssue(1, {
-                title: "Issue 1",
-                body: "Detailed body for issue 1",
-              }),
-            ),
-          });
+          return issueDetailsRequest.promise;
         }
         return makeExecRunResult();
       },
@@ -2190,6 +2191,19 @@ describe("WorkspacePage chat input", () => {
     fireEvent.click(screen.getByText("Issue 1"));
 
     await screen.findByRole("dialog", { name: "GitHub issue #1" });
+    expect(screen.getByText("Loading issue…")).not.toBeNull();
+
+    issueDetailsRequest.resolve(
+      makeExecRunResult({
+        stdout: JSON.stringify(
+          makeGitHubIssue(1, {
+            title: "Issue 1",
+            body: "Detailed body for issue 1",
+          }),
+        ),
+      }),
+    );
+
     await screen.findByText("Detailed body for issue 1");
     expect(
       screen.getByRole("link", { name: "Open in GitHub" }).getAttribute("href"),
