@@ -1,0 +1,298 @@
+name: PR Ship Command
+
+on:
+  issue_comment:
+    types:
+      - created
+  pull_request_target:
+    types:
+      - labeled
+      - reopened
+      - ready_for_review
+      - synchronize
+  pull_request_review:
+    types:
+      - submitted
+      - dismissed
+  workflow_run:
+    workflows:
+      - CI
+    types:
+      - completed
+  schedule:
+    - cron: "*/10 * * * *"
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+jobs:
+  ship:
+    name: Merge from /ship
+    runs-on: ubuntu-latest
+    steps:
+      - name: Process /ship state
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const SHIP_LABEL = "ship";
+            const SHIP_LABEL_COLOR = "1d76db";
+            const SHIP_LABEL_DESCRIPTION =
+              "Merge this pull request when required checks and reviews pass";
+            const eventName = context.eventName;
+
+            function labelNames(labels) {
+              return (labels || [])
+                .map((label) => {
+                  if (typeof label === "string") {
+                    return label;
+                  }
+                  return label?.name ?? null;
+                })
+                .filter(Boolean);
+            }
+
+            async function reply(issueNumber, body) {
+              await github.rest.issues.createComment({
+                owner,
+                repo,
+                issue_number: issueNumber,
+                body,
+              });
+            }
+
+            async function ensureShipLabelExists() {
+              try {
+                await github.rest.issues.getLabel({
+                  owner,
+                  repo,
+                  name: SHIP_LABEL,
+                });
+              } catch (error) {
+                if (error.status !== 404) {
+                  throw error;
+                }
+
+                await github.rest.issues.createLabel({
+                  owner,
+                  repo,
+                  name: SHIP_LABEL,
+                  color: SHIP_LABEL_COLOR,
+                  description: SHIP_LABEL_DESCRIPTION,
+                });
+              }
+            }
+
+            async function addShipLabel(issueNumber) {
+              await ensureShipLabelExists();
+              await github.rest.issues.addLabels({
+                owner,
+                repo,
+                issue_number: issueNumber,
+                labels: [SHIP_LABEL],
+              });
+            }
+
+            async function removeShipLabel(issueNumber) {
+              try {
+                await github.rest.issues.removeLabel({
+                  owner,
+                  repo,
+                  issue_number: issueNumber,
+                  name: SHIP_LABEL,
+                });
+              } catch (error) {
+                if (error.status !== 404) {
+                  throw error;
+                }
+              }
+            }
+
+            async function getCommenterPermission(username) {
+              try {
+                const permissionResponse =
+                  await github.rest.repos.getCollaboratorPermissionLevel({
+                    owner,
+                    repo,
+                    username,
+                  });
+                return permissionResponse.data.permission;
+              } catch (error) {
+                core.warning(
+                  `Could not resolve collaborator permissions for ${username}: ${String(error)}`,
+                );
+                return "none";
+              }
+            }
+
+            async function getMergeMethod() {
+              const { data: repository } = await github.rest.repos.get({
+                owner,
+                repo,
+              });
+
+              if (repository.allow_rebase_merge) {
+                return "rebase";
+              }
+
+              if (repository.allow_merge_commit) {
+                return "merge";
+              }
+
+              return null;
+            }
+
+            async function tryMerge(issueNumber, options = {}) {
+              const { commenter = null, announcePending = false } = options;
+              const { data: pullRequest } = await github.rest.pulls.get({
+                owner,
+                repo,
+                pull_number: issueNumber,
+              });
+
+              if (pullRequest.state !== "open") {
+                await removeShipLabel(issueNumber);
+                return { status: "closed" };
+              }
+
+              const armed = labelNames(pullRequest.labels).includes(SHIP_LABEL);
+              if (!armed) {
+                return { status: "not-armed" };
+              }
+
+              if (pullRequest.draft) {
+                if (announcePending && commenter) {
+                  await reply(
+                    issueNumber,
+                    `@${commenter} \`/ship\` is armed, but this pull request is still a draft. Mark it ready for review and I will retry on the next pull request event.`,
+                  );
+                }
+                return { status: "draft" };
+              }
+
+              const mergeMethod = await getMergeMethod();
+              if (!mergeMethod) {
+                if (announcePending && commenter) {
+                  await reply(
+                    issueNumber,
+                    `@${commenter} this repository currently allows only squash merges. \`/ship\` requires either rebase merges or merge commits so Conventional Commit history is preserved on \`main\`.`,
+                  );
+                }
+                return { status: "unsupported-merge-method" };
+              }
+
+              try {
+                await github.rest.pulls.merge({
+                  owner,
+                  repo,
+                  pull_number: issueNumber,
+                  merge_method: mergeMethod,
+                  sha: pullRequest.head.sha,
+                });
+
+                await removeShipLabel(issueNumber);
+                return { status: "merged", mergeMethod };
+              } catch (error) {
+                const status = error.status ?? error.response?.status ?? 0;
+                const message =
+                  error.response?.data?.message ||
+                  (error instanceof Error ? error.message : String(error));
+
+                if ([405, 409, 422].includes(status)) {
+                  core.info(
+                    `Pull request #${issueNumber} is not ready to merge yet (${status}): ${message}`,
+                  );
+
+                  if (announcePending && commenter) {
+                    await reply(
+                      issueNumber,
+                      `@${commenter} \`/ship\` is armed. I will merge this pull request once required checks and reviews pass.`,
+                    );
+                  }
+
+                  return { status: "waiting", message };
+                }
+
+                throw error;
+              }
+            }
+
+            if (eventName === "issue_comment") {
+              if (!context.payload.issue.pull_request) {
+                core.info("Ignoring issue comment that is not on a pull request.");
+                return;
+              }
+
+              const issueNumber = context.payload.issue.number;
+              const commenter = context.payload.comment.user.login;
+              const commentBody = (context.payload.comment.body || "").trim();
+
+              if (commentBody !== "/ship" && commentBody !== "/unship") {
+                core.info("Ignoring comment without exact /ship or /unship command.");
+                return;
+              }
+
+              const permission = await getCommenterPermission(commenter);
+              if (!["admin", "maintain", "write"].includes(permission)) {
+                await reply(
+                  issueNumber,
+                  `@${commenter} only repository writers can use \`/ship\` or \`/unship\`.`,
+                );
+                return;
+              }
+
+              if (commentBody === "/unship") {
+                await removeShipLabel(issueNumber);
+                await reply(issueNumber, `@${commenter} \`/ship\` has been canceled.`);
+                return;
+              }
+
+              await addShipLabel(issueNumber);
+              await tryMerge(issueNumber, {
+                commenter,
+                announcePending: true,
+              });
+              return;
+            }
+
+            if (eventName === "pull_request_target" || eventName === "pull_request_review") {
+              await tryMerge(context.payload.pull_request.number);
+              return;
+            }
+
+            if (eventName === "workflow_run") {
+              const pullRequests = context.payload.workflow_run.pull_requests || [];
+              const numbers = [...new Set(pullRequests.map((pullRequest) => pullRequest.number))];
+
+              if (numbers.length === 0) {
+                core.info("Workflow run is not associated with a pull request.");
+                return;
+              }
+
+              for (const issueNumber of numbers) {
+                await tryMerge(issueNumber);
+              }
+              return;
+            }
+
+            if (eventName === "schedule") {
+              const { data: issues } = await github.rest.issues.listForRepo({
+                owner,
+                repo,
+                state: "open",
+                labels: SHIP_LABEL,
+                per_page: 100,
+              });
+
+              for (const issue of issues) {
+                if (issue.pull_request) {
+                  await tryMerge(issue.number);
+                }
+              }
+              return;
+            }
+
+            core.info(`Ignoring unsupported event ${eventName}.`);
