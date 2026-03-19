@@ -167,17 +167,73 @@ describe("sessionStats", () => {
         id: "usage-1",
         index: 0,
         costStatus: "complete",
+        uncachedInputCostUsd: 0.0012,
+        cacheReadCostUsd: 0,
+        cacheWriteCostUsd: 0,
+        outputCostUsd: 0.0012,
         callCostUsd: 0.0024,
+        cumulativeUncachedInputCostUsd: 0.0012,
+        cumulativeCacheReadCostUsd: 0,
+        cumulativeCacheWriteCostUsd: 0,
+        cumulativeOutputCostUsd: 0.0012,
         cumulativeKnownCostUsd: 0.0024,
       }),
       expect.objectContaining({
         id: "usage-2",
         index: 1,
         costStatus: "missing",
+        uncachedInputCostUsd: null,
+        cacheReadCostUsd: null,
+        cacheWriteCostUsd: null,
+        outputCostUsd: null,
         callCostUsd: null,
+        cumulativeUncachedInputCostUsd: 0.0012,
+        cumulativeCacheReadCostUsd: 0,
+        cumulativeCacheWriteCostUsd: 0,
+        cumulativeOutputCostUsd: 0.0012,
         cumulativeKnownCostUsd: 0.0024,
       }),
     ]);
+  });
+
+  it("tracks uncached, cache, and output cost components separately", () => {
+    const [point] = buildSessionCostSeries(
+      [
+        makeUsageRecord({
+          inputTokens: 1000,
+          noCacheInputTokens: 700,
+          cacheReadTokens: 200,
+          cacheWriteTokens: 100,
+          outputTokens: 80,
+          totalTokens: 1080,
+        }),
+      ],
+      () => ({
+        id: "anthropic/claude-sonnet-4-5",
+        name: "Claude Sonnet 4.5",
+        providerId: "provider-anthropic",
+        owned_by: "anthropic",
+        tags: [],
+        sdk_id: "claude-sonnet-4-5",
+        pricing: {
+          prompt: 3,
+          completion: 15,
+          cacheRead: 0.3,
+          cacheWrite: 3.75,
+        },
+      }),
+    );
+
+    expect(point.uncachedInputCostUsd).toBeCloseTo(0.0021, 8);
+    expect(point.cacheReadCostUsd).toBeCloseTo(0.00006, 8);
+    expect(point.cacheWriteCostUsd).toBeCloseTo(0.000375, 8);
+    expect(point.outputCostUsd).toBeCloseTo(0.0012, 8);
+    expect(point.callCostUsd).toBeCloseTo(0.003735, 8);
+    expect(point.cumulativeUncachedInputCostUsd).toBeCloseTo(0.0021, 8);
+    expect(point.cumulativeCacheReadCostUsd).toBeCloseTo(0.00006, 8);
+    expect(point.cumulativeCacheWriteCostUsd).toBeCloseTo(0.000375, 8);
+    expect(point.cumulativeOutputCostUsd).toBeCloseTo(0.0012, 8);
+    expect(point.cumulativeKnownCostUsd).toBeCloseTo(0.003735, 8);
   });
 
   it("estimates current context from live api messages", () => {

@@ -1,6 +1,12 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  within,
+} from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type {
@@ -75,9 +81,23 @@ function makeSeries(): SessionCostSeriesPoint[] {
       actorId: "main",
       actorLabel: "Rakh",
       operation: "assistant turn",
+      inputTokens: 1500,
+      noCacheInputTokens: 1200,
+      cacheReadTokens: 200,
+      cacheWriteTokens: 100,
+      outputTokens: 500,
+      reasoningTokens: 120,
       totalTokens: 2000,
       costStatus: "complete",
+      uncachedInputCostUsd: 0.006,
+      cacheReadCostUsd: 0.001,
+      cacheWriteCostUsd: 0.001,
+      outputCostUsd: 0.002,
       callCostUsd: 0.01,
+      cumulativeUncachedInputCostUsd: 0.006,
+      cumulativeCacheReadCostUsd: 0.001,
+      cumulativeCacheWriteCostUsd: 0.001,
+      cumulativeOutputCostUsd: 0.002,
       cumulativeKnownCostUsd: 0.01,
     },
     {
@@ -89,9 +109,23 @@ function makeSeries(): SessionCostSeriesPoint[] {
       actorId: "planner",
       actorLabel: "Planner",
       operation: "assistant turn",
+      inputTokens: 1800,
+      noCacheInputTokens: 1600,
+      cacheReadTokens: 150,
+      cacheWriteTokens: 50,
+      outputTokens: 400,
+      reasoningTokens: 80,
       totalTokens: 2400,
       costStatus: "complete",
+      uncachedInputCostUsd: 0.015,
+      cacheReadCostUsd: 0.001,
+      cacheWriteCostUsd: 0,
+      outputCostUsd: 0.004,
       callCostUsd: 0.02,
+      cumulativeUncachedInputCostUsd: 0.021,
+      cumulativeCacheReadCostUsd: 0.002,
+      cumulativeCacheWriteCostUsd: 0.001,
+      cumulativeOutputCostUsd: 0.006,
       cumulativeKnownCostUsd: 0.03,
     },
     {
@@ -103,9 +137,23 @@ function makeSeries(): SessionCostSeriesPoint[] {
       actorId: "main",
       actorLabel: "Rakh",
       operation: "assistant turn",
+      inputTokens: 2000,
+      noCacheInputTokens: 1800,
+      cacheReadTokens: 100,
+      cacheWriteTokens: 100,
+      outputTokens: 600,
+      reasoningTokens: 140,
       totalTokens: 2800,
       costStatus: "complete",
+      uncachedInputCostUsd: 0.021,
+      cacheReadCostUsd: 0.003,
+      cacheWriteCostUsd: 0.001,
+      outputCostUsd: 0.005,
       callCostUsd: 0.03,
+      cumulativeUncachedInputCostUsd: 0.042,
+      cumulativeCacheReadCostUsd: 0.005,
+      cumulativeCacheWriteCostUsd: 0.002,
+      cumulativeOutputCostUsd: 0.011,
       cumulativeKnownCostUsd: 0.06,
     },
   ];
@@ -116,7 +164,7 @@ describe("SessionCostModal", () => {
     cleanup();
   });
 
-  it("renders separate actor lines at global session positions", () => {
+  it("renders toggleable series with a shared per-call tooltip", () => {
     render(
       <SessionCostModal
         summary={makeSummary()}
@@ -142,28 +190,31 @@ describe("SessionCostModal", () => {
       perCallChart!.querySelector(".session-cost-chart-panel .session-cost-chart-axis"),
     ).not.toBeNull();
 
-    const circles = Array.from(perCallChart!.querySelectorAll("circle"));
-    expect(circles.length).toBe(3);
+    const outputToggle = within(perCallChart as HTMLElement).getByRole("button", {
+      name: /Output/i,
+    });
+    fireEvent.click(outputToggle);
+    expect(outputToggle.getAttribute("aria-pressed")).toBe("false");
 
-    const call1 = perCallChart!.querySelector('circle[data-call-index="1"]');
-    const call2 = perCallChart!.querySelector('circle[data-call-index="2"]');
-    const call3 = perCallChart!.querySelector('circle[data-call-index="3"]');
-
-    expect(call1?.getAttribute("cx")).toBe("16");
-    expect(call2?.getAttribute("cx")).toBe("320");
-    expect(call3?.getAttribute("cx")).toBe("624");
-
+    const call2 = perCallChart!.querySelector(
+      '.session-cost-chart-slice[data-call-index="2"]',
+    );
+    expect(call2).not.toBeNull();
     fireEvent.mouseEnter(call2!);
 
     expect(screen.getByRole("tooltip")).not.toBeNull();
     expect(
       perCallChart!.querySelector(".session-cost-chart-plot [role='tooltip']"),
     ).not.toBeNull();
-    expect(screen.getByText(/Call 2/)).not.toBeNull();
-    expect(screen.getByText(/Planner - assistant turn/)).not.toBeNull();
+    const tooltip = screen.getByRole("tooltip");
+    expect(tooltip.textContent).toContain("Call 2");
+    expect(tooltip.textContent).toContain("Planner");
+    expect(tooltip.textContent).toContain("Uncached input");
+    expect(tooltip.textContent).toContain("2,400");
+    expect(tooltip.textContent).not.toContain("$0.0040");
   });
 
-  it("shows cumulative total in the cumulative chart tooltip", () => {
+  it("shows the cumulative series in the shared tooltip", () => {
     render(
       <SessionCostModal
         summary={makeSummary()}
@@ -180,7 +231,9 @@ describe("SessionCostModal", () => {
       cumulativeChart!.querySelector(".session-cost-chart-scale + .session-cost-chart-panel"),
     ).not.toBeNull();
 
-    const call3 = cumulativeChart!.querySelector('circle[data-call-index="3"]');
+    const call3 = cumulativeChart!.querySelector(
+      '.session-cost-chart-slice[data-call-index="3"]',
+    );
     expect(call3).not.toBeNull();
 
     fireEvent.mouseEnter(call3!);
@@ -190,7 +243,9 @@ describe("SessionCostModal", () => {
       cumulativeChart!.querySelector(".session-cost-chart-plot [role='tooltip']"),
     ).not.toBeNull();
     expect(tooltip.textContent).toContain("Call 3");
-    expect(tooltip.textContent).toContain("Total so far $0.060");
-    expect(tooltip.textContent).toContain("Call cost $0.030");
+    expect(tooltip.textContent).toContain("Cumulative cost");
+    expect(tooltip.textContent).toContain("Output");
+    expect(tooltip.textContent).toContain("$0.060");
+    expect(tooltip.textContent).toContain("$0.011");
   });
 });

@@ -59,9 +59,23 @@ export interface SessionCostSeriesPoint {
   actorId: string;
   actorLabel: string;
   operation: string;
+  inputTokens: number;
+  noCacheInputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  outputTokens: number;
+  reasoningTokens: number;
   totalTokens: number;
   costStatus: SessionCostStatus;
+  uncachedInputCostUsd: number | null;
+  cacheReadCostUsd: number | null;
+  cacheWriteCostUsd: number | null;
+  outputCostUsd: number | null;
   callCostUsd: number | null;
+  cumulativeUncachedInputCostUsd: number;
+  cumulativeCacheReadCostUsd: number;
+  cumulativeCacheWriteCostUsd: number;
+  cumulativeOutputCostUsd: number;
   cumulativeKnownCostUsd: number;
 }
 
@@ -187,6 +201,26 @@ function calculateRecordCost(
   record: LlmUsageRecord,
   modelEntry: ModelCatalogEntry | null,
 ): { status: SessionCostStatus; knownCostUsd: number; label: string } {
+  const components = calculateRecordCostComponents(record, modelEntry);
+  return {
+    status: components.status,
+    knownCostUsd: components.knownCostUsd,
+    label: components.label,
+  };
+}
+
+function calculateRecordCostComponents(
+  record: LlmUsageRecord,
+  modelEntry: ModelCatalogEntry | null,
+): {
+  status: SessionCostStatus;
+  knownCostUsd: number;
+  label: string;
+  uncachedInputCostUsd: number | null;
+  cacheReadCostUsd: number | null;
+  cacheWriteCostUsd: number | null;
+  outputCostUsd: number | null;
+} {
   const label = resolveModelLabel(record.modelId, modelEntry);
   const pricing = modelEntry?.pricing;
 
@@ -205,20 +239,38 @@ function calculateRecordCost(
     (needsPromptRate && promptRate === undefined) ||
     (needsCompletionRate && completionRate === undefined)
   ) {
-    return { status: "missing", knownCostUsd: 0, label };
+    return {
+      status: "missing",
+      knownCostUsd: 0,
+      label,
+      uncachedInputCostUsd: null,
+      cacheReadCostUsd: null,
+      cacheWriteCostUsd: null,
+      outputCostUsd: null,
+    };
   }
 
-  const promptCost =
-    ((record.noCacheInputTokens * (promptRate ?? 0)) +
-      (record.cacheReadTokens * (cacheReadRate ?? 0)) +
-      (record.cacheWriteTokens * (cacheWriteRate ?? 0))) /
-    1_000_000;
-  const completionCost = (record.outputTokens * (completionRate ?? 0)) / 1_000_000;
+  const uncachedInputCostUsd =
+    (record.noCacheInputTokens * (promptRate ?? 0)) / 1_000_000;
+  const cacheReadCostUsd =
+    (record.cacheReadTokens * (cacheReadRate ?? 0)) / 1_000_000;
+  const cacheWriteCostUsd =
+    (record.cacheWriteTokens * (cacheWriteRate ?? 0)) / 1_000_000;
+  const outputCostUsd =
+    (record.outputTokens * (completionRate ?? 0)) / 1_000_000;
 
   return {
     status: "complete",
-    knownCostUsd: promptCost + completionCost,
+    knownCostUsd:
+      uncachedInputCostUsd +
+      cacheReadCostUsd +
+      cacheWriteCostUsd +
+      outputCostUsd,
     label,
+    uncachedInputCostUsd,
+    cacheReadCostUsd,
+    cacheWriteCostUsd,
+    outputCostUsd,
   };
 }
 
@@ -366,11 +418,22 @@ export function buildSessionCostSeries(
     );
 
   let cumulativeKnownCostUsd = 0;
+  let cumulativeUncachedInputCostUsd = 0;
+  let cumulativeCacheReadCostUsd = 0;
+  let cumulativeCacheWriteCostUsd = 0;
+  let cumulativeOutputCostUsd = 0;
 
   return ordered.map(({ record }, index) => {
-    const cost = calculateRecordCost(record, resolveModel(record.modelId));
+    const cost = calculateRecordCostComponents(
+      record,
+      resolveModel(record.modelId),
+    );
     if (cost.status === "complete") {
       cumulativeKnownCostUsd += cost.knownCostUsd;
+      cumulativeUncachedInputCostUsd += cost.uncachedInputCostUsd ?? 0;
+      cumulativeCacheReadCostUsd += cost.cacheReadCostUsd ?? 0;
+      cumulativeCacheWriteCostUsd += cost.cacheWriteCostUsd ?? 0;
+      cumulativeOutputCostUsd += cost.outputCostUsd ?? 0;
     }
 
     return {
@@ -382,9 +445,23 @@ export function buildSessionCostSeries(
       actorId: record.actorId,
       actorLabel: record.actorLabel,
       operation: record.operation,
+      inputTokens: record.inputTokens,
+      noCacheInputTokens: record.noCacheInputTokens,
+      cacheReadTokens: record.cacheReadTokens,
+      cacheWriteTokens: record.cacheWriteTokens,
+      outputTokens: record.outputTokens,
+      reasoningTokens: record.reasoningTokens,
       totalTokens: record.totalTokens,
       costStatus: cost.status,
+      uncachedInputCostUsd: cost.uncachedInputCostUsd,
+      cacheReadCostUsd: cost.cacheReadCostUsd,
+      cacheWriteCostUsd: cost.cacheWriteCostUsd,
+      outputCostUsd: cost.outputCostUsd,
       callCostUsd: cost.status === "complete" ? cost.knownCostUsd : null,
+      cumulativeUncachedInputCostUsd,
+      cumulativeCacheReadCostUsd,
+      cumulativeCacheWriteCostUsd,
+      cumulativeOutputCostUsd,
       cumulativeKnownCostUsd,
     };
   });
