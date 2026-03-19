@@ -463,7 +463,6 @@ export default function WorkspacePage() {
   >([]);
   const [projectGitHubState, setProjectGitHubState] =
     useState<ProjectGitHubState>(EMPTY_PROJECT_GITHUB_STATE);
-  const [commandBarOpen, setCommandBarOpen] = useState(true);
   const [terminalCommandRequest, setTerminalCommandRequest] = useState<{
     id: number;
     command: string;
@@ -690,7 +689,6 @@ export default function WorkspacePage() {
   }, [activeTab, agent.config.projectPath, isNewSession, persistActiveTabChanges]);
 
   const toggleTerminal = useCallback(() => setTerminalOpen((v) => !v), []);
-  const toggleCommandBar = useCallback(() => setCommandBarOpen((v) => !v), []);
   const openTerminal = useCallback(() => setTerminalOpen(true), []);
   const toggleArtifacts = useCallback(() => setArtifactOpen((v) => !v), []);
   const handleOpenLatestLogs = useCallback(() => {
@@ -1376,15 +1374,10 @@ export default function WorkspacePage() {
           toggleArtifacts();
         }
       }
-
-      if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && key === "b") {
-        e.preventDefault();
-        toggleCommandBar();
-      }
     };
     window.addEventListener("keydown", handleGlobalKeyDown);
     return () => window.removeEventListener("keydown", handleGlobalKeyDown);
-  }, [toggleTerminal, toggleArtifacts, toggleCommandBar]);
+  }, [toggleTerminal, toggleArtifacts]);
 
   const executePlanDisabled =
     isAgentBusy || voiceInput.busy || voiceInput.isRecording;
@@ -1447,12 +1440,6 @@ export default function WorkspacePage() {
     : voiceInput.isTranscribing
       ? "Transcribing voice..."
       : "Send";
-  const commandBarShortcutKeys =
-    typeof navigator !== "undefined" &&
-    ((navigator.platform ?? "").toLowerCase().startsWith("mac") ||
-      navigator.userAgent.toLowerCase().includes("mac os"))
-      ? ["⌘", "B"]
-      : ["Ctrl", "B"];
   const handoffButtonDisabled =
     !hasManagedWorktree ||
     handoffState.loading ||
@@ -1471,64 +1458,47 @@ export default function WorkspacePage() {
 
   return (
     <div className="workspace-outer">
-      {commandBarOpen ? (
-        <ProjectCommandBar
-          commands={commandBarCommands}
-          onCommandClick={handleRunProjectCommand}
-          buttonAriaLabel={getCommandBarButtonAriaLabel}
-          buttonTitle={getCommandBarButtonTitle}
-          variant="workspace"
-          trailingContent={
-            <div className="flex items-center gap-2">
-              {hasManagedWorktree ? (
-                <button
-                  type="button"
-                  className={cn(
-                    "project-command-button",
-                    handoffButtonDisabled && "project-command-button--disabled",
-                  )}
-                  title={handoffButtonTitle}
-                  aria-label="Handoff"
-                  disabled={handoffButtonDisabled}
-                  onClick={openHandoffModal}
-                >
-                  <span
-                    className="material-symbols-outlined text-base"
-                    aria-hidden="true"
-                  >
-                    move_item
-                  </span>
-                  <span className="project-command-button__label">Handoff</span>
-                </button>
-              ) : null}
-              {projectGitHubState.enabled &&
-              projectGitHubState.eligible &&
-              projectGitHubState.repoSlug ? (
-                <GitHubIssuesControl
-                  key={projectGitHubState.repoSlug}
-                  cwd={cwd}
-                  repoSlug={projectGitHubState.repoSlug}
-                />
-              ) : null}
-              <span className="project-command-bar__shortcut-hint">
+      <ProjectCommandBar
+        commands={commandBarCommands}
+        onCommandClick={handleRunProjectCommand}
+        buttonAriaLabel={getCommandBarButtonAriaLabel}
+        buttonTitle={getCommandBarButtonTitle}
+        variant="workspace"
+        trailingContent={
+          <div className="flex items-center gap-2">
+            {hasManagedWorktree ? (
+              <button
+                type="button"
+                className={cn(
+                  "project-command-button",
+                  handoffButtonDisabled && "project-command-button--disabled",
+                )}
+                title={handoffButtonTitle}
+                aria-label="Handoff"
+                disabled={handoffButtonDisabled}
+                onClick={openHandoffModal}
+              >
                 <span
-                  className="project-command-bar__shortcut-keys"
+                  className="material-symbols-outlined text-base"
                   aria-hidden="true"
                 >
-                  {commandBarShortcutKeys.map((key) => (
-                    <kbd
-                      key={key}
-                      className="project-command-bar__shortcut-key"
-                    >
-                      {key}
-                    </kbd>
-                  ))}
+                  move_item
                 </span>
-              </span>
-            </div>
-          }
-        />
-      ) : null}
+                <span className="project-command-button__label">Handoff</span>
+              </button>
+            ) : null}
+            {projectGitHubState.enabled &&
+            projectGitHubState.eligible &&
+            projectGitHubState.repoSlug ? (
+              <GitHubIssuesControl
+                key={projectGitHubState.repoSlug}
+                cwd={cwd}
+                repoSlug={projectGitHubState.repoSlug}
+              />
+            ) : null}
+          </div>
+        }
+      />
 
       {/* ── Two-pane row ────────────────────────────────────────────── */}
       <div className="workspace" ref={containerRef}>

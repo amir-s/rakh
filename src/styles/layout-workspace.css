@@ -126,50 +126,6 @@
   flex-shrink: 0;
 }
 
-.project-command-bar__shortcut-hint {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--color-muted);
-  white-space: nowrap;
-}
-
-.project-command-bar__shortcut-label {
-  color: var(--color-muted);
-}
-
-.project-command-bar__shortcut-keys {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.project-command-bar__shortcut-key {
-  min-width: 18px;
-  height: 18px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0 5px;
-  border: 1px solid color-mix(in srgb, var(--color-border-mid) 72%, transparent);
-  border-radius: 5px;
-  background: color-mix(in srgb, var(--color-window) 82%, transparent);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.05),
-    0 1px 0 rgba(0, 0, 0, 0.18);
-  color: color-mix(in srgb, var(--color-text) 88%, transparent);
-  font-family: inherit;
-  font-size: 10px;
-  font-weight: 700;
-  line-height: 1;
-  text-transform: none;
-}
-
 .github-issues-popover {
   position: fixed;
   z-index: 10010;
