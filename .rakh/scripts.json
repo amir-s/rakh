@@ -13,5 +13,6 @@
       "command": "npm run b",
       "icon": "package_2"
     }
-  ]
+  ],
+  "githubIntegrationEnabled": true
 }
