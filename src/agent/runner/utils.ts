@@ -83,7 +83,74 @@ export function parseArgs(raw: unknown): Record<string, unknown> {
   }
 }
 
-export function mapApiMessagesToModelMessages(messages: ApiMessage[]): ModelMessage[] {
+function withAnthropicEphemeralCacheControl(message: ModelMessage): ModelMessage {
+  const existingAnthropic = isRecord(message.providerOptions?.anthropic)
+    ? message.providerOptions?.anthropic
+    : undefined;
+  const existingCacheControl =
+    existingAnthropic &&
+    "cacheControl" in existingAnthropic &&
+    existingAnthropic.cacheControl !== undefined
+      ? existingAnthropic.cacheControl
+      : existingAnthropic &&
+          "cache_control" in existingAnthropic &&
+          existingAnthropic.cache_control !== undefined
+        ? existingAnthropic.cache_control
+        : undefined;
+
+  return {
+    ...message,
+    providerOptions: {
+      ...(message.providerOptions ?? {}),
+      anthropic: {
+        ...(existingAnthropic ?? {}),
+        ...(existingCacheControl
+          ? {}
+          : { cacheControl: { type: "ephemeral" as const } }),
+      },
+    },
+  };
+}
+
+function applyAnthropicPromptCaching(messages: ModelMessage[]): ModelMessage[] {
+  if (messages.length === 0) return messages;
+
+  const cacheBreakpointIndexes = new Set<number>();
+
+  // Anthropic caches the prompt prefix up to each breakpoint. Mark the final
+  // leading system message so the full system block can be reused.
+  let lastLeadingSystemIndex = -1;
+  for (let i = 0; i < messages.length; i++) {
+    if (messages[i]?.role !== "system") break;
+    lastLeadingSystemIndex = i;
+  }
+  if (lastLeadingSystemIndex >= 0) {
+    cacheBreakpointIndexes.add(lastLeadingSystemIndex);
+  }
+
+  // Anthropic supports at most four cache breakpoints per request. Use the
+  // newest non-system messages so repeated tool/planner turns can reuse the
+  // largest stable prefix of the conversation history.
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (cacheBreakpointIndexes.size >= 4) break;
+    if (i === lastLeadingSystemIndex) continue;
+    if (messages[i]?.role === "system") continue;
+    cacheBreakpointIndexes.add(i);
+  }
+
+  if (cacheBreakpointIndexes.size === 0) return messages;
+
+  return messages.map((message, index) =>
+    cacheBreakpointIndexes.has(index)
+      ? withAnthropicEphemeralCacheControl(message)
+      : message,
+  );
+}
+
+export function mapApiMessagesToModelMessages(
+  messages: ApiMessage[],
+  provider?: string | null,
+): ModelMessage[] {
   const toolNameById = new Map<string, string>();
   const mapped: ModelMessage[] = [];
 
@@ -163,6 +230,10 @@ export function mapApiMessagesToModelMessages(messages: ApiMessage[]): ModelMess
         },
       ],
     } as ModelMessage);
+  }
+
+  if (provider === "anthropic") {
+    return applyAnthropicPromptCaching(mapped);
   }
 
   return mapped;
