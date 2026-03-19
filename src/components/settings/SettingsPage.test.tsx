@@ -6,6 +6,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import { Provider } from "jotai";
 import { TabsProvider, useTabs } from "@/contexts/TabsContext";
 import {
+  agentLoopSettingsAtom,
   autoContextCompactionSettingsAtom,
   appUpdaterStateAtom,
   debugModeEnabledAtom,
@@ -16,6 +17,7 @@ import {
 } from "@/agent/atoms";
 import { DEFAULT_AUTO_CONTEXT_COMPACTION_SETTINGS } from "@/agent/contextCompaction";
 import { providersAtom } from "@/agent/db";
+import { DEFAULT_AGENT_LOOP_SETTINGS } from "@/agent/loopLimits";
 import { mcpServersAtom, mcpSettingsAtom } from "@/agent/mcp";
 import SettingsPage from "./SettingsPage";
 
@@ -30,6 +32,10 @@ const mcpMocks = vi.hoisted(() => ({
   saveMcpServersMock: vi.fn<(servers: unknown[]) => Promise<void>>(),
   saveMcpSettingsMock: vi.fn<(settings: unknown) => Promise<void>>(),
   testMcpServerMock: vi.fn<(server: unknown) => Promise<unknown>>(),
+}));
+
+const loopLimitMocks = vi.hoisted(() => ({
+  saveAgentLoopSettingsMock: vi.fn<(settings: unknown) => Promise<void>>(),
 }));
 
 const dbMocks = vi.hoisted(() => ({
@@ -130,6 +136,17 @@ vi.mock("@/agent/mcp", async () => {
   };
 });
 
+vi.mock("@/agent/loopLimits", async () => {
+  const actual = await vi.importActual<typeof import("@/agent/loopLimits")>(
+    "@/agent/loopLimits",
+  );
+  return {
+    ...actual,
+    saveAgentLoopSettings: (...args: unknown[]) =>
+      loopLimitMocks.saveAgentLoopSettingsMock(args[0]),
+  };
+});
+
 vi.mock("@/components/ui/JsonCodeEditor", () => ({
   default: ({
     value,
@@ -153,6 +170,7 @@ function SettingsPageHarness({
 }: {
   initialSection?:
     | "appearance"
+    | "loop-safeguards"
     | "context-compaction"
     | "updates"
     | "mcp"
@@ -171,6 +189,7 @@ function SettingsPageHarness({
 function renderSettingsPage(
   initialSection:
     | "appearance"
+    | "loop-safeguards"
     | "context-compaction"
     | "updates"
     | "mcp"
@@ -186,16 +205,59 @@ function renderSettingsPage(
   );
 }
 
+function ensureLocalStorage(): Storage {
+  const storage = window.localStorage as Partial<Storage> | undefined;
+  if (
+    storage &&
+    typeof storage.getItem === "function" &&
+    typeof storage.setItem === "function" &&
+    typeof storage.removeItem === "function" &&
+    typeof storage.clear === "function"
+  ) {
+    return storage as Storage;
+  }
+
+  const entries = new Map<string, string>();
+  const nextStorage: Storage = {
+    get length() {
+      return entries.size;
+    },
+    clear() {
+      entries.clear();
+    },
+    getItem(key: string) {
+      return entries.has(key) ? entries.get(key) ?? null : null;
+    },
+    key(index: number) {
+      return Array.from(entries.keys())[index] ?? null;
+    },
+    removeItem(key: string) {
+      entries.delete(key);
+    },
+    setItem(key: string, value: string) {
+      entries.set(key, String(value));
+    },
+  };
+
+  Object.defineProperty(window, "localStorage", {
+    configurable: true,
+    value: nextStorage,
+  });
+
+  return nextStorage;
+}
+
 describe("SettingsPage", () => {
   beforeEach(() => {
     cleanup();
-    localStorage.clear();
+    ensureLocalStorage().clear();
     jotaiStore.set(providersAtom, []);
     jotaiStore.set(mcpServersAtom, []);
     jotaiStore.set(mcpSettingsAtom, { artifactizeReturnedFiles: false });
     jotaiStore.set(debugModeEnabledAtom, false);
     jotaiStore.set(groupInlineToolCallsAtom, true);
     jotaiStore.set(toolContextCompactionEnabledAtom, true);
+    jotaiStore.set(agentLoopSettingsAtom, DEFAULT_AGENT_LOOP_SETTINGS);
     jotaiStore.set(
       autoContextCompactionSettingsAtom,
       DEFAULT_AUTO_CONTEXT_COMPACTION_SETTINGS,
@@ -244,6 +306,7 @@ describe("SettingsPage", () => {
     mcpMocks.saveMcpServersMock.mockReset();
     mcpMocks.saveMcpSettingsMock.mockReset();
     mcpMocks.testMcpServerMock.mockReset();
+    loopLimitMocks.saveAgentLoopSettingsMock.mockReset();
     mcpMocks.saveMcpServersMock.mockResolvedValue(undefined);
     mcpMocks.saveMcpSettingsMock.mockResolvedValue(undefined);
     mcpMocks.testMcpServerMock.mockResolvedValue({
@@ -267,6 +330,7 @@ describe("SettingsPage", () => {
       ],
       toolCount: 2,
     });
+    loopLimitMocks.saveAgentLoopSettingsMock.mockResolvedValue(undefined);
     vi.stubGlobal("fetch", vi.fn());
   });
 
@@ -418,6 +482,84 @@ describe("SettingsPage", () => {
       thresholdMode: "kb",
       thresholdKb: 384,
     });
+  });
+
+  it("saves validated loop safeguard settings on blur", async () => {
+    renderSettingsPage("loop-safeguards");
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("heading", { name: "Loop Safeguards" }),
+      ).not.toBeNull();
+    });
+
+    fireEvent.change(screen.getByLabelText("Warning Threshold"), {
+      target: { value: "60" },
+    });
+    fireEvent.change(screen.getByLabelText("Hard Stop Limit"), {
+      target: { value: "80" },
+    });
+    fireEvent.blur(screen.getByLabelText("Hard Stop Limit"));
+
+    await waitFor(() => {
+      expect(loopLimitMocks.saveAgentLoopSettingsMock).toHaveBeenCalledWith({
+        warningThreshold: 60,
+        hardLimit: 80,
+      });
+    });
+    expect(jotaiStore.get(agentLoopSettingsAtom)).toEqual({
+      warningThreshold: 60,
+      hardLimit: 80,
+    });
+    expect(screen.queryByRole("button", { name: "Save limits" })).toBeNull();
+  });
+
+  it("rejects invalid loop safeguard pairs on blur", async () => {
+    renderSettingsPage("loop-safeguards");
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("heading", { name: "Loop Safeguards" }),
+      ).not.toBeNull();
+    });
+
+    fireEvent.change(screen.getByLabelText("Warning Threshold"), {
+      target: { value: "90" },
+    });
+    fireEvent.change(screen.getByLabelText("Hard Stop Limit"), {
+      target: { value: "80" },
+    });
+    fireEvent.blur(screen.getByLabelText("Hard Stop Limit"));
+
+    expect(
+      screen.getByText("Warning threshold must be lower than the hard stop limit."),
+    ).not.toBeNull();
+    expect(loopLimitMocks.saveAgentLoopSettingsMock).not.toHaveBeenCalled();
+  });
+
+  it("resets loop safeguards to defaults", async () => {
+    jotaiStore.set(agentLoopSettingsAtom, {
+      warningThreshold: 65,
+      hardLimit: 90,
+    });
+    renderSettingsPage("loop-safeguards");
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("heading", { name: "Loop Safeguards" }),
+      ).not.toBeNull();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Reset to defaults" }));
+
+    await waitFor(() => {
+      expect(loopLimitMocks.saveAgentLoopSettingsMock).toHaveBeenCalledWith(
+        DEFAULT_AGENT_LOOP_SETTINGS,
+      );
+    });
+    expect(jotaiStore.get(agentLoopSettingsAtom)).toEqual(
+      DEFAULT_AGENT_LOOP_SETTINGS,
+    );
   });
 
   it("renders the MCP settings section under AI and saves a tested server", async () => {

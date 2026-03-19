@@ -1,3 +1,4 @@
+pub mod agent_settings;
 pub mod cli;
 pub mod compaction;
 pub mod db;
@@ -107,6 +108,8 @@ pub fn run() {
             logging::logs_query,
             logging::logs_export,
             logging::logs_clear,
+            agent_settings::agent_settings_load,
+            agent_settings::agent_settings_save,
             compaction::compaction_settings_load,
             compaction::compaction_settings_save,
             mcp::mcp_servers_load,

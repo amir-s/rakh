@@ -319,6 +319,9 @@ Rakh persists data in multiple places by design:
 
 - provider instances: browser IndexedDB (`rakh-providers`)
 - theme mode, theme name, selected model, and some UI preferences: localStorage
+- global main-agent loop settings: `~/.rakh/config/agent.json`
+  or `~/.rakh-dev/config/agent.json`
+  - stores `warningThreshold` and `hardLimit`
 - global MCP server registry + MCP settings: `~/.rakh/config/mcp_servers.json`
   or `~/.rakh-dev/config/mcp_servers.json`
 - global context compaction settings: `~/.rakh/config/compaction.json`

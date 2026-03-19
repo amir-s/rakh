@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import type { ToolCallDisplay } from "@/agent/types";
+import { AGENT_LOOP_LIMIT_TOOL_NAME } from "@/agent/loopLimits";
 import { getExecCommandBadge } from "@/components/compactToolCallStatus";
 import ToolCallIcon from "@/components/ToolCallIcon";
 import { getToolCallLabel } from "@/components/toolDisplay";
@@ -231,6 +232,28 @@ export function buildCollapsedArgPreview(tc: ToolCallDisplay): string | null {
       if (q && answer) return `${q} -> "${answer}"`;
       if (q && skipped) return `${q} -> (skipped)`;
       return q || "question";
+    }
+    case AGENT_LOOP_LIMIT_TOOL_NAME: {
+      const currentIteration =
+        typeof args.currentIteration === "number" ? args.currentIteration : null;
+      const hardLimit =
+        typeof args.hardLimit === "number" ? args.hardLimit : null;
+      const remainingTurns =
+        typeof args.remainingTurns === "number" ? args.remainingTurns : null;
+      const result =
+        tc.result && typeof tc.result === "object"
+          ? (tc.result as Record<string, unknown>)
+          : null;
+      const action =
+        typeof result?.action === "string" ? result.action : null;
+      const prefix =
+        currentIteration !== null && hardLimit !== null
+          ? `turn ${currentIteration} of ${hardLimit}`
+          : "loop limit";
+      if (action === "continue") return `${prefix} -> continued`;
+      if (action === "stop") return `${prefix} -> stopped`;
+      if (remainingTurns !== null) return `${prefix} (${remainingTurns} remaining)`;
+      return prefix;
     }
     default: {
       return fallbackArgPreview(args);

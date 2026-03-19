@@ -44,6 +44,10 @@ import {
 } from "@/agent/db";
 import { rankFuzzyItems } from "@/utils/fuzzySearch";
 import {
+  DEFAULT_AGENT_LOOP_SETTINGS,
+  type AgentLoopSettings,
+} from "@/agent/loopLimits";
+import {
   saveMcpSettings,
   saveMcpServers,
   testMcpServer,
@@ -1748,6 +1752,169 @@ function NotificationsSection({
   );
 }
 
+function parseLoopLimitDraft(
+  draft: string,
+): number | null {
+  const trimmed = draft.trim();
+  if (!trimmed) return null;
+  if (!/^\d+$/.test(trimmed)) return null;
+  const parsed = Number.parseInt(trimmed, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
+function LoopSafeguardsSection({
+  controller,
+}: {
+  controller: SettingsControllerValue;
+}) {
+  const skipNextBlurSaveRef = useRef(false);
+  const [warningThresholdDraft, setWarningThresholdDraft] = useState(
+    String(controller.agentLoopSettings.warningThreshold),
+  );
+  const [hardLimitDraft, setHardLimitDraft] = useState(
+    String(controller.agentLoopSettings.hardLimit),
+  );
+  const [error, setError] = useState<string | null>(null);
+  const [saveState, setSaveState] = useState<"idle" | "saving">("idle");
+
+  useEffect(() => {
+    setWarningThresholdDraft(String(controller.agentLoopSettings.warningThreshold));
+    setHardLimitDraft(String(controller.agentLoopSettings.hardLimit));
+    setError(null);
+  }, [controller.agentLoopSettings]);
+
+  const warningThreshold = parseLoopLimitDraft(warningThresholdDraft);
+  const hardLimit = parseLoopLimitDraft(hardLimitDraft);
+
+  const saveDraft = async (settings: AgentLoopSettings) => {
+    setSaveState("saving");
+    setError(null);
+    try {
+      await controller.saveAgentLoopSettings(settings);
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : String(saveError));
+    } finally {
+      setSaveState("idle");
+    }
+  };
+
+  const handleBlurSave = () => {
+    if (skipNextBlurSaveRef.current) {
+      skipNextBlurSaveRef.current = false;
+      return;
+    }
+    if (saveState === "saving") {
+      return;
+    }
+    if (warningThreshold === null || hardLimit === null) {
+      setError("Both fields must be positive integers.");
+      return;
+    }
+    if (warningThreshold >= hardLimit) {
+      setError("Warning threshold must be lower than the hard stop limit.");
+      return;
+    }
+    if (
+      warningThreshold === controller.agentLoopSettings.warningThreshold &&
+      hardLimit === controller.agentLoopSettings.hardLimit
+    ) {
+      setError(null);
+      return;
+    }
+    void saveDraft({ warningThreshold, hardLimit });
+  };
+
+  const handleReset = () => {
+    setWarningThresholdDraft(String(DEFAULT_AGENT_LOOP_SETTINGS.warningThreshold));
+    setHardLimitDraft(String(DEFAULT_AGENT_LOOP_SETTINGS.hardLimit));
+    setError(null);
+    void saveDraft(DEFAULT_AGENT_LOOP_SETTINGS);
+  };
+
+  return (
+    <SectionCard
+      title="Main-Agent Loop Limits"
+      description="Control when long-running main-agent loops warn and when they are force-stopped."
+    >
+      <div className="settings-field">
+        <label className="settings-field-label" htmlFor="loop-warning-threshold">
+          Warning Threshold
+        </label>
+        <TextField
+          id="loop-warning-threshold"
+          type="number"
+          inputMode="numeric"
+          min={1}
+          value={warningThresholdDraft}
+          onChange={(event) => {
+            setWarningThresholdDraft(event.target.value);
+            if (error) setError(null);
+          }}
+          onBlur={handleBlurSave}
+          wrapClassName="settings-input-wrap w-32"
+        />
+        <div className="settings-row-desc mt-2">
+          Show a one-time dismissable warning after the current run exceeds this
+          iteration count.
+        </div>
+      </div>
+
+      <div className="settings-field">
+        <label className="settings-field-label" htmlFor="loop-hard-limit">
+          Hard Stop Limit
+        </label>
+        <TextField
+          id="loop-hard-limit"
+          type="number"
+          inputMode="numeric"
+          min={2}
+          value={hardLimitDraft}
+          onChange={(event) => {
+            setHardLimitDraft(event.target.value);
+            if (error) setError(null);
+          }}
+          onBlur={handleBlurSave}
+          wrapClassName="settings-input-wrap w-32"
+        />
+        <div className="settings-row-desc mt-2">
+          Pause for confirmation in the last 10 remaining turns and stop with an
+          error if the run reaches this limit.
+        </div>
+      </div>
+
+      <div className="settings-row-desc">
+        These limits are global app settings and apply only to the main agent
+        loop. In-progress runs keep the values they started with.
+      </div>
+
+      {error ? (
+        <div className="text-xxs text-error">{error}</div>
+      ) : null}
+
+      <div className="settings-provider-form__footer pt-2">
+        <div className="settings-provider-form__status" aria-live="polite">
+          {saveState === "saving" ? "Saving…" : ""}
+        </div>
+
+        <div className="settings-provider-form__actions">
+          <Button
+            type="button"
+            variant="ghost"
+            size="xs"
+            onMouseDown={() => {
+              skipNextBlurSaveRef.current = true;
+            }}
+            onClick={handleReset}
+            disabled={saveState === "saving"}
+          >
+            Reset to defaults
+          </Button>
+        </div>
+      </div>
+    </SectionCard>
+  );
+}
+
 function ContextCompactionSection({
   controller,
 }: {
@@ -3116,6 +3283,8 @@ function renderSection(
       return <NotificationsSection controller={controller} />;
     case "providers":
       return <ProvidersSection controller={controller} />;
+    case "loop-safeguards":
+      return <LoopSafeguardsSection controller={controller} />;
     case "context-compaction":
       return <ContextCompactionSection controller={controller} />;
     case "mcp":

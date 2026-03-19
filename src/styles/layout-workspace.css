@@ -590,6 +590,50 @@
   padding: 0 2px 10px;
 }
 
+.loop-limit-warning {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--color-warning) 26%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--color-warning) 10%, transparent);
+}
+
+.loop-limit-warning__copy {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  min-width: 0;
+}
+
+.loop-limit-warning__icon {
+  font-size: 18px;
+  color: var(--color-warning);
+  flex-shrink: 0;
+}
+
+.loop-limit-warning__text {
+  min-width: 0;
+}
+
+.loop-limit-warning__title {
+  font-size: var(--text-xxs);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-warning);
+}
+
+.loop-limit-warning__description {
+  margin-top: 2px;
+  font-size: var(--text-xs);
+  line-height: 1.45;
+  color: color-mix(in srgb, var(--color-text) 86%, transparent);
+}
+
 .busy-composer-row {
   width: 100%;
   display: flex;

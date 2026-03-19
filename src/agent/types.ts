@@ -342,6 +342,14 @@ export interface LlmUsageRecord {
   totalTokens: number;
 }
 
+export interface AgentLoopWarning {
+  runId: string;
+  currentIteration: number;
+  warningThreshold: number;
+  hardLimit: number;
+  dismissed: boolean;
+}
+
 /* ─────────────────────────────────────────────────────────────────────────────
    Advanced model / provider options (set at session creation time)
 ─────────────────────────────────────────────────────────────────────────── */
@@ -446,6 +454,8 @@ export interface AgentState {
   queueState: AgentQueueState;
   /** Raw per-call LLM token usage for session-level accounting and pricing. */
   llmUsageLedger: LlmUsageRecord[];
+  /** Ephemeral main-loop threshold warning for the active run. */
+  loopLimitWarning?: AgentLoopWarning | null;
   /** Controls debug-only UI surfaces for this tab */
   showDebug?: boolean;
   /** Latest known run trace for this tab. Not persisted across restarts. */

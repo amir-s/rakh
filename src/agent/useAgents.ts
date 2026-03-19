@@ -266,6 +266,7 @@ export function useResetAgent() {
       queuedMessages: [],
       queueState: "idle",
       llmUsageLedger: [],
+      loopLimitWarning: null,
       showDebug: prev.showDebug ?? false,
       lastRunTraceId: undefined,
     }));
@@ -332,6 +333,7 @@ export function useAgent(tabId: string) {
   const queuedMessages = useAgentQueuedMessages(tabId);
   const queueState = useAgentQueueState(tabId);
   const showDebug = useAgentShowDebug(tabId);
+  const loopLimitWarning = useAtomValue(agentAtomFamily(tabId)).loopLimitWarning;
   const lastRunTraceId = useAtomValue(agentAtomFamily(tabId)).lastRunTraceId;
   const sendMessage = useSendMessage();
   const queueMessage = useQueueMessage();
@@ -371,6 +373,7 @@ export function useAgent(tabId: string) {
     queuedMessages,
     queueState,
     showDebug,
+    loopLimitWarning,
     lastRunTraceId,
     sendMessage: useCallback(
       (msg: string, attachments?: AttachedImage[]) =>
@@ -411,5 +414,20 @@ export function useAgent(tabId: string) {
     ),
     reset: useCallback(() => resetAgent(tabId), [tabId, resetAgent]),
     retry: useCallback(() => retryAgent(tabId), [tabId, retryAgent]),
+    dismissLoopLimitWarning: useCallback(
+      () =>
+        patchAgentState(tabId, (prev) =>
+          prev.loopLimitWarning
+            ? {
+                ...prev,
+                loopLimitWarning: {
+                  ...prev.loopLimitWarning,
+                  dismissed: true,
+                },
+              }
+            : prev,
+        ),
+      [tabId],
+    ),
   };
 }

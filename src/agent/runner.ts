@@ -5,11 +5,13 @@
  */
 
 import {
+  agentLoopSettingsAtom,
   getAgentState,
   patchAgentState,
   jotaiStore,
 } from "./atoms";
 import { providersAtom } from "./db";
+import { normalizeAgentLoopSettings } from "./loopLimits";
 import { getModelCatalogEntry } from "./modelCatalog";
 import { execAbort, execStop } from "./tools/exec";
 import { findSubagentByTrigger, type SubagentDefinition } from "./subagents";
@@ -110,6 +112,7 @@ function setAgentErrorState(
     error,
     errorAction,
     errorDetails: errorDetails ?? null,
+    loopLimitWarning: null,
     streamingContent: null,
     queueState: pauseQueueState(prev.queuedMessages, prev.queueState),
   }));
@@ -315,6 +318,7 @@ function interruptActiveRun(
   patchAgentState(tabId, (prev) => ({
     ...prev,
     status: "idle",
+    loopLimitWarning: null,
     streamingContent: null,
     queueState: options.pauseQueue
       ? pauseQueueState(prev.queuedMessages, prev.queueState)
@@ -518,6 +522,7 @@ export async function retryAgent(tabId: string): Promise<void> {
     error: null,
     errorDetails: null,
     errorAction: null,
+    loopLimitWarning: null,
   });
 
   await runAgent(tabId, lastUserMessage, undefined, { skipUserChatAppend: true });
@@ -577,6 +582,7 @@ async function runAgentTurn(
   patchAgentState(tabId, {
     lastRunTraceId: runRootLogContext.traceId,
     turnCount: currentTurn,
+    loopLimitWarning: null,
   });
   const activeRun: ActiveRun = {
     runId,
@@ -773,6 +779,9 @@ async function runAgentTurn(
   const state = getAgentState(tabId);
   const { cwd, model } = state.config;
   const debugEnabled = state.showDebug ?? false;
+  const loopSettings = normalizeAgentLoopSettings(
+    jotaiStore.get(agentLoopSettingsAtom),
+  );
   const modelEntry = getModelCatalogEntry(model);
   const provider = modelEntry?.owned_by ?? null;
   const providers = jotaiStore.get(providersAtom);
@@ -923,6 +932,7 @@ async function runAgentTurn(
     error: null,
     errorAction: null,
     errorDetails: null,
+    loopLimitWarning: null,
     chatMessages: options?.skipUserChatAppend
       ? prev.chatMessages
       : [...prev.chatMessages, userChatMsg],
@@ -940,6 +950,7 @@ async function runAgentTurn(
       runId,
       currentTurn,
       runLogContext,
+      loopSettings,
     );
     completedCleanly = !controller.signal.aborted;
   } catch (err) {
