@@ -1000,7 +1000,6 @@ export async function agentLoop(
             tool_call_id: tcId,
             result,
             content: compactedOutput.content,
-            followupApiMessages: executed.followupApiMessages,
           };
         }),
       );
@@ -1009,17 +1008,13 @@ export async function agentLoop(
         throw new RunAbortedError();
       }
 
-      const toolApiMessages: ApiMessage[] = [];
-      for (const toolResult of toolResults) {
-        toolApiMessages.push({
+      const toolApiMessages: ApiMessage[] = toolResults.map(
+        ({ tool_call_id, content }) => ({
           role: "tool" as const,
-          tool_call_id: toolResult.tool_call_id,
-          content: toolResult.content,
-        });
-        for (const followup of toolResult.followupApiMessages ?? []) {
-          toolApiMessages.push(followup);
-        }
-      }
+          tool_call_id,
+          content,
+        }),
+      );
 
       patchAgentState(tabId, (prev) => ({
         ...prev,

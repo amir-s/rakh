@@ -1,5 +1,5 @@
 import type { McpToolRegistration } from "../mcp";
-import type { ApiMessage, ToolCallDisplay, ToolResult } from "../types";
+import type { ToolCallDisplay, ToolResult } from "../types";
 import type { LogContext } from "@/logging/types";
 
 import { writeRunnerLog } from "./logging";
@@ -7,7 +7,6 @@ import { writeRunnerLog } from "./logging";
 export interface ToolExecutorResult {
   result: ToolResult<unknown>;
   finalStatus?: ToolCallDisplay["status"];
-  followupApiMessages?: ApiMessage[];
 }
 
 export type ToolExecutor = (
@@ -110,10 +109,5 @@ export async function executeToolCall(
     options.logContext,
   );
 
-  return {
-    result,
-    ...(executed.followupApiMessages
-      ? { followupApiMessages: executed.followupApiMessages }
-      : {}),
-  };
+  return { result };
 }

@@ -326,6 +326,7 @@ export async function executeMainContextCompaction(opts: {
 
     const refreshedSystemPrompt = await buildMainSystemPromptForState(
       getAgentState(opts.tabId),
+      { forceRefresh: true },
     );
 
     const summaryMessage = createCompactionSummaryChatMessage(

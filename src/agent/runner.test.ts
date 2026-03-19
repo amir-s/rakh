@@ -885,7 +885,7 @@ describe("runner", () => {
     });
   });
 
-  it("preserves the original system prompt after git_worktree_init and appends a cwd state handoff", async () => {
+  it("preserves the original system prompt after git_worktree_init without appending a cwd handoff", async () => {
     const tabId = "tab-worktree-state-handoff";
     setState(tabId, {
       config: { cwd: "/repo", model: "openai/gpt-5.2" },
@@ -903,6 +903,13 @@ describe("runner", () => {
               mode: "skip",
               skipReason: "Test fixture worktree bootstrap.",
             },
+          },
+        },
+        {
+          id: "tc-after-worktree",
+          name: "workspace_stat",
+          arguments: {
+            path: "package.json",
           },
         },
       ],
@@ -941,15 +948,14 @@ describe("runner", () => {
     expect(String(states[tabId].apiMessages[0]?.content)).toContain(
       "Workspace root: /repo",
     );
-    expect(states[tabId].apiMessages).toContainEqual({
-      role: "user",
-      content:
-        "Synthetic runner state update.\n" +
-        "Treat this as runner-provided execution state, not as a new user request.\n\n" +
-        "Previous workspace root: /repo\n" +
-        "Current workspace root: /repo/.rakh/worktrees/feat-cache\n" +
-        "Use the current workspace root for future workspace-relative tool calls.",
-    });
+    expect(
+      states[tabId].apiMessages.some(
+        (message) =>
+          message.role === "user" &&
+          typeof message.content === "string" &&
+          message.content.includes("Synthetic runner state update."),
+      ),
+    ).toBe(false);
   });
 
   it("merges discovered MCP tools into the main run and routes them through approval", async () => {
@@ -4774,7 +4780,7 @@ describe("runner", () => {
         ],
       });
       expect(state.apiMessages[0]).toMatchObject({ role: "system" });
-      expect(String(state.apiMessages[0]?.content)).toBe("Original system prompt");
+      expect(String(state.apiMessages[0]?.content)).toContain("You are Rakh");
       expect(state.apiMessages[1]).toEqual({
         role: "user",
         content: makeCompactedHistoryApiContent(compactedMarkdown),
@@ -4936,7 +4942,7 @@ describe("runner", () => {
       );
     });
 
-    it("persists learned facts during compaction without rewriting the active system prompt", async () => {
+    it("persists learned facts during compaction and refreshes the active system prompt", async () => {
       const tabId = "tab-trigger-compact-memory-write";
       const compactedMarkdown = makeCompactedHistoryMarkdown(
         "Resume from the learned facts.",
@@ -5064,10 +5070,21 @@ describe("runner", () => {
         fact("fact_tauri", "The backend uses Tauri."),
         fact("fact_pnpm", "Use pnpm in this repo."),
       ]);
-      expect(states[tabId].apiMessages[0]).toEqual({
+      expect(states[tabId].apiMessages[0]).toMatchObject({
         role: "system",
-        content: "Original system prompt",
       });
+      expect(String(states[tabId].apiMessages[0]?.content)).toContain(
+        "PROJECT MEMORY",
+      );
+      expect(String(states[tabId].apiMessages[0]?.content)).toContain(
+        "fact_existing",
+      );
+      expect(String(states[tabId].apiMessages[0]?.content)).toContain(
+        "The backend uses Tauri.",
+      );
+      expect(String(states[tabId].apiMessages[0]?.content)).toContain(
+        "Use pnpm in this repo.",
+      );
     });
 
     it("re-compacts already summarized api history together with newer raw turns", async () => {
@@ -5148,9 +5165,7 @@ describe("runner", () => {
       await runAgent(tabId, "/compact");
 
       expect(states[tabId].apiMessages[0]).toMatchObject({ role: "system" });
-      expect(String(states[tabId].apiMessages[0]?.content)).toBe(
-        "Original system prompt",
-      );
+      expect(String(states[tabId].apiMessages[0]?.content)).toContain("You are Rakh");
       expect(states[tabId].apiMessages[1]).toEqual({
         role: "user",
         content: makeCompactedHistoryApiContent(newCompactedMarkdown),
