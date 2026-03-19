@@ -49,6 +49,20 @@ function createEmptySearchState(): GitHubIssueSearchState {
   };
 }
 
+function createLoadingDetailsSnapshot(
+  repoSlug: string,
+  issueNumber: number,
+): GitHubIssueDetailsSnapshot {
+  const snapshot = getGitHubIssueDetailsSnapshot(repoSlug, issueNumber);
+  if (snapshot.issue || snapshot.error || snapshot.isLoading) {
+    return snapshot;
+  }
+  return {
+    ...snapshot,
+    isLoading: true,
+  };
+}
+
 function relativeTime(value: number): string {
   const diff = Date.now() - value;
   const secs = Math.floor(diff / 1000);
@@ -83,6 +97,50 @@ function formatIssueSupplementalInfo(issue: GitHubIssueSummary): string[] {
     );
   }
   return items;
+}
+
+function getIssueStatePresentation(state: string): {
+  icon: string;
+  className: string;
+} {
+  const normalized = state.trim().toUpperCase();
+  if (normalized === "OPEN") {
+    return {
+      icon: "radio_button_checked",
+      className: "github-issues-popover__issue-state-icon--open",
+    };
+  }
+  if (normalized === "CLOSED") {
+    return {
+      icon: "check_circle",
+      className: "github-issues-popover__issue-state-icon--closed",
+    };
+  }
+  return {
+    icon: "adjust",
+    className: "github-issues-popover__issue-state-icon--other",
+  };
+}
+
+function IssueTitle({
+  issue,
+  className,
+}: {
+  issue: GitHubIssueSummary;
+  className?: string;
+}) {
+  const state = getIssueStatePresentation(issue.state);
+  return (
+    <span className={className}>
+      <span
+        className={`material-symbols-outlined github-issues-popover__issue-state-icon ${state.className}`}
+        aria-hidden="true"
+      >
+        {state.icon}
+      </span>
+      <span className="github-issues-popover__item-title-text">{issue.title}</span>
+    </span>
+  );
 }
 
 function GitHubIssueModal({
@@ -139,11 +197,13 @@ function GitHubIssueModal({
 
         <div className="error-modal-body github-issue-modal__body">
           <div className="tool-modal-section">
-            <div className="tool-modal-section-label">{issue.title}</div>
+            <div className="tool-modal-section-label github-issue-modal__title">
+              <IssueTitle
+                issue={issue}
+                className="github-issues-popover__item-title github-issue-modal__title-inline"
+              />
+            </div>
             <div className="github-issue-modal__meta">
-              <span className="github-issues-popover__state-badge">
-                {issue.state}
-              </span>
               {formatIssueSupplementalInfo(issue).map((item) => (
                 <span key={item}>{item}</span>
               ))}
@@ -521,23 +581,21 @@ export default function GitHubIssuesControl({
                     onClick={() => {
                       closePopover();
                       setDetailsSnapshot(
-                        getGitHubIssueDetailsSnapshot(repoSlug, issue.number),
+                        createLoadingDetailsSnapshot(repoSlug, issue.number),
                       );
                       setSelectedIssue(issue);
                     }}
                   >
                     <div className="github-issues-popover__item-header">
-                      <span className="github-issues-popover__item-title">
-                        {issue.title}
-                      </span>
+                      <IssueTitle
+                        issue={issue}
+                        className="github-issues-popover__item-title"
+                      />
                       <span className="github-issues-popover__item-number">
                         #{issue.number}
                       </span>
                     </div>
                     <div className="github-issues-popover__item-meta">
-                      <span className="github-issues-popover__state-badge">
-                        {issue.state}
-                      </span>
                       {formatIssueSupplementalInfo(issue).map((item) => (
                         <span key={item}>{item}</span>
                       ))}
