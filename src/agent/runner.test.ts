@@ -327,6 +327,7 @@ import {
   stopRunningExecToolCall,
 } from "./runner";
 import { hasOnlyCompactedHistory } from "./runner/mainContextCompaction";
+import { clearMainSystemPromptCache } from "./runner/mainSystemPrompt";
 import { getSavedProjects, saveSavedProjects } from "@/projects";
 import { registerDynamicModels } from "./modelCatalog";
 
@@ -508,6 +509,7 @@ describe("hasOnlyCompactedHistory", () => {
 
 describe("runner", () => {
   beforeEach(async () => {
+    clearMainSystemPromptCache();
     registerDynamicModels([
       {
         id: "openai/gpt-5.2",
