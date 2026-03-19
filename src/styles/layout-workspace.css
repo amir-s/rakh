@@ -906,6 +906,24 @@
   color: var(--color-error);
 }
 
+/* Issue attachment chip — icon replaces thumbnail */
+.chat-attachment-chip--issue {
+  padding-left: 6px;
+}
+.chat-attachment-issue-icon {
+  font-size: 18px;
+  color: var(--color-muted);
+  flex-shrink: 0;
+  user-select: none;
+}
+
+/* GitHub issue modal footer actions group */
+.github-issue-modal__footer-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .workspace-error-details-btn:hover:not(:disabled) {
   color: var(--color-error);
   border-color: color-mix(in srgb, var(--color-error) 45%, transparent);

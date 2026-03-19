@@ -2192,6 +2192,240 @@ describe("WorkspacePage chat input", () => {
     ).toBe("https://github.com/acme/repo/issues/1");
   });
 
+  it("attaches an issue chip and sends context when Reference in Chat is clicked", async () => {
+    workspaceMocks.agentState = {
+      ...workspaceMocks.agentState,
+      config: {
+        ...workspaceMocks.agentState.config,
+        projectPath: "/repo",
+      },
+    };
+    workspaceMocks.findSavedProjectMock.mockReturnValue({
+      path: "/repo",
+      name: "Repo",
+    });
+    workspaceMocks.resolveSavedProjectMock.mockResolvedValue({
+      path: "/repo",
+      name: "Repo",
+      commands: [],
+      githubIntegrationEnabled: true,
+    });
+
+    const fakeArtifactManifest = {
+      sessionId: "tab-1",
+      runId: "run-abc",
+      agentId: "agent-abc",
+      artifactSeq: 1,
+      artifactId: "artifact-issue-1",
+      version: 1,
+      kind: "github-issue",
+      summary: "GitHub issue #1: Issue 1",
+      metadata: {},
+      contentFormat: "json",
+      blobHash: "hash1",
+      sizeBytes: 100,
+      createdAt: 1000,
+    };
+
+    workspaceMocks.execRunMock.mockImplementation(
+      async (
+        cwd: string,
+        input: { command: string; args?: string[] },
+      ) => {
+        if (
+          input.command === "git" &&
+          input.args?.join(" ") === "rev-parse --show-toplevel"
+        ) {
+          return makeExecRunResult({ stdout: `${cwd}\n` });
+        }
+        if (
+          input.command === "git" &&
+          input.args?.join(" ") === "remote get-url origin"
+        ) {
+          return makeExecRunResult({ stdout: "git@github.com:acme/repo.git\n" });
+        }
+        if (input.command === "gh" && input.args?.[1] === "list") {
+          return makeExecRunResult({
+            stdout: JSON.stringify([makeGitHubIssue(1, { title: "Issue 1" })]),
+          });
+        }
+        if (input.command === "gh" && input.args?.[1] === "view") {
+          return makeExecRunResult({
+            stdout: JSON.stringify(
+              makeGitHubIssue(1, { title: "Issue 1", body: "Body of issue 1" }),
+            ),
+          });
+        }
+        return makeExecRunResult();
+      },
+    );
+
+    workspaceMocks.invokeMock.mockImplementation(
+      async (cmd: string, _args?: unknown) => {
+        if (cmd === "db_artifact_create") {
+          return fakeArtifactManifest;
+        }
+        // Default: file search autocomplete result
+        return { matches: [], truncated: false };
+      },
+    );
+
+    render(<WorkspacePage />);
+
+    // Open issues popover
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Open recent GitHub issues" }),
+    );
+
+    // Click Issue 1 to open the modal
+    fireEvent.click(await screen.findByText("Issue 1"));
+
+    // Wait for modal and issue body to load
+    await screen.findByRole("dialog", { name: "GitHub issue #1" });
+    await screen.findByText("Body of issue 1");
+
+    // Click "Reference in Chat"
+    fireEvent.click(screen.getByTitle("Attach this issue to the current chat"));
+
+    // Chip should appear in the attachment strip
+    await screen.findByText("#1 Issue 1");
+
+    // Type something and submit
+    const textbox = screen.getByRole("textbox");
+    fireEvent.input(textbox, { target: { textContent: "fix this issue" } });
+
+    // Close modal first (click backdrop or just submit directly)
+    // Submit using Enter key
+    fireEvent.keyDown(textbox, { key: "Enter" });
+
+    await waitFor(() => {
+      expect(workspaceMocks.sendMessageMock).toHaveBeenCalledWith(
+        expect.stringContaining(
+          `[Context: GitHub issue #1 ("Issue 1") has been attached as artifact artifact-issue-1. Use the agent_artifact_get tool to read its full content.]`,
+        ),
+      );
+    });
+
+    // Chip should be gone after submit
+    expect(screen.queryByText("#1 Issue 1")).toBeNull();
+  });
+
+  it("opens a new session tab with an issue chip when Open in New Session is clicked", async () => {
+    workspaceMocks.agentState = {
+      ...workspaceMocks.agentState,
+      config: {
+        ...workspaceMocks.agentState.config,
+        projectPath: "/repo",
+      },
+    };
+    workspaceMocks.findSavedProjectMock.mockReturnValue({
+      path: "/repo",
+      name: "Repo",
+    });
+    workspaceMocks.resolveSavedProjectMock.mockResolvedValue({
+      path: "/repo",
+      name: "Repo",
+      commands: [],
+      githubIntegrationEnabled: true,
+    });
+
+    const fakeArtifactManifest = {
+      sessionId: "tab-fork",
+      runId: "run-xyz",
+      agentId: "agent-xyz",
+      artifactSeq: 1,
+      artifactId: "artifact-issue-5",
+      version: 1,
+      kind: "github-issue",
+      summary: "GitHub issue #5: Issue 5",
+      metadata: {},
+      contentFormat: "json",
+      blobHash: "hash5",
+      sizeBytes: 120,
+      createdAt: 2000,
+    };
+
+    workspaceMocks.execRunMock.mockImplementation(
+      async (
+        cwd: string,
+        input: { command: string; args?: string[] },
+      ) => {
+        if (
+          input.command === "git" &&
+          input.args?.join(" ") === "rev-parse --show-toplevel"
+        ) {
+          return makeExecRunResult({ stdout: `${cwd}\n` });
+        }
+        if (
+          input.command === "git" &&
+          input.args?.join(" ") === "remote get-url origin"
+        ) {
+          return makeExecRunResult({ stdout: "git@github.com:acme/repo.git\n" });
+        }
+        if (input.command === "gh" && input.args?.[1] === "list") {
+          return makeExecRunResult({
+            stdout: JSON.stringify([makeGitHubIssue(5, { title: "Issue 5" })]),
+          });
+        }
+        if (input.command === "gh" && input.args?.[1] === "view") {
+          return makeExecRunResult({
+            stdout: JSON.stringify(
+              makeGitHubIssue(5, { title: "Issue 5", body: "Body of issue 5" }),
+            ),
+          });
+        }
+        return makeExecRunResult();
+      },
+    );
+
+    workspaceMocks.invokeMock.mockImplementation(
+      async (cmd: string, _args?: unknown) => {
+        if (cmd === "db_artifact_create") {
+          return fakeArtifactManifest;
+        }
+        return { matches: [], truncated: false };
+      },
+    );
+
+    render(<WorkspacePage />);
+
+    // Open issues popover
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Open recent GitHub issues" }),
+    );
+
+    // Click Issue 5 to open the modal
+    fireEvent.click(await screen.findByText("Issue 5"));
+
+    // Wait for modal and issue body to load
+    await screen.findByRole("dialog", { name: "GitHub issue #5" });
+    await screen.findByText("Body of issue 5");
+
+    // Click "Open in New Session"
+    fireEvent.click(screen.getByTitle("Open this issue in a new session"));
+
+    // A new tab should be created with the issue label
+    await waitFor(() => {
+      expect(workspaceMocks.addTabMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          mode: "workspace",
+          label: "Issue #5",
+          icon: "bug_report",
+        }),
+      );
+    });
+
+    // The artifact should be created for the new tab
+    await waitFor(() => {
+      expect(workspaceMocks.invokeMock).toHaveBeenCalledWith(
+        "db_artifact_create",
+        expect.objectContaining({
+          sessionId: "tab-fork",
+        }),
+      );
+    });
+  });
+
   it("shows GitHub empty and error states in the issues popover", async () => {
     workspaceMocks.agentState = {
       ...workspaceMocks.agentState,
