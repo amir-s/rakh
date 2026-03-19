@@ -1,19 +1,10 @@
-import {
-  jotaiStore,
-  toolContextCompactionEnabledAtom,
-} from "../atoms";
+import { jotaiStore, toolContextCompactionEnabledAtom } from "../atoms";
 import type { AgentState } from "../types";
-import {
-  loadSavedProjectForWorkspace,
-  normalizeLearnedFacts,
-} from "@/projects";
+import { loadSavedProjectForWorkspace } from "@/projects";
 
 import {
   buildSystemPrompt,
   buildSystemPromptRuntimeContext,
-  getCommunicationInstruction,
-  parseSystemPromptRuntimeContext,
-  type SystemPromptRuntimeContext,
 } from "./systemPrompt";
 
 interface WorkspacePromptCapabilities {
@@ -21,14 +12,6 @@ interface WorkspacePromptCapabilities {
   hasAgentsFile: boolean;
   hasSkillsDir: boolean;
 }
-
-interface MainSystemPromptCacheEntry {
-  prompt: string;
-  runtimeContext: SystemPromptRuntimeContext;
-  structuralKey: string;
-}
-
-const mainSystemPromptCache = new Map<string, MainSystemPromptCacheEntry>();
 
 async function inspectWorkspaceForSystemPrompt(
   cwd: string,
@@ -86,93 +69,42 @@ function getExistingSystemPrompt(state: AgentState): string | null {
     : null;
 }
 
-function buildStructuralKey(input: {
-  cwd: string;
-  isGitRepo: boolean;
-  hasAgentsFile: boolean;
-  hasSkillsDir: boolean;
-  communicationInstruction: string | null;
-  toolContextCompactionEnabled: boolean;
-  projectLearnedFacts: unknown;
-}): string {
-  return JSON.stringify({
-    cwd: input.cwd,
-    isGitRepo: input.isGitRepo,
-    hasAgentsFile: input.hasAgentsFile,
-    hasSkillsDir: input.hasSkillsDir,
-    communicationInstruction: input.communicationInstruction ?? "",
-    toolContextCompactionEnabled: input.toolContextCompactionEnabled,
-    projectLearnedFacts: normalizeLearnedFacts(input.projectLearnedFacts) ?? [],
-  });
-}
-
-function resolveRuntimeContext(
-  state: AgentState,
-  cachedEntry: MainSystemPromptCacheEntry | undefined,
-): SystemPromptRuntimeContext {
-  if (cachedEntry) return cachedEntry.runtimeContext;
-
-  const existingPrompt = getExistingSystemPrompt(state);
-  if (existingPrompt) {
-    const parsed = parseSystemPromptRuntimeContext(existingPrompt);
-    if (parsed) return parsed;
-  }
-
-  return buildSystemPromptRuntimeContext();
-}
-
-export function clearMainSystemPromptCache(tabId?: string): void {
-  if (typeof tabId === "string") {
-    mainSystemPromptCache.delete(tabId);
-    return;
-  }
-  mainSystemPromptCache.clear();
-}
-
 export async function buildMainSystemPromptForState(
-  tabId: string,
   state: AgentState,
 ): Promise<string> {
+  const existingPrompt = getExistingSystemPrompt(state);
+  if (existingPrompt) return existingPrompt;
+
   const cwd = state.config.cwd;
   const [workspaceInfo, project] = await Promise.all([
     inspectWorkspaceForSystemPrompt(cwd),
     loadSavedProjectForWorkspace(state.config.projectPath, cwd),
   ]);
-  const communicationInstruction = getCommunicationInstruction(
-    state.config.communicationProfile,
-  );
   const toolContextCompactionEnabled =
     jotaiStore.get(toolContextCompactionEnabledAtom) !== false;
 
-  const structuralKey = buildStructuralKey({
-    cwd,
-    ...workspaceInfo,
-    communicationInstruction,
-    toolContextCompactionEnabled,
-    projectLearnedFacts: project?.learnedFacts,
-  });
-
-  const cachedEntry = mainSystemPromptCache.get(tabId);
-  if (cachedEntry?.structuralKey === structuralKey) {
-    return cachedEntry.prompt;
-  }
-
-  const runtimeContext = resolveRuntimeContext(state, cachedEntry);
-  const prompt = buildSystemPrompt(
+  return buildSystemPrompt(
     cwd,
     workspaceInfo.isGitRepo,
     workspaceInfo.hasAgentsFile,
     workspaceInfo.hasSkillsDir,
-    runtimeContext,
+    buildSystemPromptRuntimeContext(),
     project?.learnedFacts,
     state.config.communicationProfile,
     toolContextCompactionEnabled,
   );
+}
 
-  mainSystemPromptCache.set(tabId, {
-    prompt,
-    runtimeContext,
-    structuralKey,
-  });
-  return prompt;
+export function buildWorkspaceRootUpdateMessage(
+  previousCwd: string,
+  currentCwd: string,
+): string {
+  return [
+    "Synthetic runner state update.",
+    "Treat this as runner-provided execution state, not as a new user request.",
+    "",
+    `Previous workspace root: ${previousCwd || "(empty)"}`,
+    `Current workspace root: ${currentCwd}`,
+    "Use the current workspace root for future workspace-relative tool calls.",
+  ].join("\n");
 }

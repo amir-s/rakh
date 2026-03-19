@@ -325,7 +325,6 @@ export async function executeMainContextCompaction(opts: {
     }
 
     const refreshedSystemPrompt = await buildMainSystemPromptForState(
-      opts.tabId,
       getAgentState(opts.tabId),
     );
 

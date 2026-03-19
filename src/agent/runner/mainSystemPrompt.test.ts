@@ -48,7 +48,7 @@ vi.mock("@/projects", async () => {
 
 import {
   buildMainSystemPromptForState,
-  clearMainSystemPromptCache,
+  buildWorkspaceRootUpdateMessage,
 } from "./mainSystemPrompt";
 
 function makeState(overrides: Partial<AgentState> = {}): AgentState {
@@ -103,7 +103,6 @@ describe("buildMainSystemPromptForState", () => {
   };
 
   beforeEach(() => {
-    clearMainSystemPromptCache();
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-03-19T14:00:00.000Z"));
 
@@ -175,142 +174,58 @@ describe("buildMainSystemPromptForState", () => {
 
   afterEach(() => {
     vi.useRealTimers();
-    clearMainSystemPromptCache();
     jotaiStoreMock.get.mockReset();
     tauriInvokeMock.mockReset();
     loadSavedProjectForWorkspaceMock.mockReset();
   });
 
-  it("reuses identical prompt bytes across unchanged turns", async () => {
+  it("builds the session prompt from current startup state when no system prompt exists", async () => {
     const state = makeState();
 
-    const firstPrompt = await buildMainSystemPromptForState("tab-stable", state);
+    const prompt = await buildMainSystemPromptForState(state);
 
-    vi.setSystemTime(new Date("2026-03-19T18:45:00.000Z"));
-    const secondPrompt = await buildMainSystemPromptForState("tab-stable", state);
-
-    expect(secondPrompt).toBe(firstPrompt);
-    expect(secondPrompt).toContain(
-      "Current UTC timestamp: 2026-03-19T14:00:00.000Z",
-    );
+    expect(prompt).toContain("Workspace root: /repo");
+    expect(prompt).toContain("Use pnpm in this repo.");
+    expect(prompt).toContain("Be pragmatic.");
+    expect(prompt).toContain("TOOL IO CONTEXT COMPACTION");
   });
 
-  it("reuses the persisted runtime snapshot after cache reset", async () => {
-    const state = makeState();
-    const firstPrompt = await buildMainSystemPromptForState("tab-restore", state);
-
-    clearMainSystemPromptCache("tab-restore");
-    vi.setSystemTime(new Date("2026-03-20T09:30:00.000Z"));
-
-    const restoredState = makeState({
-      apiMessages: [{ role: "system", content: firstPrompt }],
+  it("reuses the existing system prompt verbatim for the rest of the session", async () => {
+    const initialPrompt = await buildMainSystemPromptForState(makeState());
+    const state = makeState({
+      config: {
+        cwd: "/repo/worktree",
+        model: "openai/gpt-5.2",
+        communicationProfile: "friendly",
+      },
+      apiMessages: [{ role: "system", content: initialPrompt }],
     });
-    const restoredPrompt = await buildMainSystemPromptForState(
-      "tab-restore",
-      restoredState,
-    );
-
-    expect(restoredPrompt).toBe(firstPrompt);
-    expect(restoredPrompt).toContain(
-      "Current UTC timestamp: 2026-03-19T14:00:00.000Z",
-    );
-  });
-
-  it("invalidates the cached prompt when project memory changes", async () => {
-    const state = makeState();
-    const firstPrompt = await buildMainSystemPromptForState("tab-memory", state);
 
     projectLearnedFacts = [
       { id: "fact_pnpm", text: "Use pnpm in this repo." },
       { id: "fact_tauri", text: "The backend uses Tauri." },
     ];
-    vi.setSystemTime(new Date("2026-03-19T20:00:00.000Z"));
-
-    const secondPrompt = await buildMainSystemPromptForState("tab-memory", state);
-
-    expect(secondPrompt).not.toBe(firstPrompt);
-    expect(secondPrompt).toContain("The backend uses Tauri.");
-    expect(secondPrompt).toContain(
-      "Current UTC timestamp: 2026-03-19T14:00:00.000Z",
-    );
-  });
-
-  it("invalidates the cached prompt when the communication profile changes", async () => {
-    const state = makeState();
-    const firstPrompt = await buildMainSystemPromptForState("tab-profile", state);
-
-    const nextState = makeState({
-      config: {
-        ...state.config,
-        communicationProfile: "friendly",
-      },
-    });
-    vi.setSystemTime(new Date("2026-03-19T20:00:00.000Z"));
-
-    const secondPrompt = await buildMainSystemPromptForState(
-      "tab-profile",
-      nextState,
-    );
-
-    expect(secondPrompt).not.toBe(firstPrompt);
-    expect(firstPrompt).toContain("Be pragmatic.");
-    expect(secondPrompt).toContain("Use a warmer tone.");
-    expect(secondPrompt).toContain(
-      "Current UTC timestamp: 2026-03-19T14:00:00.000Z",
-    );
-  });
-
-  it("invalidates the cached prompt when tool-context compaction changes", async () => {
-    const state = makeState();
-    const firstPrompt = await buildMainSystemPromptForState(
-      "tab-compaction",
-      state,
-    );
-
-    toolContextCompactionEnabled = false;
-    vi.setSystemTime(new Date("2026-03-19T20:00:00.000Z"));
-
-    const secondPrompt = await buildMainSystemPromptForState(
-      "tab-compaction",
-      state,
-    );
-
-    expect(secondPrompt).not.toBe(firstPrompt);
-    expect(firstPrompt).toContain("TOOL IO CONTEXT COMPACTION");
-    expect(secondPrompt).not.toContain("TOOL IO CONTEXT COMPACTION");
-    expect(secondPrompt).toContain(
-      "Current UTC timestamp: 2026-03-19T14:00:00.000Z",
-    );
-  });
-
-  it("invalidates the cached prompt when workspace capabilities change", async () => {
-    const state = makeState();
-    const firstPrompt = await buildMainSystemPromptForState(
-      "tab-capabilities",
-      state,
-    );
-
     workspaceCapabilities = {
       isGitRepo: false,
       hasAgentsFile: false,
       hasSkillsDir: false,
     };
-    vi.setSystemTime(new Date("2026-03-19T20:00:00.000Z"));
+    toolContextCompactionEnabled = false;
 
-    const secondPrompt = await buildMainSystemPromptForState(
-      "tab-capabilities",
-      state,
-    );
+    const prompt = await buildMainSystemPromptForState(state);
 
-    expect(secondPrompt).not.toBe(firstPrompt);
-    expect(firstPrompt).toContain("GIT ISOLATION");
-    expect(firstPrompt).toContain("Check AGENTS.md in the root");
-    expect(firstPrompt).toContain("Check .agents/skills");
-    expect(secondPrompt).not.toContain("GIT ISOLATION");
-    expect(secondPrompt).not.toContain("Check AGENTS.md in the root");
-    expect(secondPrompt).not.toContain("Check .agents/skills");
-    expect(secondPrompt).toContain(
-      "Current UTC timestamp: 2026-03-19T14:00:00.000Z",
-    );
+    expect(prompt).toBe(initialPrompt);
+    expect(prompt).toContain("Workspace root: /repo");
+    expect(prompt).not.toContain("/repo/worktree");
+    expect(prompt).not.toContain("The backend uses Tauri.");
+    expect(prompt).toContain("Be pragmatic.");
+  });
+});
+
+describe("buildWorkspaceRootUpdateMessage", () => {
+  it("renders a synthetic runner-state handoff for worktree cwd changes", () => {
+    expect(
+      buildWorkspaceRootUpdateMessage("/repo", "/repo/.rakh/worktree"),
+    ).toContain("Current workspace root: /repo/.rakh/worktree");
   });
 });

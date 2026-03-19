@@ -327,7 +327,6 @@ import {
   stopRunningExecToolCall,
 } from "./runner";
 import { hasOnlyCompactedHistory } from "./runner/mainContextCompaction";
-import { clearMainSystemPromptCache } from "./runner/mainSystemPrompt";
 import { getSavedProjects, saveSavedProjects } from "@/projects";
 import { registerDynamicModels } from "./modelCatalog";
 
@@ -509,7 +508,6 @@ describe("hasOnlyCompactedHistory", () => {
 
 describe("runner", () => {
   beforeEach(async () => {
-    clearMainSystemPromptCache();
     registerDynamicModels([
       {
         id: "openai/gpt-5.2",
@@ -823,7 +821,7 @@ describe("runner", () => {
     expect(dispatchToolMock).not.toHaveBeenCalled();
   });
 
-  it("refreshes the main system prompt and tool schemas when tool IO compaction is disabled", async () => {
+  it("keeps the existing system prompt but refreshes tool schemas when tool IO compaction is disabled", async () => {
     const tabId = "tab-compaction-disabled";
     setState(tabId, {
       apiMessages: [
@@ -875,15 +873,82 @@ describe("runner", () => {
     await runAgent(tabId, "hi");
 
     expect(buildToolDefinitionsMock).toHaveBeenCalledWith(false);
-    expect(String(states[tabId].apiMessages[0]?.content)).not.toContain(
+    expect(String(states[tabId].apiMessages[0]?.content)).toContain(
       "TOOL IO CONTEXT COMPACTION",
     );
-    expect(String(states[tabId].apiMessages[0]?.content)).not.toContain(
+    expect(String(states[tabId].apiMessages[0]?.content)).toContain(
       "__contextCompaction",
     );
     expect(states[tabId].apiMessages[1]).toMatchObject({
       role: "assistant",
       content: "Prior assistant state.",
+    });
+  });
+
+  it("preserves the original system prompt after git_worktree_init and appends a cwd state handoff", async () => {
+    const tabId = "tab-worktree-state-handoff";
+    setState(tabId, {
+      config: { cwd: "/repo", model: "openai/gpt-5.2" },
+    });
+    turns.push({
+      deltas: ["Creating worktree."],
+      toolCalls: [
+        {
+          id: "tc-worktree",
+          name: "git_worktree_init",
+          arguments: {
+            suggestedBranch: "feat/cache",
+            mutationIntent: "setup",
+            todoHandling: {
+              mode: "skip",
+              skipReason: "Test fixture worktree bootstrap.",
+            },
+          },
+        },
+      ],
+    });
+    turns.push({ deltas: ["Done"], toolCalls: [] });
+
+    dispatchToolMock.mockImplementation(
+      async (passedTabId: unknown, _cwd: unknown, toolName: unknown) => {
+        if (
+          passedTabId === tabId &&
+          toolName === "git_worktree_init"
+        ) {
+          states[tabId] = {
+            ...states[tabId],
+            config: {
+              ...states[tabId].config,
+              cwd: "/repo/.rakh/worktrees/feat-cache",
+              worktreePath: "/repo/.rakh/worktrees/feat-cache",
+              worktreeBranch: "feat/cache",
+            },
+          };
+          return {
+            ok: true,
+            data: {
+              path: "/repo/.rakh/worktrees/feat-cache",
+              branch: "feat/cache",
+            },
+          };
+        }
+        return { ok: true, data: { ok: true } };
+      },
+    );
+
+    await runAgent(tabId, "update the files");
+
+    expect(String(states[tabId].apiMessages[0]?.content)).toContain(
+      "Workspace root: /repo",
+    );
+    expect(states[tabId].apiMessages).toContainEqual({
+      role: "user",
+      content:
+        "Synthetic runner state update.\n" +
+        "Treat this as runner-provided execution state, not as a new user request.\n\n" +
+        "Previous workspace root: /repo\n" +
+        "Current workspace root: /repo/.rakh/worktrees/feat-cache\n" +
+        "Use the current workspace root for future workspace-relative tool calls.",
     });
   });
 
@@ -4709,7 +4774,7 @@ describe("runner", () => {
         ],
       });
       expect(state.apiMessages[0]).toMatchObject({ role: "system" });
-      expect(String(state.apiMessages[0]?.content)).toContain("You are Rakh");
+      expect(String(state.apiMessages[0]?.content)).toBe("Original system prompt");
       expect(state.apiMessages[1]).toEqual({
         role: "user",
         content: makeCompactedHistoryApiContent(compactedMarkdown),
@@ -4871,7 +4936,7 @@ describe("runner", () => {
       );
     });
 
-    it("persists learned facts during compaction and refreshes the active system prompt", async () => {
+    it("persists learned facts during compaction without rewriting the active system prompt", async () => {
       const tabId = "tab-trigger-compact-memory-write";
       const compactedMarkdown = makeCompactedHistoryMarkdown(
         "Resume from the learned facts.",
@@ -4999,21 +5064,10 @@ describe("runner", () => {
         fact("fact_tauri", "The backend uses Tauri."),
         fact("fact_pnpm", "Use pnpm in this repo."),
       ]);
-      expect(String(states[tabId].apiMessages[0]?.content)).toContain(
-        "PROJECT MEMORY",
-      );
-      expect(String(states[tabId].apiMessages[0]?.content)).toContain(
-        "fact_existing",
-      );
-      expect(String(states[tabId].apiMessages[0]?.content)).toContain(
-        "Existing fact.",
-      );
-      expect(String(states[tabId].apiMessages[0]?.content)).toContain(
-        "The backend uses Tauri.",
-      );
-      expect(String(states[tabId].apiMessages[0]?.content)).toContain(
-        "Use pnpm in this repo.",
-      );
+      expect(states[tabId].apiMessages[0]).toEqual({
+        role: "system",
+        content: "Original system prompt",
+      });
     });
 
     it("re-compacts already summarized api history together with newer raw turns", async () => {
@@ -5094,7 +5148,9 @@ describe("runner", () => {
       await runAgent(tabId, "/compact");
 
       expect(states[tabId].apiMessages[0]).toMatchObject({ role: "system" });
-      expect(String(states[tabId].apiMessages[0]?.content)).toContain("You are Rakh");
+      expect(String(states[tabId].apiMessages[0]?.content)).toBe(
+        "Original system prompt",
+      );
       expect(states[tabId].apiMessages[1]).toEqual({
         role: "user",
         content: makeCompactedHistoryApiContent(newCompactedMarkdown),

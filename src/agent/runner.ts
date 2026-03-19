@@ -906,7 +906,6 @@ async function runAgentTurn(
   };
   dequeueQueuedMessage(tabId, options.queuedMessageId);
   const refreshedSystemPrompt = await buildMainSystemPromptForState(
-    tabId,
     stateAfterPreflight,
   );
   const priorApiMessages =

@@ -45,36 +45,6 @@ export function buildSystemPromptRuntimeContext(
   };
 }
 
-export function parseSystemPromptRuntimeContext(
-  prompt: string,
-): SystemPromptRuntimeContext | null {
-  const match = prompt.match(
-    /^You are Rakh, an autonomous AI coding agent\.\nWorkspace root: [^\n]*\nHost OS: ([^\n]*)\nLocale: ([^\n]*)\nTimezone: ([^\n]*)\nToday's local date: ([^\n]*)\nCurrent local time: ([^\n]*)\nCurrent UTC timestamp: ([^\n]*)\n/,
-  );
-  if (!match) return null;
-
-  const [, hostOs, locale, timeZone, localDate, localTime, utcIso] = match;
-  if (
-    hostOs === undefined ||
-    locale === undefined ||
-    timeZone === undefined ||
-    localDate === undefined ||
-    localTime === undefined ||
-    utcIso === undefined
-  ) {
-    return null;
-  }
-
-  return {
-    hostOs,
-    locale,
-    timeZone,
-    localDate,
-    localTime,
-    utcIso,
-  };
-}
-
 export function getCommunicationInstruction(
   profile: string | undefined,
 ): string | null {
