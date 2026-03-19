@@ -1,4 +1,6 @@
 {
+  "productName": "Rakh Dev",
+  "identifier": "com.amir-s.rakh.dev",
   "bundle": {
     "icon": [
       "icons-dev/32x32.png",
