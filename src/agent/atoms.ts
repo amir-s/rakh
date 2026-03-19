@@ -8,6 +8,10 @@ import {
   type AutoContextCompactionSettings,
 } from "./contextCompaction";
 import {
+  DEFAULT_AGENT_LOOP_SETTINGS,
+  type AgentLoopSettings,
+} from "./loopLimits";
+import {
   coerceThemeName,
   type ThemeName,
 } from "@/styles/themes/registry";
@@ -109,6 +113,10 @@ export const autoContextCompactionSettingsAtom =
       DEFAULT_AUTO_CONTEXT_COMPACTION_SETTINGS,
     ),
   );
+
+/** Global main-agent loop warning and hard-stop settings. */
+export const agentLoopSettingsAtom =
+  atom<AgentLoopSettings>(DEFAULT_AGENT_LOOP_SETTINGS);
 
 /** Whether voice input is enabled in the chat composer */
 export const voiceInputEnabledAtom = atomWithStorage<boolean>(
@@ -218,6 +226,7 @@ function makeDefaultAgentState(): AgentState {
     queuedMessages: [],
     queueState: "idle",
     llmUsageLedger: [],
+    loopLimitWarning: null,
     showDebug: readStoredBoolean(DEBUG_MODE_STORAGE_KEY, import.meta.env.DEV),
   };
 }

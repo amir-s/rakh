@@ -27,6 +27,7 @@ import BusyComposerTray from "@/components/BusyComposerTray";
 import ErrorDetailsModal, {
   type ErrorModalState,
 } from "@/components/ErrorDetailsModal";
+import LoopLimitWarning from "@/components/LoopLimitWarning";
 import ProjectSettingsModal, {
   type ProjectSettingsSavePayload,
 } from "@/components/ProjectSettingsModal";
@@ -1757,6 +1758,12 @@ export default function WorkspacePage() {
                 onResumeQueue={agent.resumeQueue}
                 onClearQueuedItems={agent.clearQueuedMessages}
                 onRemoveQueuedItem={handleRemoveQueuedItem}
+              />
+            ) : null}
+            {agent.loopLimitWarning && !agent.loopLimitWarning.dismissed ? (
+              <LoopLimitWarning
+                warning={agent.loopLimitWarning}
+                onDismiss={agent.dismissLoopLimitWarning}
               />
             ) : null}
             <ChatControls

@@ -5,6 +5,7 @@ export type SettingsSectionId =
   | "appearance"
   | "notifications"
   | "providers"
+  | "loop-safeguards"
   | "context-compaction"
   | "mcp"
   | "voice"
@@ -61,6 +62,13 @@ export const SETTINGS_SECTIONS: SettingsSectionDefinition[] = [
     label: "AI Providers",
     description: "API keys, model sources, and imports.",
     icon: "hub",
+  },
+  {
+    id: "loop-safeguards",
+    groupId: "ai",
+    label: "Loop Safeguards",
+    description: "Main-agent loop warnings and configurable hard-stop limits.",
+    icon: "timelapse",
   },
   {
     id: "context-compaction",

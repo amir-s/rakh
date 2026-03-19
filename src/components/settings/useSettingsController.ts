@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useAtom } from "jotai";
 import {
+  agentLoopSettingsAtom,
   autoContextCompactionSettingsAtom,
   appUpdaterStateAtom,
   debugModeEnabledAtom,
@@ -21,6 +22,10 @@ import {
   type PersistedCompactionSettings,
 } from "@/agent/compaction";
 import type { AutoContextCompactionSettings } from "@/agent/contextCompaction";
+import {
+  saveAgentLoopSettings,
+  type AgentLoopSettings,
+} from "@/agent/loopLimits";
 import {
   providersAtom,
   profilesAtom,
@@ -98,6 +103,8 @@ export interface SettingsControllerValue {
   setAutoContextCompactionSettings: (
     settings: AutoContextCompactionSettings,
   ) => Promise<void>;
+  agentLoopSettings: AgentLoopSettings;
+  saveAgentLoopSettings: (settings: AgentLoopSettings) => Promise<void>;
   defaultCommunicationProfile: string;
   setDefaultCommunicationProfile: (profile: string) => void;
   customProfiles: CommunicationProfileRecord[];
@@ -146,6 +153,9 @@ export function useSettingsController(): SettingsControllerValue {
     useAtom(toolContextCompactionEnabledAtom);
   const [autoContextCompactionSettings, setAutoContextCompactionSettings] =
     useAtom(autoContextCompactionSettingsAtom);
+  const [agentLoopSettings, setAgentLoopSettings] = useAtom(
+    agentLoopSettingsAtom,
+  );
   const [defaultCommunicationProfile, setDefaultCommunicationProfile] = useAtom(
     defaultCommunicationProfileAtom,
   );
@@ -232,6 +242,14 @@ export function useSettingsController(): SettingsControllerValue {
       setCustomProfiles,
       setDefaultCommunicationProfile,
     ],
+  );
+
+  const handleSaveAgentLoopSettings = useCallback(
+    async (settings: AgentLoopSettings) => {
+      await saveAgentLoopSettings(settings);
+      setAgentLoopSettings(settings);
+    },
+    [setAgentLoopSettings],
   );
 
   const handleDeleteProfile = useCallback(
@@ -477,6 +495,8 @@ export function useSettingsController(): SettingsControllerValue {
     setToolContextCompactionEnabled: handleSetToolContextCompactionEnabled,
     autoContextCompactionSettings,
     setAutoContextCompactionSettings: handleSetAutoContextCompactionSettings,
+    agentLoopSettings,
+    saveAgentLoopSettings: handleSaveAgentLoopSettings,
     defaultCommunicationProfile,
     setDefaultCommunicationProfile,
     customProfiles,

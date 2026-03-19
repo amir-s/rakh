@@ -5,6 +5,11 @@ import {
   toolContextCompactionEnabledAtom,
 } from "../atoms";
 import {
+  AGENT_LOOP_LIMIT_TOOL_NAME,
+  AGENT_LOOP_NEAR_LIMIT_WINDOW,
+  type AgentLoopSettings,
+} from "../loopLimits";
+import {
   mcpSettingsAtom,
   callMcpTool,
   extractMcpToolErrorMessage,
@@ -65,6 +70,7 @@ const SYNTHETIC_TOOL_NAMES = new Set([
   "agent_subagent_call",
   "user_input",
   "agent_card_add",
+  AGENT_LOOP_LIMIT_TOOL_NAME,
 ]);
 
 function resolveToolContextCompactionSourceKind(
@@ -140,6 +146,66 @@ function writeUserInputLifecycleLog(input: {
   });
 }
 
+function updateSyntheticToolCall(
+  tabId: string,
+  toolCallId: string,
+  patch: Partial<ToolCallDisplay>,
+): void {
+  patchAgentState(tabId, (prev) => ({
+    ...prev,
+    chatMessages: prev.chatMessages.map((message) =>
+      message.toolCalls
+        ? {
+            ...message,
+            toolCalls: message.toolCalls.map((toolCall) =>
+              toolCall.id === toolCallId
+                ? {
+                    ...toolCall,
+                    ...patch,
+                  }
+                : toolCall,
+            ),
+          }
+        : message,
+    ),
+  }));
+}
+
+function appendLoopLimitApprovalCard(input: {
+  tabId: string;
+  runId: string;
+  traceId?: string;
+  currentIteration: number;
+  remainingTurns: number;
+  warningThreshold: number;
+  hardLimit: number;
+}): string {
+  const toolCallId = `loop-limit-${input.runId}-${input.currentIteration}`;
+
+  appendChatMessage(input.tabId, {
+    id: toolCallId,
+    role: "assistant",
+    content: "",
+    timestamp: Date.now(),
+    ...(input.traceId ? { traceId: input.traceId } : {}),
+    toolCalls: [
+      {
+        id: toolCallId,
+        tool: AGENT_LOOP_LIMIT_TOOL_NAME,
+        args: {
+          currentIteration: input.currentIteration,
+          remainingTurns: input.remainingTurns,
+          warningThreshold: input.warningThreshold,
+          hardLimit: input.hardLimit,
+        },
+        status: "awaiting_approval",
+      },
+    ],
+  });
+
+  return toolCallId;
+}
+
 interface PreparedConversationCardToolCall {
   card: ConversationCard;
   result: {
@@ -182,6 +248,7 @@ export async function agentLoop(
   runId: string,
   currentTurn: number,
   runLogContext: LogContext,
+  loopSettings: AgentLoopSettings,
 ): Promise<void> {
   const languageModel = resolveLanguageModel(modelId, providers);
   const modelEntry = getModelCatalogEntry(modelId);
@@ -198,10 +265,128 @@ export async function agentLoop(
     getAgentState(tabId).config.cwd,
     runLogContext,
   );
+  const warningThreshold = loopSettings.warningThreshold;
+  const hardLimit = loopSettings.hardLimit;
+  let nearLimitConfirmed = false;
 
   try {
-    for (let iteration = 0; iteration < 50; iteration++) {
+    for (let iteration = 0; iteration < hardLimit; iteration++) {
       if (signal.aborted) return;
+      const currentIteration = iteration + 1;
+      const remainingTurns = hardLimit - iteration;
+      const warningState = getAgentState(tabId).loopLimitWarning;
+      const warningAlreadyTracked = warningState?.runId === runId;
+      const isNearLimit = remainingTurns <= AGENT_LOOP_NEAR_LIMIT_WINDOW;
+
+      if (isNearLimit && !nearLimitConfirmed) {
+        patchAgentState(tabId, { loopLimitWarning: null });
+        const toolCallId = appendLoopLimitApprovalCard({
+          tabId,
+          runId,
+          traceId: runLogContext.traceId,
+          currentIteration,
+          remainingTurns,
+          warningThreshold,
+          hardLimit,
+        });
+        writeRunnerLog({
+          level: "warn",
+          tags: ["frontend", "agent-loop", "system"],
+          event: "runner.loop.limit.pause.waiting",
+          message: "Main agent loop paused near the configured hard limit",
+          kind: "error",
+          data: {
+            currentIteration,
+            remainingTurns,
+            warningThreshold,
+            hardLimit,
+          },
+          context: runLogContext,
+        });
+        const approved = await requestApproval(tabId, toolCallId);
+        if (signal.aborted || !isCurrentRunId(tabId, runId)) return;
+
+        if (!approved) {
+          updateSyntheticToolCall(tabId, toolCallId, {
+            status: "denied",
+            result: {
+              action: "stop",
+              currentIteration,
+              remainingTurns,
+              hardLimit,
+            },
+          });
+          writeRunnerLog({
+            level: "warn",
+            tags: ["frontend", "agent-loop", "system"],
+            event: "runner.loop.limit.pause.stopped",
+            message: "Main agent loop was stopped from the near-limit prompt",
+            kind: "error",
+            data: {
+              currentIteration,
+              remainingTurns,
+              warningThreshold,
+              hardLimit,
+            },
+            context: runLogContext,
+          });
+          patchAgentState(tabId, {
+            status: "error",
+            error: `Stopped near configured loop hard limit (${hardLimit} turns)`,
+            errorAction: null,
+            errorDetails: null,
+            loopLimitWarning: null,
+            streamingContent: null,
+          });
+          return;
+        }
+
+        nearLimitConfirmed = true;
+        updateSyntheticToolCall(tabId, toolCallId, {
+          status: "done",
+          result: {
+            action: "continue",
+            currentIteration,
+            remainingTurns,
+            hardLimit,
+          },
+        });
+        writeRunnerLog({
+          level: "info",
+          tags: ["frontend", "agent-loop", "system"],
+          event: "runner.loop.limit.pause.continued",
+          message: "Main agent loop resumed from the near-limit prompt",
+          data: {
+            currentIteration,
+            remainingTurns,
+            warningThreshold,
+            hardLimit,
+          },
+          context: runLogContext,
+        });
+      } else if (currentIteration > warningThreshold && !warningAlreadyTracked) {
+        patchAgentState(tabId, {
+          loopLimitWarning: {
+            runId,
+            currentIteration,
+            warningThreshold,
+            hardLimit,
+            dismissed: false,
+          },
+        });
+        writeRunnerLog({
+          level: "warn",
+          tags: ["frontend", "agent-loop", "system"],
+          event: "runner.loop.limit.warning",
+          message: "Main agent loop crossed the configured warning threshold",
+          data: {
+            currentIteration,
+            warningThreshold,
+            hardLimit,
+          },
+          context: runLogContext,
+        });
+      }
 
       if (iteration > 0) {
         const autoCompactionResult =
@@ -840,14 +1025,15 @@ export async function agentLoop(
       level: "error",
       tags: ["frontend", "agent-loop", "system"],
       event: "runner.loop.limit.error",
-      message: "Main agent loop hit the 50-turn limit",
+      message: "Main agent loop hit the configured hard limit",
       kind: "error",
-      data: { maxIterations: 50 },
+      data: { maxIterations: hardLimit, warningThreshold },
       context: runLogContext,
     });
     patchAgentState(tabId, {
       status: "error",
-      error: "Reached maximum iteration limit (50 turns)",
+      error: `Reached maximum iteration limit (${hardLimit} turns)`,
+      loopLimitWarning: null,
     });
   } finally {
     try {

@@ -302,4 +302,47 @@ describe("ToolCallApproval", () => {
       "retry",
     );
   });
+
+  it("renders the loop-limit guard prompt with continue and stop actions", () => {
+    render(
+      <ToolCallApproval
+        toolCall={{
+          id: "tc-loop-limit",
+          tool: "agent_loop_limit_guard",
+          args: {
+            currentIteration: 41,
+            remainingTurns: 10,
+            warningThreshold: 40,
+            hardLimit: 50,
+          },
+          status: "awaiting_approval",
+        }}
+        tabId="tab-1"
+      />,
+    );
+
+    expect(screen.getByText("LOOP LIMIT")).not.toBeNull();
+    expect(
+      screen.getAllByText(
+        (_content, element) =>
+          element?.tagName === "P" &&
+          (element.textContent?.includes("iteration 41") ?? false),
+      ).length,
+    ).toBeGreaterThan(0);
+    expect(screen.getByText(/10 turns remain/i)).not.toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "CONTINUE" }));
+    expect(approvalMocks.resolveApprovalMock).toHaveBeenCalledWith(
+      "tab-1",
+      "tc-loop-limit",
+      true,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "STOP" }));
+    expect(approvalMocks.resolveApprovalMock).toHaveBeenCalledWith(
+      "tab-1",
+      "tc-loop-limit",
+      false,
+    );
+  });
 });

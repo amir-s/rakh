@@ -18,6 +18,7 @@ import {
 import type { EditFileChange } from "@/agent/tools/workspace";
 import type { DiffFile } from "@/components/DiffViewer";
 import { deserializeDiff } from "@/components/diffSerialization";
+import { AGENT_LOOP_LIMIT_TOOL_NAME } from "@/agent/loopLimits";
 import {
   getChatAttentionTargetProps,
   getToolCallAttentionTargetKind,
@@ -206,6 +207,89 @@ interface ToolCallApprovalProps {
   cwd?: string;
   tabId: string;
   onOpenProjectSettings?: () => void;
+}
+
+function LoopLimitGuardCard({
+  toolCall,
+  tabId,
+}: {
+  toolCall: ToolCallDisplay;
+  tabId: string;
+}) {
+  const currentIteration =
+    typeof toolCall.args.currentIteration === "number"
+      ? toolCall.args.currentIteration
+      : null;
+  const remainingTurns =
+    typeof toolCall.args.remainingTurns === "number"
+      ? toolCall.args.remainingTurns
+      : null;
+  const warningThreshold =
+    typeof toolCall.args.warningThreshold === "number"
+      ? toolCall.args.warningThreshold
+      : null;
+  const hardLimit =
+    typeof toolCall.args.hardLimit === "number"
+      ? toolCall.args.hardLimit
+      : null;
+
+  return (
+    <div
+      className="msg-card animate-fade-up mt-1.5"
+      {...getChatAttentionTargetProps("approval")}
+    >
+      <div className="msg-card-head">
+        <div className="msg-card-label">
+          <span className="material-symbols-outlined text-base text-warning">
+            warning
+          </span>
+          LOOP LIMIT
+        </div>
+        <div className="text-xxs text-muted font-mono opacity-60">
+          {AGENT_LOOP_LIMIT_TOOL_NAME}
+        </div>
+      </div>
+
+      <div className="px-3 py-2.5 border-b border-border-subtle text-sm leading-relaxed">
+        {currentIteration !== null && hardLimit !== null ? (
+          <p>
+            This run is at iteration <strong>{currentIteration}</strong> of{" "}
+            <strong>{hardLimit}</strong>.
+          </p>
+        ) : (
+          <p>This run is close to its configured hard limit.</p>
+        )}
+        {remainingTurns !== null ? (
+          <p className="mt-1 text-xs text-muted">
+            {remainingTurns} turn{remainingTurns === 1 ? "" : "s"} remain before
+            the runner force-stops.
+          </p>
+        ) : null}
+        {warningThreshold !== null ? (
+          <p className="mt-1 text-xs text-muted">
+            The warning threshold for this run is {warningThreshold}.
+          </p>
+        ) : null}
+      </div>
+
+      <div className="msg-card-footer">
+        <Button
+          variant="ghost"
+          size="xxs"
+          onClick={() => resolveApproval(tabId, toolCall.id, false)}
+        >
+          STOP
+        </Button>
+        <Button
+          variant="primary"
+          size="xxs"
+          onClick={() => resolveApproval(tabId, toolCall.id, true)}
+        >
+          CONTINUE
+        </Button>
+      </div>
+    </div>
+  );
 }
 
 function renderWorktreeSetupOutput(
@@ -942,6 +1026,10 @@ export default function ToolCallApproval({
 
   if (toolCall.status === "awaiting_branch_release") {
     return <BranchReleaseCard toolCall={toolCall} tabId={tabId} />;
+  }
+
+  if (tool === AGENT_LOOP_LIMIT_TOOL_NAME) {
+    return <LoopLimitGuardCard toolCall={toolCall} tabId={tabId} />;
   }
 
   // Render the dedicated worktree card for git_worktree_init

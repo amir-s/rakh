@@ -51,6 +51,7 @@ type MockAgentState = {
   tabTitle: string;
   reviewEdits: unknown[];
   llmUsageLedger: Array<Record<string, unknown>>;
+  loopLimitWarning: Record<string, unknown> | null;
   autoApproveEdits: boolean;
   autoApproveCommands: "no" | "agent" | "yes";
   showDebug?: boolean;
@@ -61,6 +62,7 @@ const {
   providersAtomMock,
   mcpServersAtomMock,
   mcpSettingsAtomMock,
+  agentLoopSettingsAtomMock,
   toolContextCompactionEnabledAtomMock,
   autoContextCompactionSettingsAtomMock,
   globalCommunicationProfileAtomMock,
@@ -94,6 +96,7 @@ const {
   providersAtomMock: { kind: "providers-atom" },
   mcpServersAtomMock: { kind: "mcp-servers-atom" },
   mcpSettingsAtomMock: { kind: "mcp-settings-atom" },
+  agentLoopSettingsAtomMock: { kind: "agent-loop-settings-atom" },
   toolContextCompactionEnabledAtomMock: {
     kind: "tool-context-compaction-enabled-atom",
   },
@@ -142,6 +145,7 @@ vi.mock("./atoms", () => ({
   },
   jotaiStore: jotaiStoreMock,
   globalCommunicationProfileAtom: globalCommunicationProfileAtomMock,
+  agentLoopSettingsAtom: agentLoopSettingsAtomMock,
   toolContextCompactionEnabledAtom: toolContextCompactionEnabledAtomMock,
   autoContextCompactionSettingsAtom: autoContextCompactionSettingsAtomMock,
 }));
@@ -342,6 +346,7 @@ function makeState(overrides: Partial<MockAgentState> = {}): MockAgentState {
     tabTitle: "",
     reviewEdits: [],
     llmUsageLedger: [],
+    loopLimitWarning: null,
     autoApproveEdits: false,
     autoApproveCommands: "no",
     ...overrides,
@@ -371,6 +376,19 @@ function makeArtifact(
     createdAt: 123,
     ...overrides,
   };
+}
+
+function makeLoopContinuationTurns(count: number): MockTurn[] {
+  return Array.from({ length: count }, (_unused, index) => ({
+    deltas: [],
+    toolCalls: [
+      {
+        id: `tc-limit-${index}`,
+        name: "agent_todo_list",
+        arguments: {},
+      },
+    ],
+  }));
 }
 
 function makeCompactedHistoryMarkdown(nextStep = "..."): string {
@@ -565,6 +583,9 @@ describe("runner", () => {
       }
       if (atom === mcpSettingsAtomMock) {
         return { artifactizeReturnedFiles: false };
+      }
+      if (atom === agentLoopSettingsAtomMock) {
+        return { warningThreshold: 40, hardLimit: 50 };
       }
       if (atom === toolContextCompactionEnabledAtomMock) {
         return true;
@@ -2511,18 +2532,7 @@ describe("runner", () => {
   it("logs when the main loop hits the iteration limit", async () => {
     const tabId = "tab-iteration-limit";
     setState(tabId);
-    turns.push(
-      ...Array.from({ length: 50 }, (_unused, index) => ({
-        deltas: [],
-        toolCalls: [
-          {
-            id: `tc-limit-${index}`,
-            name: "agent_todo_list",
-            arguments: {},
-          },
-        ],
-      })),
-    );
+    turns.push(...makeLoopContinuationTurns(50));
 
     await runAgent(tabId, "loop forever");
 
@@ -2531,11 +2541,291 @@ describe("runner", () => {
     expect(logFrontendSoonMock).toHaveBeenCalledWith(
       expect.objectContaining({
         event: "runner.loop.limit.error",
-        message: "Main agent loop hit the 50-turn limit",
+        message: "Main agent loop hit the configured hard limit",
         kind: "error",
-        data: { maxIterations: 50 },
+        data: { maxIterations: 50, warningThreshold: 40 },
       }),
     );
+  });
+
+  it("uses the configured hard limit instead of the old fixed value", async () => {
+    const tabId = "tab-custom-iteration-limit";
+    setState(tabId);
+    jotaiStoreMock.get.mockImplementation((atom: unknown) => {
+      if (atom === agentLoopSettingsAtomMock) {
+        return { warningThreshold: 5, hardLimit: 12 };
+      }
+      if (atom === providersAtomMock) {
+        return [
+          {
+            id: "test-openai-id",
+            name: "test-openai",
+            type: "openai",
+            apiKey: "test-key",
+          },
+        ];
+      }
+      if (atom === mcpServersAtomMock) return [];
+      if (atom === mcpSettingsAtomMock) {
+        return { artifactizeReturnedFiles: false };
+      }
+      if (atom === toolContextCompactionEnabledAtomMock) return true;
+      if (atom === autoContextCompactionSettingsAtomMock) {
+        return {
+          enabled: false,
+          thresholdMode: "percentage",
+          thresholdPercent: 85,
+          thresholdKb: 256,
+        };
+      }
+      if (atom === profilesAtomMock) return [];
+      if ((atom as { kind?: string })?.kind === "command-list-atom") {
+        return { allow: [], deny: [] };
+      }
+      if (atom === globalCommunicationProfileAtomMock) {
+        return "global-test-profile";
+      }
+      return undefined;
+    });
+    turns.push(...makeLoopContinuationTurns(12));
+
+    await runAgent(tabId, "loop forever with custom limit");
+
+    expect(states[tabId].status).toBe("error");
+    expect(states[tabId].error).toBe("Reached maximum iteration limit (12 turns)");
+    expect(logFrontendSoonMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: "runner.loop.limit.error",
+        data: { maxIterations: 12, warningThreshold: 5 },
+      }),
+    );
+  });
+
+  it("emits a soft warning once after crossing the configured threshold", async () => {
+    const tabId = "tab-loop-soft-warning";
+    setState(tabId);
+    jotaiStoreMock.get.mockImplementation((atom: unknown) => {
+      if (atom === agentLoopSettingsAtomMock) {
+        return { warningThreshold: 2, hardLimit: 20 };
+      }
+      if (atom === providersAtomMock) {
+        return [
+          {
+            id: "test-openai-id",
+            name: "test-openai",
+            type: "openai",
+            apiKey: "test-key",
+          },
+        ];
+      }
+      if (atom === mcpServersAtomMock) return [];
+      if (atom === mcpSettingsAtomMock) {
+        return { artifactizeReturnedFiles: false };
+      }
+      if (atom === toolContextCompactionEnabledAtomMock) return true;
+      if (atom === autoContextCompactionSettingsAtomMock) {
+        return {
+          enabled: false,
+          thresholdMode: "percentage",
+          thresholdPercent: 85,
+          thresholdKb: 256,
+        };
+      }
+      if (atom === profilesAtomMock) return [];
+      if ((atom as { kind?: string })?.kind === "command-list-atom") {
+        return { allow: [], deny: [] };
+      }
+      if (atom === globalCommunicationProfileAtomMock) {
+        return "global-test-profile";
+      }
+      return undefined;
+    });
+    turns.push(
+      ...makeLoopContinuationTurns(2),
+      { deltas: ["done"], toolCalls: [] },
+      { deltas: ["ignored"], toolCalls: [] },
+    );
+
+    await runAgent(tabId, "warn me once");
+
+    expect(states[tabId].status).toBe("idle");
+    expect(states[tabId].loopLimitWarning).toMatchObject({
+      currentIteration: 3,
+      warningThreshold: 2,
+      hardLimit: 20,
+      dismissed: false,
+    });
+    expect(logFrontendSoonMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: "runner.loop.limit.warning",
+        data: {
+          currentIteration: 3,
+          warningThreshold: 2,
+          hardLimit: 20,
+        },
+      }),
+    );
+  });
+
+  it("pauses near the hard limit and resumes when continued", async () => {
+    const tabId = "tab-loop-near-limit-continue";
+    setState(tabId);
+    jotaiStoreMock.get.mockImplementation((atom: unknown) => {
+      if (atom === agentLoopSettingsAtomMock) {
+        return { warningThreshold: 1, hardLimit: 12 };
+      }
+      if (atom === providersAtomMock) {
+        return [
+          {
+            id: "test-openai-id",
+            name: "test-openai",
+            type: "openai",
+            apiKey: "test-key",
+          },
+        ];
+      }
+      if (atom === mcpServersAtomMock) return [];
+      if (atom === mcpSettingsAtomMock) {
+        return { artifactizeReturnedFiles: false };
+      }
+      if (atom === toolContextCompactionEnabledAtomMock) return true;
+      if (atom === autoContextCompactionSettingsAtomMock) {
+        return {
+          enabled: false,
+          thresholdMode: "percentage",
+          thresholdPercent: 85,
+          thresholdKb: 256,
+        };
+      }
+      if (atom === profilesAtomMock) return [];
+      if ((atom as { kind?: string })?.kind === "command-list-atom") {
+        return { allow: [], deny: [] };
+      }
+      if (atom === globalCommunicationProfileAtomMock) {
+        return "global-test-profile";
+      }
+      return undefined;
+    });
+    requestApprovalMock.mockResolvedValue(true);
+    turns.push(...makeLoopContinuationTurns(2), { deltas: ["done"], toolCalls: [] });
+
+    await runAgent(tabId, "pause then continue");
+
+    const loopGuard = states[tabId].chatMessages
+      .flatMap((message) => (message.toolCalls as Array<Record<string, unknown>> | undefined) ?? [])
+      .find((toolCall) => toolCall.tool === "agent_loop_limit_guard");
+
+    expect(requestApprovalMock).toHaveBeenCalledTimes(1);
+    expect(loopGuard).toMatchObject({
+      status: "done",
+      result: { action: "continue", currentIteration: 3, remainingTurns: 10, hardLimit: 12 },
+    });
+    expect(states[tabId].status).toBe("idle");
+    expect(states[tabId].loopLimitWarning).toBeNull();
+  });
+
+  it("stops from the near-limit prompt when the user declines to continue", async () => {
+    const tabId = "tab-loop-near-limit-stop";
+    setState(tabId);
+    jotaiStoreMock.get.mockImplementation((atom: unknown) => {
+      if (atom === agentLoopSettingsAtomMock) {
+        return { warningThreshold: 1, hardLimit: 12 };
+      }
+      if (atom === providersAtomMock) {
+        return [
+          {
+            id: "test-openai-id",
+            name: "test-openai",
+            type: "openai",
+            apiKey: "test-key",
+          },
+        ];
+      }
+      if (atom === mcpServersAtomMock) return [];
+      if (atom === mcpSettingsAtomMock) {
+        return { artifactizeReturnedFiles: false };
+      }
+      if (atom === toolContextCompactionEnabledAtomMock) return true;
+      if (atom === autoContextCompactionSettingsAtomMock) {
+        return {
+          enabled: false,
+          thresholdMode: "percentage",
+          thresholdPercent: 85,
+          thresholdKb: 256,
+        };
+      }
+      if (atom === profilesAtomMock) return [];
+      if ((atom as { kind?: string })?.kind === "command-list-atom") {
+        return { allow: [], deny: [] };
+      }
+      if (atom === globalCommunicationProfileAtomMock) {
+        return "global-test-profile";
+      }
+      return undefined;
+    });
+    requestApprovalMock.mockResolvedValue(false);
+    turns.push(...makeLoopContinuationTurns(2));
+
+    await runAgent(tabId, "pause then stop");
+
+    const loopGuard = states[tabId].chatMessages
+      .flatMap((message) => (message.toolCalls as Array<Record<string, unknown>> | undefined) ?? [])
+      .find((toolCall) => toolCall.tool === "agent_loop_limit_guard");
+
+    expect(loopGuard).toMatchObject({
+      status: "denied",
+      result: { action: "stop", currentIteration: 3, remainingTurns: 10, hardLimit: 12 },
+    });
+    expect(states[tabId].status).toBe("error");
+    expect(states[tabId].error).toBe("Stopped near configured loop hard limit (12 turns)");
+  });
+
+  it("suppresses the soft warning when the near-limit prompt starts on the same iteration", async () => {
+    const tabId = "tab-loop-warning-overlap";
+    setState(tabId);
+    jotaiStoreMock.get.mockImplementation((atom: unknown) => {
+      if (atom === agentLoopSettingsAtomMock) {
+        return { warningThreshold: 2, hardLimit: 12 };
+      }
+      if (atom === providersAtomMock) {
+        return [
+          {
+            id: "test-openai-id",
+            name: "test-openai",
+            type: "openai",
+            apiKey: "test-key",
+          },
+        ];
+      }
+      if (atom === mcpServersAtomMock) return [];
+      if (atom === mcpSettingsAtomMock) {
+        return { artifactizeReturnedFiles: false };
+      }
+      if (atom === toolContextCompactionEnabledAtomMock) return true;
+      if (atom === autoContextCompactionSettingsAtomMock) {
+        return {
+          enabled: false,
+          thresholdMode: "percentage",
+          thresholdPercent: 85,
+          thresholdKb: 256,
+        };
+      }
+      if (atom === profilesAtomMock) return [];
+      if ((atom as { kind?: string })?.kind === "command-list-atom") {
+        return { allow: [], deny: [] };
+      }
+      if (atom === globalCommunicationProfileAtomMock) {
+        return "global-test-profile";
+      }
+      return undefined;
+    });
+    requestApprovalMock.mockResolvedValue(true);
+    turns.push(...makeLoopContinuationTurns(2), { deltas: ["done"], toolCalls: [] });
+
+    await runAgent(tabId, "overlap warning and pause");
+
+    expect(states[tabId].loopLimitWarning).toBeNull();
+    expect(requestApprovalMock).toHaveBeenCalledTimes(1);
   });
 
   it("drains queued messages sequentially after a clean idle", async () => {

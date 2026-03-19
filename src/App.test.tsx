@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { atom, createStore } from "jotai";
 
@@ -9,6 +9,7 @@ const appMocks = vi.hoisted(() => ({
   loadProvidersMock: vi.fn(),
   loadProfilesMock: vi.fn(),
   loadCompactionSettingsMock: vi.fn(),
+  loadAgentLoopSettingsMock: vi.fn(),
   loadCommandListMock: vi.fn(),
   loadSavedProjectsMock: vi.fn(),
   loadMcpServersMock: vi.fn(),
@@ -54,6 +55,10 @@ vi.mock("@/agent/atoms", () => ({
     thresholdPercent: 85,
     thresholdKb: 256,
   }),
+  agentLoopSettingsAtom: atom({
+    warningThreshold: 40,
+    hardLimit: 50,
+  }),
   agentAtomFamily: vi.fn(),
   debugModeEnabledAtom: atom(false),
   patchAgentState: vi.fn(),
@@ -62,6 +67,11 @@ vi.mock("@/agent/atoms", () => ({
 vi.mock("@/agent/compaction", () => ({
   loadCompactionSettings: (...args: unknown[]) =>
     appMocks.loadCompactionSettingsMock(...args),
+}));
+
+vi.mock("@/agent/loopLimits", () => ({
+  loadAgentLoopSettings: (...args: unknown[]) =>
+    appMocks.loadAgentLoopSettingsMock(...args),
 }));
 
 vi.mock("@/agent/db", () => ({
@@ -156,6 +166,7 @@ describe("App", () => {
     appMocks.loadProvidersMock.mockReset();
     appMocks.loadProfilesMock.mockReset();
     appMocks.loadCompactionSettingsMock.mockReset();
+    appMocks.loadAgentLoopSettingsMock.mockReset();
     appMocks.loadCommandListMock.mockReset();
     appMocks.loadSavedProjectsMock.mockReset();
     appMocks.loadMcpServersMock.mockReset();
@@ -172,6 +183,10 @@ describe("App", () => {
         thresholdPercent: 85,
         thresholdKb: 256,
       },
+    });
+    appMocks.loadAgentLoopSettingsMock.mockResolvedValue({
+      warningThreshold: 40,
+      hardLimit: 50,
     });
     appMocks.loadSavedProjectsMock.mockResolvedValue([]);
     appMocks.parseLogNavigatePayloadFromSearchMock.mockReturnValue({
@@ -203,6 +218,25 @@ describe("App", () => {
       origin: "manual",
       filter: { limit: 250 },
       tailEnabled: true,
+    });
+  });
+
+  it("loads agent loop settings during normal app bootstrap", async () => {
+    window.history.replaceState({}, "", "/");
+    appMocks.loadSessionsMock.mockResolvedValue([]);
+    appMocks.loadProvidersMock.mockResolvedValue([]);
+    appMocks.loadProfilesMock.mockResolvedValue([]);
+    appMocks.loadMcpServersMock.mockResolvedValue([]);
+    appMocks.loadMcpSettingsMock.mockResolvedValue({
+      artifactizeReturnedFiles: false,
+    });
+    appMocks.loadCommandListMock.mockResolvedValue({ allow: [], deny: [] });
+
+    const { default: App } = await import("./App");
+
+    render(<App />);
+    await waitFor(() => {
+      expect(appMocks.loadAgentLoopSettingsMock).toHaveBeenCalledTimes(1);
     });
   });
 });

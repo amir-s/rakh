@@ -1,4 +1,5 @@
 import type { ToolCallDisplay } from "@/agent/types";
+import { AGENT_LOOP_LIMIT_TOOL_NAME } from "@/agent/loopLimits";
 
 const TOOL_ICON: Record<string, string> = {
   workspace_listDir: "folder_open",
@@ -24,6 +25,7 @@ const TOOL_ICON: Record<string, string> = {
   agent_project_memory_add: "psychology",
   agent_project_memory_remove: "psychology_alt",
   agent_project_memory_edit: "edit_note",
+  [AGENT_LOOP_LIMIT_TOOL_NAME]: "warning",
 };
 
 const TOOL_LABEL: Record<string, string> = {
@@ -50,6 +52,7 @@ const TOOL_LABEL: Record<string, string> = {
   agent_project_memory_add: "UPDATE PROJECT MEMORY",
   agent_project_memory_remove: "REMOVE PROJECT MEMORY",
   agent_project_memory_edit: "EDIT PROJECT MEMORY",
+  [AGENT_LOOP_LIMIT_TOOL_NAME]: "LOOP LIMIT GUARD",
 };
 
 export function getToolCallIcon(tc: Pick<ToolCallDisplay, "tool" | "mcp">): string {
