@@ -666,7 +666,7 @@ export async function agentLoop(
           const artifactizeReturnedFiles =
             jotaiStore.get(mcpSettingsAtom)?.artifactizeReturnedFiles === true;
 
-          const result = await executeToolCall({
+          const executed = await executeToolCall({
             toolName: tc.function.name,
             rawArgs,
             logContext: toolLog.context,
@@ -971,6 +971,7 @@ export async function agentLoop(
                 updateToolCallById,
               }),
           });
+          const result = executed.result;
 
           const fallbackContent = serializeToolResultForModel(
             tcId,
@@ -999,6 +1000,7 @@ export async function agentLoop(
             tool_call_id: tcId,
             result,
             content: compactedOutput.content,
+            followupApiMessages: executed.followupApiMessages,
           };
         }),
       );
@@ -1007,13 +1009,17 @@ export async function agentLoop(
         throw new RunAbortedError();
       }
 
-      const toolApiMessages: ApiMessage[] = toolResults.map(
-        ({ tool_call_id, content }) => ({
+      const toolApiMessages: ApiMessage[] = [];
+      for (const toolResult of toolResults) {
+        toolApiMessages.push({
           role: "tool" as const,
-          tool_call_id,
-          content,
-        }),
-      );
+          tool_call_id: toolResult.tool_call_id,
+          content: toolResult.content,
+        });
+        for (const followup of toolResult.followupApiMessages ?? []) {
+          toolApiMessages.push(followup);
+        }
+      }
 
       patchAgentState(tabId, (prev) => ({
         ...prev,

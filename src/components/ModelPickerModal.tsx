@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { createPortal } from "react-dom";
-import { Button, Badge, ModalShell, SelectField } from "@/components/ui";
+import { Button, Badge, ModalShell } from "@/components/ui";
 import { TextField } from "@/components/ui";
 import {
   useFilteredModels,
@@ -8,10 +8,6 @@ import {
   fmtPrice,
   type GatewayModel,
 } from "@/agent/useModels";
-import { defaultCommunicationProfileAtom } from "@/agent/atoms";
-import { resolveCommunicationProfileId } from "@/agent/communicationProfiles";
-import { profilesAtom } from "@/agent/db";
-import { useAtomValue } from "jotai";
 
 /* ─────────────────────────────────────────────────────────────────────────────
      const [open, setOpen] = useState(false);
@@ -55,18 +51,6 @@ export default function ModelPickerModal({
   onClose,
 }: ModelPickerModalProps) {
   const [query, setQuery] = useState("");
-  const profiles = useAtomValue(profilesAtom);
-  const defaultCommunicationProfile = useAtomValue(
-    defaultCommunicationProfileAtom,
-  );
-  const resolvedCurrentProfile = resolveCommunicationProfileId(
-    currentProfile,
-    profiles,
-    defaultCommunicationProfile,
-  );
-  const [profile, setProfile] = useState<string | undefined>(
-    resolvedCurrentProfile,
-  );
   const filtered = useFilteredModels(models, query);
 
   const initialIndex = Math.max(
@@ -82,10 +66,6 @@ export default function ModelPickerModal({
   useEffect(() => {
     searchRef.current?.focus();
   }, []);
-
-  useEffect(() => {
-    setProfile(resolvedCurrentProfile);
-  }, [resolvedCurrentProfile]);
 
   // Reset focused index when query changes
   useEffect(() => {
@@ -125,10 +105,10 @@ export default function ModelPickerModal({
       if (e.key === "Enter") {
         e.preventDefault();
         const model = filtered[focusedIndex];
-        if (model) onSelect(model.id, profile);
+        if (model) onSelect(model.id, currentProfile);
       }
     },
-    [filtered, focusedIndex, onClose, onSelect, profile],
+    [currentProfile, filtered, focusedIndex, onClose, onSelect],
   );
 
   return createPortal(
@@ -163,7 +143,7 @@ export default function ModelPickerModal({
           </Button>
         </div>
 
-        {/* ── Search & Profile ────────────────────────────────────────── */}
+        {/* ── Search ─────────────────────────────────────────────────── */}
         <div className="model-picker-search flex flex-col gap-2">
           <TextField
             ref={searchRef}
@@ -179,26 +159,6 @@ export default function ModelPickerModal({
               </span>
             }
           />
-          <div className="flex flex-col gap-1.5 mt-2 px-1">
-            <span className="text-xs text-muted font-medium">Communication Profile (Override)</span>
-            <SelectField
-              value={profile ?? ""}
-              disabled={profiles.length === 0}
-              onChange={(e: React.ChangeEvent<HTMLSelectElement>) =>
-                setProfile(e.target.value || undefined)
-              }
-            >
-              {profiles.length === 0 ? (
-                <option value="">No profiles available</option>
-              ) : (
-                profiles.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name}
-                  </option>
-                ))
-              )}
-            </SelectField>
-          </div>
         </div>
 
         {/* ── Model list ──────────────────────────────────────────────── */}
@@ -214,7 +174,7 @@ export default function ModelPickerModal({
                 model={m}
                 isActive={m.id === currentModelId}
                 isFocused={idx === focusedIndex}
-                onClick={() => onSelect(m.id, profile)}
+                onClick={() => onSelect(m.id, currentProfile)}
                 onMouseEnter={() => setFocusedIndex(idx)}
               />
             ))

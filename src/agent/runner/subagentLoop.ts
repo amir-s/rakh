@@ -810,7 +810,7 @@ export async function runSubagentLoop(
           }));
         }
 
-        const toolResult = await executeToolCall({
+        const executedToolCall = await executeToolCall({
           toolName: tc.function.name,
           rawArgs,
           logContext: toolLog.context,
@@ -917,6 +917,7 @@ export async function runSubagentLoop(
             return executed;
           },
         });
+        const toolResult = executedToolCall.result;
 
         const fallbackContent = serializeToolResultForModel(
           tcId,
@@ -945,6 +946,7 @@ export async function runSubagentLoop(
           tool_call_id: tcId,
           result: toolResult,
           content: compactedOutput.content,
+          followupApiMessages: executedToolCall.followupApiMessages,
         };
       }),
     );
@@ -957,13 +959,17 @@ export async function runSubagentLoop(
       throw new RunAbortedError();
     }
 
-    const toolApiMessages: ApiMessage[] = toolResults.map(
-      ({ tool_call_id, content }) => ({
+    const toolApiMessages: ApiMessage[] = [];
+    for (const toolResult of toolResults) {
+      toolApiMessages.push({
         role: "tool" as const,
-        tool_call_id,
-        content,
-      }),
-    );
+        tool_call_id: toolResult.tool_call_id,
+        content: toolResult.content,
+      });
+      for (const followup of toolResult.followupApiMessages ?? []) {
+        toolApiMessages.push(followup);
+      }
+    }
     localApiMessages.push(...toolApiMessages);
 
     const resolvedTurnCards = turnCardAccumulator.getResolvedCards();

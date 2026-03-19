@@ -35,6 +35,7 @@ import {
 import { writeRunnerLog } from "./logging";
 import { recordTodoMutation, resolveTodoOwner } from "../tools/todos";
 import { stripToolContextCompactionFields } from "./toolContextCompaction";
+import { buildWorkspaceRootUpdateMessage } from "./mainSystemPrompt";
 
 function shouldStreamToolOutput(toolName: string): boolean {
   return toolName === "exec_run" || toolName === "git_worktree_init";
@@ -269,7 +270,25 @@ export async function executeLocalTool(
     });
   }
 
-  return { result };
+  const postCwd = getAgentState(tabId).config.cwd.trim();
+  const preCwdTrimmed = preCwd.trim();
+  const followupApiMessages =
+    toolName === "git_worktree_init" &&
+    result.ok &&
+    postCwd.length > 0 &&
+    postCwd !== preCwdTrimmed
+      ? [
+          {
+            role: "user" as const,
+            content: buildWorkspaceRootUpdateMessage(preCwdTrimmed, postCwd),
+          },
+        ]
+      : undefined;
+
+  return {
+    result,
+    ...(followupApiMessages ? { followupApiMessages } : {}),
+  };
 }
 
 export function buildPendingToolDisplay(
