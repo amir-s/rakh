@@ -16,6 +16,7 @@ import type {
 } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import WorkspacePage from "./WorkspacePage";
+import { resetGitHubIssuesCache } from "@/githubIssues";
 
 type MockToolCall = {
   id: string;
@@ -662,6 +663,25 @@ function setTextboxRect(element: HTMLElement) {
   });
 }
 
+function setScrollMetrics(
+  element: HTMLElement,
+  metrics: { clientHeight: number; scrollHeight: number; scrollTop: number },
+) {
+  Object.defineProperty(element, "clientHeight", {
+    configurable: true,
+    value: metrics.clientHeight,
+  });
+  Object.defineProperty(element, "scrollHeight", {
+    configurable: true,
+    value: metrics.scrollHeight,
+  });
+  Object.defineProperty(element, "scrollTop", {
+    configurable: true,
+    value: metrics.scrollTop,
+    writable: true,
+  });
+}
+
 function emitTranscript(text: string) {
   act(() => {
     workspaceMocks.transcriptCallback?.(text);
@@ -699,6 +719,32 @@ function makeExecRunResult(
       truncatedStdout: false,
       truncatedStderr: false,
     },
+  };
+}
+
+function makeGitHubIssue(
+  number: number,
+  overrides: Partial<{
+    title: string;
+    state: string;
+    updatedAt: string;
+    url: string;
+    author: { login: string };
+    labels: Array<{ name: string }>;
+    assignees: Array<{ login: string }>;
+    body: string;
+  }> = {},
+) {
+  return {
+    number,
+    title: overrides.title ?? `Issue ${number}`,
+    state: overrides.state ?? "OPEN",
+    updatedAt: overrides.updatedAt ?? "2026-03-17T00:26:04Z",
+    url: overrides.url ?? `https://github.com/acme/repo/issues/${number}`,
+    author: overrides.author ?? { login: "amir-s" },
+    labels: overrides.labels ?? [],
+    assignees: overrides.assignees ?? [],
+    ...(typeof overrides.body === "string" ? { body: overrides.body } : {}),
   };
 }
 
@@ -765,6 +811,7 @@ describe("WorkspacePage chat input", () => {
     workspaceMocks.transcriptCallback = null;
     workspaceMocks.eventHandlers.clear();
     workspaceMocks.terminalProps = null;
+    resetGitHubIssuesCache();
     workspaceMocks.invokeMock.mockReset();
     workspaceMocks.execRunMock.mockReset();
     workspaceMocks.readGitHeadStateMock.mockReset();
@@ -1614,7 +1661,6 @@ describe("WorkspacePage chat input", () => {
     expect(screen.getByText("App")).not.toBeNull();
     expect(screen.queryByText("Lint")).toBeNull();
     expect(screen.getByRole("button", { name: "Run Lint" })).not.toBeNull();
-    expect(screen.getByText("Toggle")).not.toBeNull();
     expect(screen.getByText("⌘", { selector: "kbd" })).not.toBeNull();
     expect(screen.getByText("B", { selector: "kbd" })).not.toBeNull();
 
@@ -1757,7 +1803,6 @@ describe("WorkspacePage chat input", () => {
     render(<WorkspacePage />);
 
     await screen.findByRole("button", { name: "Run App" });
-    expect(screen.getByText("Toggle")).not.toBeNull();
     expect(screen.getByText("⌘", { selector: "kbd" })).not.toBeNull();
     expect(screen.getByText("B", { selector: "kbd" })).not.toBeNull();
 
@@ -1766,13 +1811,479 @@ describe("WorkspacePage chat input", () => {
     await waitFor(() => {
       expect(screen.queryByRole("button", { name: "Run App" })).toBeNull();
     });
-    expect(screen.queryByText("Toggle")).toBeNull();
+    expect(screen.queryByText("⌘", { selector: "kbd" })).toBeNull();
+    expect(screen.queryByText("B", { selector: "kbd" })).toBeNull();
 
     fireEvent.keyDown(window, { key: "b", metaKey: true });
 
     await waitFor(() => {
       expect(screen.getByRole("button", { name: "Run App" })).not.toBeNull();
     });
+  });
+
+  it("hides the GitHub issues button when the project setting is off", async () => {
+    workspaceMocks.agentState = {
+      ...workspaceMocks.agentState,
+      config: {
+        ...workspaceMocks.agentState.config,
+        projectPath: "/repo",
+      },
+    };
+    workspaceMocks.findSavedProjectMock.mockReturnValue({
+      path: "/repo",
+      name: "Repo",
+    });
+    workspaceMocks.resolveSavedProjectMock.mockResolvedValue({
+      path: "/repo",
+      name: "Repo",
+      commands: [],
+      githubIntegrationEnabled: false,
+    });
+    workspaceMocks.execRunMock.mockImplementation(
+      async (
+        cwd: string,
+        input: { command: string; args?: string[] },
+      ) => {
+        if (
+          input.command === "git" &&
+          input.args?.join(" ") === "rev-parse --show-toplevel"
+        ) {
+          return makeExecRunResult({ stdout: `${cwd}\n` });
+        }
+        if (
+          input.command === "git" &&
+          input.args?.join(" ") === "remote get-url origin"
+        ) {
+          return makeExecRunResult({ stdout: "git@github.com:acme/repo.git\n" });
+        }
+        return makeExecRunResult();
+      },
+    );
+
+    render(<WorkspacePage />);
+
+    await waitFor(() => {
+      expect(workspaceMocks.execRunMock).toHaveBeenCalled();
+    });
+    expect(
+      screen.queryByRole("button", { name: "Open recent GitHub issues" }),
+    ).toBeNull();
+  });
+
+  it("hides the GitHub issues button for non-GitHub remotes", async () => {
+    workspaceMocks.agentState = {
+      ...workspaceMocks.agentState,
+      config: {
+        ...workspaceMocks.agentState.config,
+        projectPath: "/repo",
+      },
+    };
+    workspaceMocks.findSavedProjectMock.mockReturnValue({
+      path: "/repo",
+      name: "Repo",
+    });
+    workspaceMocks.resolveSavedProjectMock.mockResolvedValue({
+      path: "/repo",
+      name: "Repo",
+      commands: [],
+      githubIntegrationEnabled: true,
+    });
+    workspaceMocks.execRunMock.mockImplementation(
+      async (
+        cwd: string,
+        input: { command: string; args?: string[] },
+      ) => {
+        if (
+          input.command === "git" &&
+          input.args?.join(" ") === "rev-parse --show-toplevel"
+        ) {
+          return makeExecRunResult({ stdout: `${cwd}\n` });
+        }
+        if (
+          input.command === "git" &&
+          input.args?.join(" ") === "remote get-url origin"
+        ) {
+          return makeExecRunResult({ stdout: "git@gitlab.com:acme/repo.git\n" });
+        }
+        return makeExecRunResult();
+      },
+    );
+
+    render(<WorkspacePage />);
+
+    await waitFor(() => {
+      expect(workspaceMocks.execRunMock).toHaveBeenCalled();
+    });
+    expect(
+      screen.queryByRole("button", { name: "Open recent GitHub issues" }),
+    ).toBeNull();
+  });
+
+  it("shows cached GitHub issues immediately when reopening the popover and refreshes in the background", async () => {
+    const secondRefresh = (() => {
+      let resolve!: (value: ReturnType<typeof makeExecRunResult>) => void;
+      const promise = new Promise<ReturnType<typeof makeExecRunResult>>((next) => {
+        resolve = next;
+      });
+      return { promise, resolve };
+    })();
+    let ghIssueListCalls = 0;
+
+    workspaceMocks.agentState = {
+      ...workspaceMocks.agentState,
+      config: {
+        ...workspaceMocks.agentState.config,
+        projectPath: "/repo",
+      },
+    };
+    workspaceMocks.findSavedProjectMock.mockReturnValue({
+      path: "/repo",
+      name: "Repo",
+    });
+    workspaceMocks.resolveSavedProjectMock.mockResolvedValue({
+      path: "/repo",
+      name: "Repo",
+      commands: [],
+      githubIntegrationEnabled: true,
+    });
+    workspaceMocks.execRunMock.mockImplementation(
+      (
+        cwd: string,
+        input: { command: string; args?: string[] },
+      ) => {
+        if (
+          input.command === "git" &&
+          input.args?.join(" ") === "rev-parse --show-toplevel"
+        ) {
+          return Promise.resolve(makeExecRunResult({ stdout: `${cwd}\n` }));
+        }
+        if (
+          input.command === "git" &&
+          input.args?.join(" ") === "remote get-url origin"
+        ) {
+          return Promise.resolve(
+            makeExecRunResult({ stdout: "git@github.com:acme/repo.git\n" }),
+          );
+        }
+        if (input.command === "gh" && input.args?.[1] === "list") {
+          ghIssueListCalls += 1;
+          if (ghIssueListCalls === 1) {
+            return Promise.resolve(
+              makeExecRunResult({
+                stdout: JSON.stringify([
+                  makeGitHubIssue(1, { title: "Cached issue" }),
+                ]),
+              }),
+            );
+          }
+          return secondRefresh.promise;
+        }
+        return Promise.resolve(makeExecRunResult());
+      },
+    );
+
+    render(<WorkspacePage />);
+
+    const issuesButton = await screen.findByRole("button", {
+      name: "Open recent GitHub issues",
+    });
+
+    fireEvent.click(issuesButton);
+
+    await screen.findByText("Cached issue");
+
+    fireEvent.click(issuesButton);
+    await waitFor(() => {
+      expect(screen.queryByText("Cached issue")).toBeNull();
+    });
+
+    fireEvent.click(issuesButton);
+
+    expect(screen.getByText("Cached issue")).not.toBeNull();
+    expect(screen.queryByText("Loading latest issues…")).toBeNull();
+    expect(screen.getByText(/Last updated /)).not.toBeNull();
+    expect(
+      document.querySelector(
+        ".github-issues-popover__meta-status .github-issues-popover__spinner",
+      ),
+    ).not.toBeNull();
+
+    secondRefresh.resolve(
+      makeExecRunResult({
+        stdout: JSON.stringify([makeGitHubIssue(2, { title: "Fresh issue" })]),
+      }),
+    );
+
+    await screen.findByText("Fresh issue");
+  });
+
+  it("searches GitHub issues from the popover with a debounced CLI query", async () => {
+    const ghSearchQueries: string[] = [];
+
+    workspaceMocks.agentState = {
+      ...workspaceMocks.agentState,
+      config: {
+        ...workspaceMocks.agentState.config,
+        projectPath: "/repo",
+      },
+    };
+    workspaceMocks.findSavedProjectMock.mockReturnValue({
+      path: "/repo",
+      name: "Repo",
+    });
+    workspaceMocks.resolveSavedProjectMock.mockResolvedValue({
+      path: "/repo",
+      name: "Repo",
+      commands: [],
+      githubIntegrationEnabled: true,
+    });
+    workspaceMocks.execRunMock.mockImplementation(
+      async (
+        cwd: string,
+        input: { command: string; args?: string[] },
+      ) => {
+        if (
+          input.command === "git" &&
+          input.args?.join(" ") === "rev-parse --show-toplevel"
+        ) {
+          return makeExecRunResult({ stdout: `${cwd}\n` });
+        }
+        if (
+          input.command === "git" &&
+          input.args?.join(" ") === "remote get-url origin"
+        ) {
+          return makeExecRunResult({ stdout: "git@github.com:acme/repo.git\n" });
+        }
+        if (input.command === "gh" && input.args?.[1] === "list") {
+          const args = input.args ?? [];
+          const searchIndex = args.indexOf("--search");
+          const searchValue = searchIndex >= 0 ? args[searchIndex + 1] ?? "" : "";
+          ghSearchQueries.push(searchValue);
+
+          if (searchValue === "sort:updated-desc") {
+            return makeExecRunResult({
+              stdout: JSON.stringify([
+                makeGitHubIssue(1, { title: "Recent issue" }),
+              ]),
+            });
+          }
+          if (searchValue === "bug hunt sort:updated-desc") {
+            return makeExecRunResult({
+              stdout: JSON.stringify([
+                makeGitHubIssue(2, { title: "Search hit" }),
+              ]),
+            });
+          }
+          return makeExecRunResult({ stdout: JSON.stringify([]) });
+        }
+        return makeExecRunResult();
+      },
+    );
+
+    render(<WorkspacePage />);
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Open recent GitHub issues" }),
+    );
+
+    await screen.findByText("Recent issue");
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Search GitHub issues" }),
+    );
+
+    fireEvent.change(screen.getByPlaceholderText("Search GitHub issues"), {
+      target: { value: "bug hunt" },
+    });
+
+    expect(ghSearchQueries).toEqual(["sort:updated-desc"]);
+
+    await waitFor(() => {
+      expect(ghSearchQueries).toEqual([
+        "sort:updated-desc",
+        "bug hunt sort:updated-desc",
+      ]);
+    });
+    expect(await screen.findByText("Search hit")).not.toBeNull();
+    expect(screen.queryByText("Recent issue")).toBeNull();
+  });
+
+  it("loads more GitHub issues on scroll and opens issue details in a modal", async () => {
+    workspaceMocks.agentState = {
+      ...workspaceMocks.agentState,
+      config: {
+        ...workspaceMocks.agentState.config,
+        projectPath: "/repo",
+      },
+    };
+    workspaceMocks.findSavedProjectMock.mockReturnValue({
+      path: "/repo",
+      name: "Repo",
+    });
+    workspaceMocks.resolveSavedProjectMock.mockResolvedValue({
+      path: "/repo",
+      name: "Repo",
+      commands: [],
+      githubIntegrationEnabled: true,
+    });
+    workspaceMocks.execRunMock.mockImplementation(
+      async (
+        cwd: string,
+        input: { command: string; args?: string[] },
+      ) => {
+        if (
+          input.command === "git" &&
+          input.args?.join(" ") === "rev-parse --show-toplevel"
+        ) {
+          return makeExecRunResult({ stdout: `${cwd}\n` });
+        }
+        if (
+          input.command === "git" &&
+          input.args?.join(" ") === "remote get-url origin"
+        ) {
+          return makeExecRunResult({ stdout: "git@github.com:acme/repo.git\n" });
+        }
+        if (input.command === "gh" && input.args?.[1] === "list") {
+          return makeExecRunResult({
+            stdout: JSON.stringify(
+              Array.from({ length: 21 }, (_, index) =>
+                makeGitHubIssue(index + 1, {
+                  title: `Issue ${index + 1}`,
+                }),
+              ),
+            ),
+          });
+        }
+        if (input.command === "gh" && input.args?.[1] === "view") {
+          return makeExecRunResult({
+            stdout: JSON.stringify(
+              makeGitHubIssue(1, {
+                title: "Issue 1",
+                body: "Detailed body for issue 1",
+              }),
+            ),
+          });
+        }
+        return makeExecRunResult();
+      },
+    );
+
+    render(<WorkspacePage />);
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Open recent GitHub issues" }),
+    );
+
+    await screen.findByText("Issue 20");
+    expect(screen.queryByText("Issue 21")).toBeNull();
+
+    const list = screen.getByLabelText("GitHub issues list");
+    setScrollMetrics(list, {
+      clientHeight: 200,
+      scrollHeight: 600,
+      scrollTop: 390,
+    });
+    fireEvent.scroll(list);
+
+    await screen.findByText("Issue 21");
+
+    fireEvent.click(screen.getByText("Issue 1"));
+
+    await screen.findByRole("dialog", { name: "GitHub issue #1" });
+    await screen.findByText("Detailed body for issue 1");
+    expect(
+      screen.getByRole("link", { name: "Open in GitHub" }).getAttribute("href"),
+    ).toBe("https://github.com/acme/repo/issues/1");
+  });
+
+  it("shows GitHub empty and error states in the issues popover", async () => {
+    workspaceMocks.agentState = {
+      ...workspaceMocks.agentState,
+      config: {
+        ...workspaceMocks.agentState.config,
+        projectPath: "/repo",
+      },
+    };
+    workspaceMocks.findSavedProjectMock.mockReturnValue({
+      path: "/repo",
+      name: "Repo",
+    });
+    workspaceMocks.resolveSavedProjectMock.mockResolvedValue({
+      path: "/repo",
+      name: "Repo",
+      commands: [],
+      githubIntegrationEnabled: true,
+    });
+
+    workspaceMocks.execRunMock.mockImplementation(
+      async (
+        cwd: string,
+        input: { command: string; args?: string[] },
+      ) => {
+        if (
+          input.command === "git" &&
+          input.args?.join(" ") === "rev-parse --show-toplevel"
+        ) {
+          return makeExecRunResult({ stdout: `${cwd}\n` });
+        }
+        if (
+          input.command === "git" &&
+          input.args?.join(" ") === "remote get-url origin"
+        ) {
+          return makeExecRunResult({ stdout: "git@github.com:acme/repo.git\n" });
+        }
+        if (input.command === "gh" && input.args?.[1] === "list") {
+          return makeExecRunResult({ stdout: JSON.stringify([]) });
+        }
+        return makeExecRunResult();
+      },
+    );
+
+    const view = render(<WorkspacePage />);
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Open recent GitHub issues" }),
+    );
+    await screen.findByText("No issues found");
+
+    resetGitHubIssuesCache();
+    workspaceMocks.execRunMock.mockImplementation(
+      async (
+        cwd: string,
+        input: { command: string; args?: string[] },
+      ) => {
+        if (
+          input.command === "git" &&
+          input.args?.join(" ") === "rev-parse --show-toplevel"
+        ) {
+          return makeExecRunResult({ stdout: `${cwd}\n` });
+        }
+        if (
+          input.command === "git" &&
+          input.args?.join(" ") === "remote get-url origin"
+        ) {
+          return makeExecRunResult({ stdout: "git@github.com:acme/repo.git\n" });
+        }
+        if (input.command === "gh" && input.args?.[1] === "list") {
+          return {
+            ok: false as const,
+            error: {
+              code: "INTERNAL",
+              message: "Failed to load issues",
+            },
+          };
+        }
+        return makeExecRunResult();
+      },
+    );
+
+    view.unmount();
+    render(<WorkspacePage />);
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Open recent GitHub issues" }),
+    );
+    await screen.findByText("Failed to load issues");
   });
 
   it("does not show the queue strip while the agent is busy with no submitted follow-up", async () => {

@@ -2037,6 +2037,8 @@ pub struct SavedProjectRecord {
     pub setup_command: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub commands: Option<Vec<ProjectCommandRecord>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub github_integration_enabled: Option<bool>,
     #[serde(
         default,
         deserialize_with = "deserialize_saved_project_learned_facts",
@@ -2636,6 +2638,7 @@ mod tests {
                 icon: Some("play_arrow".to_string()),
                 show_label: Some(false),
             }]),
+            github_integration_enabled: Some(true),
             learned_facts: Some(vec![
                 SavedProjectLearnedFactRecord {
                     id: "fact_tauri".to_string(),
@@ -2657,6 +2660,7 @@ mod tests {
         let raw = std::fs::read_to_string(&config_path).unwrap();
         assert!(raw.contains("\"icon\": \"folder_code\""));
         assert!(raw.contains("\"setupCommand\": \"pnpm install\""));
+        assert!(raw.contains("\"githubIntegrationEnabled\": true"));
         assert!(raw.contains("\"learnedFacts\""));
 
         match prev_home {

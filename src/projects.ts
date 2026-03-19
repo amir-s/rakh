@@ -20,6 +20,7 @@ export interface SavedProject {
   icon?: string;
   setupCommand?: string;
   commands?: ProjectCommandConfig[];
+  githubIntegrationEnabled?: boolean;
   learnedFacts?: ProjectLearnedFact[];
   hasProjectConfigFile?: boolean;
 }
@@ -61,6 +62,10 @@ function normalizeCommands(value: unknown): ProjectCommandConfig[] | undefined {
   if (!Array.isArray(value)) return undefined;
   const commands = normalizeProjectScriptsConfig({ commands: value })?.commands ?? [];
   return commands.length > 0 ? commands : undefined;
+}
+
+function normalizeGitHubIntegrationEnabled(value: unknown): boolean | undefined {
+  return typeof value === "boolean" ? value : undefined;
 }
 
 function normalizeProjectIcon(value: unknown): string {
@@ -317,6 +322,9 @@ export function normalizeSavedProject(value: unknown): SavedProject | null {
   const rawName = typeof value.name === "string" ? value.name.trim() : "";
   const setupCommand = normalizeSetupCommand(value.setupCommand);
   const commands = normalizeCommands(value.commands);
+  const githubIntegrationEnabled = normalizeGitHubIntegrationEnabled(
+    value.githubIntegrationEnabled,
+  );
   const learnedFacts = normalizeLearnedFacts(value.learnedFacts);
   return {
     path: rawPath,
@@ -324,6 +332,9 @@ export function normalizeSavedProject(value: unknown): SavedProject | null {
     icon: normalizeProjectIcon(value.icon),
     ...(setupCommand ? { setupCommand } : {}),
     ...(commands ? { commands } : {}),
+    ...(githubIntegrationEnabled === true
+      ? { githubIntegrationEnabled: true }
+      : {}),
     ...(learnedFacts ? { learnedFacts } : {}),
   };
 }
@@ -354,6 +365,9 @@ export function applyProjectScriptsConfig(
       : {}),
     ...(configState.config?.commands?.length
       ? { commands: configState.config.commands }
+      : {}),
+    ...(configState.config?.githubIntegrationEnabled === true
+      ? { githubIntegrationEnabled: true }
       : {}),
   };
 }
@@ -414,6 +428,9 @@ function serializeSavedProject(project: SavedProject): SavedProject {
       ? { setupCommand: normalized.setupCommand }
       : {}),
     ...(normalized.commands?.length ? { commands: normalized.commands } : {}),
+    ...(normalized.githubIntegrationEnabled === true
+      ? { githubIntegrationEnabled: true }
+      : {}),
   };
 }
 

@@ -13,6 +13,7 @@ export interface ProjectCommandConfig {
 export interface ProjectScriptsConfig {
   setupCommand?: string;
   commands?: ProjectCommandConfig[];
+  githubIntegrationEnabled?: boolean;
 }
 
 export interface ProjectScriptsConfigState {
@@ -62,6 +63,9 @@ export function normalizeProjectScriptsConfig(
   if (!isRecord(value)) return null;
 
   const setupCommand = normalizeOptionalString(value.setupCommand);
+  const githubIntegrationEnabled = normalizeOptionalBoolean(
+    value.githubIntegrationEnabled,
+  );
   const commands = Array.isArray(value.commands)
     ? value.commands
         .map((command) => normalizeProjectCommandConfig(command))
@@ -71,6 +75,9 @@ export function normalizeProjectScriptsConfig(
   return {
     ...(setupCommand ? { setupCommand } : {}),
     ...(commands.length > 0 ? { commands } : {}),
+    ...(githubIntegrationEnabled === true
+      ? { githubIntegrationEnabled: true }
+      : {}),
   };
 }
 

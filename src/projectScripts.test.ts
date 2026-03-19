@@ -34,6 +34,7 @@ describe("projectScripts", () => {
       data: {
         content: JSON.stringify({
           setupCommand: "npm install",
+          githubIntegrationEnabled: true,
           commands: [
             {
               id: "run",
@@ -51,6 +52,7 @@ describe("projectScripts", () => {
       exists: true,
       config: {
         setupCommand: "npm install",
+        githubIntegrationEnabled: true,
         commands: [
           {
             id: "run",
@@ -77,6 +79,7 @@ describe("projectScripts", () => {
 
     await writeProjectScriptsConfig("/repo", {
       setupCommand: "  npm install  ",
+      githubIntegrationEnabled: true,
       commands: [
         {
           id: "run",
@@ -102,6 +105,7 @@ describe("projectScripts", () => {
               showLabel: false,
             },
           ],
+          githubIntegrationEnabled: true,
         },
         null,
         2,

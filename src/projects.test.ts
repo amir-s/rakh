@@ -27,6 +27,7 @@ describe("projects", () => {
           path: "/repo",
           name: "Repo",
           icon: "folder_code",
+          githubIntegrationEnabled: true,
           setupCommand: "local setup",
           commands: [
             {
@@ -41,6 +42,7 @@ describe("projects", () => {
           exists: true,
           config: {
             setupCommand: "repo setup",
+            githubIntegrationEnabled: true,
             commands: [
               {
                 id: "repo-run",
@@ -56,6 +58,7 @@ describe("projects", () => {
       name: "Repo",
       icon: "folder_code",
       hasProjectConfigFile: true,
+      githubIntegrationEnabled: true,
       setupCommand: "repo setup",
       commands: [
         {
@@ -137,6 +140,7 @@ describe("projects", () => {
         path: "/repo",
         name: "Repo",
         icon: "folder_code",
+        githubIntegrationEnabled: true,
         learnedFacts: [fact("fact_pnpm", "Use pnpm in this repo.")],
       },
     ]);
@@ -145,6 +149,7 @@ describe("projects", () => {
       path: "/repo",
       name: "Repo Renamed",
       icon: "folder_open",
+      githubIntegrationEnabled: true,
       learnedFacts: [fact("fact_pnpm", "Use pnpm in this repo.")],
       setupCommand: "pnpm install",
     });
@@ -154,6 +159,7 @@ describe("projects", () => {
         path: "/repo",
         name: "Repo Renamed",
         icon: "folder_open",
+        githubIntegrationEnabled: true,
         learnedFacts: [fact("fact_pnpm", "Use pnpm in this repo.")],
         setupCommand: "pnpm install",
       },
@@ -166,6 +172,7 @@ describe("projects", () => {
         path: "/repo",
         name: "Repo",
         icon: "folder_code",
+        githubIntegrationEnabled: true,
         learnedFacts: [fact("fact_pnpm", "Use pnpm in this repo.")],
       },
     ]);
@@ -174,6 +181,7 @@ describe("projects", () => {
       path: "/repo",
       name: "Repo Renamed",
       icon: "folder_open",
+      githubIntegrationEnabled: true,
       setupCommand: "pnpm install",
     });
 
@@ -182,6 +190,7 @@ describe("projects", () => {
         path: "/repo",
         name: "Repo Renamed",
         icon: "folder_open",
+        githubIntegrationEnabled: true,
         learnedFacts: [fact("fact_pnpm", "Use pnpm in this repo.")],
         setupCommand: "pnpm install",
       },
