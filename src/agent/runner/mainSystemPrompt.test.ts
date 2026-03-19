@@ -48,7 +48,6 @@ vi.mock("@/projects", async () => {
 
 import {
   buildMainSystemPromptForState,
-  buildWorkspaceRootUpdateMessage,
 } from "./mainSystemPrompt";
 
 function makeState(overrides: Partial<AgentState> = {}): AgentState {
@@ -190,7 +189,7 @@ describe("buildMainSystemPromptForState", () => {
     expect(prompt).toContain("TOOL IO CONTEXT COMPACTION");
   });
 
-  it("reuses the existing system prompt verbatim for the rest of the session", async () => {
+  it("reuses the existing system prompt verbatim when forceRefresh is not requested", async () => {
     const initialPrompt = await buildMainSystemPromptForState(makeState());
     const state = makeState({
       config: {
@@ -220,12 +219,37 @@ describe("buildMainSystemPromptForState", () => {
     expect(prompt).not.toContain("The backend uses Tauri.");
     expect(prompt).toContain("Be pragmatic.");
   });
-});
 
-describe("buildWorkspaceRootUpdateMessage", () => {
-  it("renders a synthetic runner-state handoff for worktree cwd changes", () => {
-    expect(
-      buildWorkspaceRootUpdateMessage("/repo", "/repo/.rakh/worktree"),
-    ).toContain("Current workspace root: /repo/.rakh/worktree");
+  it("rebuilds the existing system prompt when forceRefresh is requested", async () => {
+    const initialPrompt = await buildMainSystemPromptForState(makeState());
+    const state = makeState({
+      config: {
+        cwd: "/repo/worktree",
+        model: "openai/gpt-5.2",
+        communicationProfile: "friendly",
+      },
+      apiMessages: [{ role: "system", content: initialPrompt }],
+    });
+
+    projectLearnedFacts = [
+      { id: "fact_pnpm", text: "Use pnpm in this repo." },
+      { id: "fact_tauri", text: "The backend uses Tauri." },
+    ];
+    workspaceCapabilities = {
+      isGitRepo: false,
+      hasAgentsFile: false,
+      hasSkillsDir: false,
+    };
+    toolContextCompactionEnabled = false;
+
+    const prompt = await buildMainSystemPromptForState(state, {
+      forceRefresh: true,
+    });
+
+    expect(prompt).not.toBe(initialPrompt);
+    expect(prompt).toContain("Workspace root: /repo/worktree");
+    expect(prompt).toContain("The backend uses Tauri.");
+    expect(prompt).toContain("Use a warmer tone.");
+    expect(prompt).not.toContain("TOOL IO CONTEXT COMPACTION");
   });
 });

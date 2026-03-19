@@ -69,11 +69,18 @@ function getExistingSystemPrompt(state: AgentState): string | null {
     : null;
 }
 
+interface BuildMainSystemPromptOptions {
+  forceRefresh?: boolean;
+}
+
 export async function buildMainSystemPromptForState(
   state: AgentState,
+  options: BuildMainSystemPromptOptions = {},
 ): Promise<string> {
-  const existingPrompt = getExistingSystemPrompt(state);
-  if (existingPrompt) return existingPrompt;
+  if (!options.forceRefresh) {
+    const existingPrompt = getExistingSystemPrompt(state);
+    if (existingPrompt) return existingPrompt;
+  }
 
   const cwd = state.config.cwd;
   const [workspaceInfo, project] = await Promise.all([
@@ -93,18 +100,4 @@ export async function buildMainSystemPromptForState(
     state.config.communicationProfile,
     toolContextCompactionEnabled,
   );
-}
-
-export function buildWorkspaceRootUpdateMessage(
-  previousCwd: string,
-  currentCwd: string,
-): string {
-  return [
-    "Synthetic runner state update.",
-    "Treat this as runner-provided execution state, not as a new user request.",
-    "",
-    `Previous workspace root: ${previousCwd || "(empty)"}`,
-    `Current workspace root: ${currentCwd}`,
-    "Use the current workspace root for future workspace-relative tool calls.",
-  ].join("\n");
 }

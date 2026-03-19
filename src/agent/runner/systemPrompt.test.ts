@@ -35,11 +35,6 @@ import { plannerSubagent } from "../subagents/planner";
 
 const runtimeContext = {
   hostOs: "mac",
-  locale: "en-CA",
-  timeZone: "America/Toronto",
-  localDate: "2026-03-12",
-  localTime: "10:00:00",
-  utcIso: "2026-03-12T15:00:00.000Z",
 };
 
 describe("buildSystemPrompt", () => {
@@ -254,6 +249,28 @@ describe("buildSystemPrompt", () => {
     expect(systemPrompt).not.toContain("TOOL IO CONTEXT COMPACTION");
     expect(systemPrompt).not.toContain("__contextCompaction");
     expect(systemPrompt).not.toContain("Supported local-tool input compaction");
+  });
+
+  it("uses stable git isolation guidance without volatile clock metadata", () => {
+    const systemPrompt = buildSystemPrompt(
+      "/workspace",
+      true,
+      false,
+      false,
+      runtimeContext,
+      undefined,
+      undefined,
+    );
+
+    expect(systemPrompt).toContain("Call git_worktree_init in isolation.");
+    expect(systemPrompt).toContain(
+      "treat the returned worktree path as the active workspace root",
+    );
+    expect(systemPrompt).not.toContain("Locale:");
+    expect(systemPrompt).not.toContain("Timezone:");
+    expect(systemPrompt).not.toContain("Today's local date");
+    expect(systemPrompt).not.toContain("Current local time");
+    expect(systemPrompt).not.toContain("Current UTC timestamp");
   });
 });
 

@@ -14,11 +14,6 @@ import type { SubagentArtifactSpec } from "../subagents/types";
 
 export interface SystemPromptRuntimeContext {
   hostOs: string;
-  locale: string;
-  timeZone: string;
-  localDate: string;
-  localTime: string;
-  utcIso: string;
 }
 
 function detectHostOs(): "windows" | "linux" | "mac" {
@@ -31,17 +26,9 @@ function detectHostOs(): "windows" | "linux" | "mac" {
   return "linux";
 }
 
-export function buildSystemPromptRuntimeContext(
-  now = new Date(),
-): SystemPromptRuntimeContext {
-  const intlOptions = Intl.DateTimeFormat().resolvedOptions();
+export function buildSystemPromptRuntimeContext(): SystemPromptRuntimeContext {
   return {
     hostOs: detectHostOs(),
-    locale: intlOptions.locale ?? "unknown",
-    timeZone: intlOptions.timeZone ?? "unknown",
-    localDate: now.toLocaleDateString(),
-    localTime: now.toLocaleTimeString(),
-    utcIso: now.toISOString(),
   };
 }
 
@@ -102,6 +89,8 @@ export function buildSystemPrompt(
 
 GIT ISOLATION
 - Before **writing any new files** or **modifying any files**, call git_worktree_init exactly once with a short suggested branch name (e.g. "feat/add-dark-mode").
+- Call git_worktree_init in isolation. Do NOT bundle it with any other tool call in the same assistant turn; wait for its result before any subsequent reads or writes.
+- After git_worktree_init succeeds, treat the returned worktree path as the active workspace root for all future workspace-relative tool calls.
 - Never call git_worktree_init more than once per session — it is idempotent and will no-op if already set up or declined.
 - Do not call git_worktree_init if you don't need to make file changes — it's only necessary if you need isolation for your edits in the same session.
 - If the user declines, proceed working directly in the main workspace without asking again.`
@@ -110,11 +99,6 @@ GIT ISOLATION
   return `You are Rakh, an autonomous AI coding agent.
 Workspace root: ${cwd}
 Host OS: ${runtimeContext.hostOs}
-Locale: ${runtimeContext.locale}
-Timezone: ${runtimeContext.timeZone}
-Today's local date: ${runtimeContext.localDate}
-Current local time: ${runtimeContext.localTime}
-Current UTC timestamp: ${runtimeContext.utcIso}
 ${renderProjectMemorySection(projectLearnedFacts)}
 
 You can read, write, modify, and execute code inside this workspace.
