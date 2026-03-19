@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.18.0](https://github.com/amir-s/rakh/compare/rakh-v0.17.1...rakh-v0.18.0) (2026-03-19)
+
+
+### Features
+
+* add anthropic prompt caching breakpoints ([3955861](https://github.com/amir-s/rakh/commit/3955861ed73a20b81abe79c00111217735b50fa5))
+* add clickable markdown file references ([c530ec4](https://github.com/amir-s/rakh/commit/c530ec46bbcc432f611daf4e7f953734e70e9cf3))
+* add GitHub issues command bar integration ([27ebb83](https://github.com/amir-s/rakh/commit/27ebb83e6167be4c14f97e069ae0b26a00e0764c)), closes [#127](https://github.com/amir-s/rakh/issues/127)
+* **agent:** add configurable main loop safeguards ([684fb1e](https://github.com/amir-s/rakh/commit/684fb1edfe8e367df63074bcb28ddae38da36205))
+* **markdown:** add mermaid zoom controls ([96e2253](https://github.com/amir-s/rakh/commit/96e22531a78b7e47d25726063a3f6981c8ba22a7))
+* **markdown:** render mermaid diagrams ([eb1c92f](https://github.com/amir-s/rakh/commit/eb1c92fccc3c9dd03251b1b145952e4c070c453c))
+* **session-cost:** add toggleable cost component charts ([9323afa](https://github.com/amir-s/rakh/commit/9323afacd77c23a256d8df5a5fbd093aec6718ce))
+
+
+### Bug Fixes
+
+* always show workspace command bar ([4968df2](https://github.com/amir-s/rakh/commit/4968df29b20186fadcf15ae24858cd735f3a6761)), closes [#127](https://github.com/amir-s/rakh/issues/127)
+* polish GitHub issues popover ([6b1176a](https://github.com/amir-s/rakh/commit/6b1176aff16e868089733a8e0f0681397e227979)), closes [#127](https://github.com/amir-s/rakh/issues/127)
+* refine GitHub issues interactions ([8232f1a](https://github.com/amir-s/rakh/commit/8232f1ae4eacf1661714702f9be85ac7c1521aff)), closes [#127](https://github.com/amir-s/rakh/issues/127)
+
 ## [0.17.1](https://github.com/amir-s/rakh/compare/rakh-v0.17.0...rakh-v0.17.1) (2026-03-18)
 
 

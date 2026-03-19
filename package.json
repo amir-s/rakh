@@ -1,6 +1,6 @@
 {
   "name": "rakh",
-  "version": "0.17.1",
+  "version": "0.18.0",
   "private": true,
   "scripts": {
     "d": "tauri dev --config src-tauri/tauri.dev.conf.json",
