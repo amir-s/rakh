@@ -8,6 +8,7 @@ import {
   loadGitHubIssueDetails,
   refreshGitHubIssues,
   searchGitHubIssues,
+  type GitHubIssueDetails,
   type GitHubIssueDetailsSnapshot,
   type GitHubIssueSummary,
 } from "@/githubIssues";
@@ -19,6 +20,8 @@ const SEARCH_DEBOUNCE_MS = 300;
 interface GitHubIssuesControlProps {
   cwd: string;
   repoSlug: string;
+  onReferenceInChat?: (issue: GitHubIssueDetails) => void;
+  onOpenInNewSession?: (issue: GitHubIssueDetails) => void;
 }
 
 interface PopoverPosition {
@@ -147,10 +150,14 @@ function GitHubIssueModal({
   issue,
   detailsSnapshot,
   onClose,
+  onReferenceInChat,
+  onOpenInNewSession,
 }: {
   issue: GitHubIssueSummary;
   detailsSnapshot: GitHubIssueDetailsSnapshot;
   onClose: () => void;
+  onReferenceInChat?: () => void;
+  onOpenInNewSession?: () => void;
 }) {
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -247,9 +254,35 @@ function GitHubIssueModal({
           >
             Open in GitHub
           </a>
-          <Button onClick={onClose} variant="primary" size="xxs">
-            CLOSE
-          </Button>
+          <div className="github-issue-modal__footer-actions">
+            {onReferenceInChat ? (
+              <Button
+                onClick={onReferenceInChat}
+                variant="ghost"
+                size="xxs"
+                disabled={!issueDetails}
+                title="Attach this issue to the current chat"
+              >
+                <span className="material-symbols-outlined text-sm">chat</span>
+                REFERENCE IN CHAT
+              </Button>
+            ) : null}
+            {onOpenInNewSession ? (
+              <Button
+                onClick={onOpenInNewSession}
+                variant="ghost"
+                size="xxs"
+                disabled={!issueDetails}
+                title="Open this issue in a new session"
+              >
+                <span className="material-symbols-outlined text-sm">open_in_new</span>
+                NEW SESSION
+              </Button>
+            ) : null}
+            <Button onClick={onClose} variant="primary" size="xxs">
+              CLOSE
+            </Button>
+          </div>
         </div>
       </ModalShell>
     </div>,
@@ -260,6 +293,8 @@ function GitHubIssueModal({
 export default function GitHubIssuesControl({
   cwd,
   repoSlug,
+  onReferenceInChat,
+  onOpenInNewSession,
 }: GitHubIssuesControlProps) {
   const [popoverOpen, setPopoverOpen] = useState(false);
   const [popoverPosition, setPopoverPosition] = useState<PopoverPosition | null>(
@@ -659,6 +694,26 @@ export default function GitHubIssuesControl({
             setSelectedIssue(null);
             setDetailsSnapshot(createEmptyDetailsSnapshot());
           }}
+          onReferenceInChat={
+            onReferenceInChat && detailsSnapshot.issue
+              ? () => {
+                  const issue = detailsSnapshot.issue!;
+                  setSelectedIssue(null);
+                  setDetailsSnapshot(createEmptyDetailsSnapshot());
+                  onReferenceInChat(issue);
+                }
+              : undefined
+          }
+          onOpenInNewSession={
+            onOpenInNewSession && detailsSnapshot.issue
+              ? () => {
+                  const issue = detailsSnapshot.issue!;
+                  setSelectedIssue(null);
+                  setDetailsSnapshot(createEmptyDetailsSnapshot());
+                  onOpenInNewSession(issue);
+                }
+              : undefined
+          }
         />
       ) : null}
     </>

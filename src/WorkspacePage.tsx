@@ -9,7 +9,7 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
 import { createPortal } from "react-dom";
-import type { AttachedImage } from "@/agent/types";
+import type { AttachedImage, AttachedIssue } from "@/agent/types";
 import { useAtomValue } from "jotai";
 import ArtifactPane, { useArtifactUpdates } from "@/components/ArtifactPane";
 import ConversationCards from "@/components/ConversationCards";
@@ -98,7 +98,7 @@ import {
 } from "@/projectScripts";
 import { execRun } from "@/agent/tools/exec";
 import { replaceSessionTodos } from "@/agent/tools/todos";
-import { cloneSessionArtifacts } from "@/agent/tools/artifacts";
+import { artifactCreate, cloneSessionArtifacts } from "@/agent/tools/artifacts";
 import {
   detachGitHead,
   readGitHeadState,
@@ -369,6 +369,14 @@ export default function WorkspacePage() {
     [attachedImagesByTab, activeTabId],
   );
 
+  const [attachedIssuesByTab, setAttachedIssuesByTab] = useState<
+    Record<string, AttachedIssue[]>
+  >({});
+  const attachedIssues = useMemo(
+    () => attachedIssuesByTab[activeTabId] ?? [],
+    [attachedIssuesByTab, activeTabId],
+  );
+
   const addAttachedImages = useCallback(
     async (files: File[]) => {
       const readAsDataUrl = (file: File): Promise<string> =>
@@ -419,6 +427,55 @@ export default function WorkspacePage() {
       }
       return { ...prev, [activeTabId]: [] };
     });
+  }, [activeTabId]);
+
+  const attachIssueToTab = useCallback(
+    async (issue: import("@/githubIssues").GitHubIssueDetails, targetTabId: string, repoSlug: string) => {
+      const result = await artifactCreate(targetTabId, undefined, {
+        kind: "github-issue",
+        artifactType: "github-issue",
+        contentFormat: "json",
+        summary: `GitHub issue #${issue.number}: ${issue.title}`,
+        content: JSON.stringify({
+          kind: "github-issue",
+          number: issue.number,
+          title: issue.title,
+          body: issue.body,
+          state: issue.state,
+          url: issue.url,
+          author: issue.authorLogin,
+          labels: issue.labels,
+          assignees: issue.assignees,
+        }),
+      });
+      if (!result.ok) return;
+      const newIssue: AttachedIssue = {
+        id: Math.random().toString(36).slice(2) + Date.now().toString(36),
+        number: issue.number,
+        title: issue.title,
+        repoSlug,
+        artifactId: result.data.artifact.artifactId,
+      };
+      setAttachedIssuesByTab((prev) => ({
+        ...prev,
+        [targetTabId]: [...(prev[targetTabId] ?? []), newIssue],
+      }));
+    },
+    [],
+  );
+
+  const removeAttachedIssue = useCallback(
+    (id: string) => {
+      setAttachedIssuesByTab((prev) => {
+        const current = prev[activeTabId] ?? [];
+        return { ...prev, [activeTabId]: current.filter((i) => i.id !== id) };
+      });
+    },
+    [activeTabId],
+  );
+
+  const clearAttachedIssues = useCallback(() => {
+    setAttachedIssuesByTab((prev) => ({ ...prev, [activeTabId]: [] }));
   }, [activeTabId]);
 
   const handleImagePathDrop = useCallback(
@@ -605,6 +662,42 @@ export default function WorkspacePage() {
     },
     [activeTab, activeTabId, addTab],
   );
+
+  const handleReferenceIssueInChat = useCallback(
+    async (issue: import("@/githubIssues").GitHubIssueDetails) => {
+      const repoSlug = projectGitHubState.repoSlug ?? "";
+      await attachIssueToTab(issue, activeTabId, repoSlug);
+    },
+    [attachIssueToTab, activeTabId, projectGitHubState.repoSlug],
+  );
+
+  const handleOpenIssueInNewSession = useCallback(
+    async (issue: import("@/githubIssues").GitHubIssueDetails) => {
+      const repoSlug = projectGitHubState.repoSlug ?? "";
+      const newTabId = addTab({
+        mode: "workspace",
+        label: `Issue #${issue.number}`,
+        icon: "bug_report",
+        status: "idle",
+      });
+      const newTab: Tab = {
+        id: newTabId,
+        label: `Issue #${issue.number}`,
+        icon: "bug_report",
+        status: "idle",
+        mode: "workspace",
+      };
+      const currentConfig = agent.config;
+      patchAgentState(newTabId, (prev) => ({
+        ...prev,
+        config: { ...currentConfig },
+      }));
+      await upsertSession(newTab);
+      await attachIssueToTab(issue, newTabId, repoSlug);
+    },
+    [addTab, agent.config, attachIssueToTab, projectGitHubState.repoSlug],
+  );
+
   const textareaRef = useRef<MentionTextareaHandle>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const isDragging = useRef(false);
@@ -1257,7 +1350,7 @@ export default function WorkspacePage() {
 
   const handleSubmit = useCallback(async () => {
     const text = input.trim();
-    if (!text && attachedImages.length === 0) return;
+    if (!text && attachedImages.length === 0 && attachedIssues.length === 0) return;
 
     if (helpCommand && matchesSlashCommandInput(text, helpCommand)) {
       injectAssistantMessage(formatSlashCommandHelpMarkdown(slashCommands));
@@ -1326,18 +1419,34 @@ export default function WorkspacePage() {
     if (voiceInput.busy) return;
 
     const currentAttachments = attachedImages.slice();
+    const currentIssues = attachedIssues.slice();
     voiceInput.clearError();
     setInput("");
     clearAttachedImages();
+    clearAttachedIssues();
+
+    let messageText = text;
+    if (currentIssues.length > 0) {
+      const refs = currentIssues
+        .map(
+          (i) =>
+            `[Context: GitHub issue #${i.number} ("${i.title}") has been attached as artifact ${i.artifactId}. Use the agent_artifact_get tool to read its full content.]`,
+        )
+        .join("\n");
+      messageText = messageText ? `${refs}\n\n${messageText}` : refs;
+    }
+
     if (currentAttachments.length > 0) {
-      agent.sendMessage(text, currentAttachments);
+      agent.sendMessage(messageText, currentAttachments);
     } else {
-      agent.sendMessage(text);
+      agent.sendMessage(messageText);
     }
   }, [
     input,
     attachedImages,
+    attachedIssues,
     clearAttachedImages,
+    clearAttachedIssues,
     activeTabId,
     helpCommand,
     isAgentBusy,
@@ -1495,6 +1604,8 @@ export default function WorkspacePage() {
                 key={projectGitHubState.repoSlug}
                 cwd={cwd}
                 repoSlug={projectGitHubState.repoSlug}
+                onReferenceInChat={handleReferenceIssueInChat}
+                onOpenInNewSession={handleOpenIssueInNewSession}
               />
             ) : null}
           </div>
@@ -1795,7 +1906,7 @@ export default function WorkspacePage() {
                 )}
                 <VoiceInputStatusSlot />
                 <VoiceInputRecordingRow />
-                {attachedImages.length > 0 && (
+                {(attachedImages.length > 0 || attachedIssues.length > 0) && (
                   <div className="chat-attachment-strip">
                     {attachedImages.map((img) => (
                       <div key={img.id} className="chat-attachment-chip">
@@ -1810,6 +1921,36 @@ export default function WorkspacePage() {
                           onClick={() => removeAttachedImage(img.id)}
                           title={`Remove ${img.name}`}
                           aria-label={`Remove ${img.name}`}
+                          type="button"
+                        >
+                          <span
+                            className="material-symbols-outlined"
+                            style={{ fontSize: 14 }}
+                          >
+                            close
+                          </span>
+                        </button>
+                      </div>
+                    ))}
+                    {attachedIssues.map((issue) => (
+                      <div
+                        key={issue.id}
+                        className="chat-attachment-chip chat-attachment-chip--issue"
+                      >
+                        <span
+                          className="material-symbols-outlined chat-attachment-issue-icon"
+                          aria-hidden="true"
+                        >
+                          bug_report
+                        </span>
+                        <span className="chat-attachment-name">
+                          #{issue.number} {issue.title}
+                        </span>
+                        <button
+                          className="chat-attachment-remove"
+                          onClick={() => removeAttachedIssue(issue.id)}
+                          title={`Remove issue #${issue.number}`}
+                          aria-label={`Remove issue #${issue.number}`}
                           type="button"
                         >
                           <span

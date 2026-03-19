@@ -286,6 +286,16 @@ export interface AttachedImage {
   mimeType: string;
 }
 
+export interface AttachedIssue {
+  /** Random local ID (same style as AttachedImage) */
+  id: string;
+  number: number;
+  title: string;
+  repoSlug: string;
+  /** Artifact ID created at attach-time so handleSubmit can reference it */
+  artifactId: string;
+}
+
 export interface ChatMessage {
   id: string;
   role: "user" | "assistant";
