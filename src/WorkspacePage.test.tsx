@@ -1661,8 +1661,6 @@ describe("WorkspacePage chat input", () => {
     expect(screen.getByText("App")).not.toBeNull();
     expect(screen.queryByText("Lint")).toBeNull();
     expect(screen.getByRole("button", { name: "Run Lint" })).not.toBeNull();
-    expect(screen.getByText("⌘", { selector: "kbd" })).not.toBeNull();
-    expect(screen.getByText("B", { selector: "kbd" })).not.toBeNull();
 
     fireEvent.click(appButton);
 
@@ -1775,7 +1773,7 @@ describe("WorkspacePage chat input", () => {
     });
   });
 
-  it("toggles the project command bar with Cmd+B", async () => {
+  it("always shows the project command bar", async () => {
     workspaceMocks.agentState = {
       ...workspaceMocks.agentState,
       config: {
@@ -1802,23 +1800,7 @@ describe("WorkspacePage chat input", () => {
 
     render(<WorkspacePage />);
 
-    await screen.findByRole("button", { name: "Run App" });
-    expect(screen.getByText("⌘", { selector: "kbd" })).not.toBeNull();
-    expect(screen.getByText("B", { selector: "kbd" })).not.toBeNull();
-
-    fireEvent.keyDown(window, { key: "b", metaKey: true });
-
-    await waitFor(() => {
-      expect(screen.queryByRole("button", { name: "Run App" })).toBeNull();
-    });
-    expect(screen.queryByText("⌘", { selector: "kbd" })).toBeNull();
-    expect(screen.queryByText("B", { selector: "kbd" })).toBeNull();
-
-    fireEvent.keyDown(window, { key: "b", metaKey: true });
-
-    await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Run App" })).not.toBeNull();
-    });
+    expect(await screen.findByRole("button", { name: "Run App" })).not.toBeNull();
   });
 
   it("hides the GitHub issues button when the project setting is off", async () => {
