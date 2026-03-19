@@ -1,6 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { DEFAULT_PROJECT_ICON, type SavedProject } from "@/projects";
+import {
+  getGitHubRepoUnavailableMessage,
+  probeGitHubRepository,
+  type GitHubRepoProbeResult,
+} from "@/githubIntegration";
 import { searchMaterialSymbolsOutlined } from "@/materialSymbols";
 import { PROJECT_SCRIPTS_CONFIG_PATH } from "@/projectScripts";
 import type { ProjectCommandConfig } from "@/projectScripts";
@@ -127,6 +132,7 @@ function buildProjectPayload(
   projectIcon: string,
   setupCommand: string,
   commands: CommandDraft[],
+  githubIntegrationEnabled: boolean,
 ): SavedProject {
   const normalizedName = projectName.trim() || project.name;
   const normalizedIcon = projectIcon.trim() || DEFAULT_PROJECT_ICON;
@@ -137,6 +143,7 @@ function buildProjectPayload(
     icon: normalizedIcon,
     ...(setupCommand.trim() ? { setupCommand: setupCommand.trim() } : {}),
     ...(nextCommands.length > 0 ? { commands: nextCommands } : {}),
+    ...(githubIntegrationEnabled ? { githubIntegrationEnabled: true } : {}),
   };
 }
 
@@ -153,6 +160,9 @@ export default function ProjectSettingsModal({
   const [projectIconPickerOpen, setProjectIconPickerOpen] = useState(false);
   const [projectIconSearchQuery, setProjectIconSearchQuery] = useState("");
   const [setupCommand, setSetupCommand] = useState(project.setupCommand ?? "");
+  const [githubIntegrationEnabled, setGitHubIntegrationEnabled] = useState(
+    Boolean(project.githubIntegrationEnabled),
+  );
   const [commands, setCommands] = useState<CommandDraft[]>(
     project.commands?.map((command) => createCommandDraft(command)) ?? [],
   );
@@ -169,6 +179,9 @@ export default function ProjectSettingsModal({
   const [projectConfigError, setProjectConfigError] = useState<string | null>(
     null,
   );
+  const [githubRepoProbe, setGitHubRepoProbe] =
+    useState<GitHubRepoProbeResult | null>(null);
+  const [githubRepoProbeLoading, setGitHubRepoProbeLoading] = useState(true);
   const [iconPickerOpen, setIconPickerOpen] = useState(false);
   const [iconMenuPosition, setIconMenuPosition] =
     useState<IconMenuPosition | null>(null);
@@ -204,6 +217,11 @@ export default function ProjectSettingsModal({
       })),
     [commands],
   );
+  const githubIntegrationToggleDisabled =
+    githubRepoProbeLoading || !githubRepoProbe?.eligible;
+  const githubIntegrationHint = githubRepoProbeLoading
+    ? "Checking whether this project is a GitHub repository."
+    : getGitHubRepoUnavailableMessage(githubRepoProbe);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -309,6 +327,36 @@ export default function ProjectSettingsModal({
     if (iconPickerOpen) return;
     setIconMenuPosition(null);
   }, [iconPickerOpen]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setGitHubRepoProbeLoading(true);
+    setGitHubRepoProbe(null);
+
+    void probeGitHubRepository(project.path)
+      .then((result) => {
+        if (cancelled) return;
+        setGitHubRepoProbe(result);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setGitHubRepoProbe({
+          eligible: false,
+          reason: "error",
+          repoRoot: null,
+          repoSlug: null,
+          remoteUrl: null,
+        });
+      })
+      .finally(() => {
+        if (cancelled) return;
+        setGitHubRepoProbeLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [project.path]);
 
   const iconMenu =
     iconPickerOpen && iconMenuPosition
@@ -449,6 +497,7 @@ export default function ProjectSettingsModal({
         projectIcon,
         setupCommand,
         commands,
+        githubIntegrationEnabled,
       );
       await onSave({
         project: nextProject,
@@ -469,6 +518,7 @@ export default function ProjectSettingsModal({
         projectIcon,
         setupCommand,
         commands,
+        githubIntegrationEnabled,
       );
       await onCreateProjectConfig({
         project: nextProject,
@@ -774,6 +824,26 @@ export default function ProjectSettingsModal({
                 </div>
               </div>
             ) : null}
+          </div>
+
+          <div className="tool-modal-section">
+            <div className="tool-modal-section-label">GitHub Integration</div>
+            <label className="project-settings-modal__toggle-row">
+              <div className="project-settings-modal__toggle-copy">
+                <span className="project-settings-modal__toggle-title">
+                  Recent issues button
+                </span>
+                <p className="project-settings-modal__hint">
+                  {githubIntegrationHint}
+                </p>
+              </div>
+              <ToggleSwitch
+                checked={githubIntegrationEnabled}
+                onChange={setGitHubIntegrationEnabled}
+                title="Toggle GitHub integration"
+                disabled={githubIntegrationToggleDisabled}
+              />
+            </label>
           </div>
 
           {shouldShowRepoConfigSection ? (

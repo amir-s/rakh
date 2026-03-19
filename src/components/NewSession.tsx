@@ -424,12 +424,18 @@ export default function NewSession({ onSubmit }: NewSessionProps) {
         icon: project.icon || DEFAULT_PROJECT_ICON,
         ...(project.setupCommand ? { setupCommand: project.setupCommand } : {}),
         ...(project.commands?.length ? { commands: project.commands } : {}),
+        ...(project.githubIntegrationEnabled
+          ? { githubIntegrationEnabled: true }
+          : {}),
       };
 
       if (writeProjectConfig) {
         await writeProjectScriptsConfig(project.path, {
           ...(project.setupCommand ? { setupCommand: project.setupCommand } : {}),
           ...(project.commands?.length ? { commands: project.commands } : {}),
+          ...(project.githubIntegrationEnabled
+            ? { githubIntegrationEnabled: true }
+            : {}),
         });
       }
 
@@ -458,11 +464,17 @@ export default function NewSession({ onSubmit }: NewSessionProps) {
         icon: project.icon || DEFAULT_PROJECT_ICON,
         ...(project.setupCommand ? { setupCommand: project.setupCommand } : {}),
         ...(project.commands?.length ? { commands: project.commands } : {}),
+        ...(project.githubIntegrationEnabled
+          ? { githubIntegrationEnabled: true }
+          : {}),
       };
 
       await writeProjectScriptsConfig(project.path, {
         ...(project.setupCommand ? { setupCommand: project.setupCommand } : {}),
         ...(project.commands?.length ? { commands: project.commands } : {}),
+        ...(project.githubIntegrationEnabled
+          ? { githubIntegrationEnabled: true }
+          : {}),
       });
 
       const savedProjects = await upsertSavedProjectPreservingLearnedFacts(

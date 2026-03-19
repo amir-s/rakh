@@ -532,6 +532,25 @@
   color: var(--color-text);
 }
 
+.project-settings-modal__toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.project-settings-modal__toggle-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.project-settings-modal__toggle-title {
+  font-size: var(--text-xs);
+  color: var(--color-text);
+}
+
 .project-settings-modal__command-editor-actions {
   display: inline-flex;
   align-items: center;
@@ -607,6 +626,11 @@
 
   .project-settings-modal__command-grid {
     grid-template-columns: 1fr;
+  }
+
+  .project-settings-modal__toggle-row {
+    flex-direction: column;
+    align-items: stretch;
   }
 
   .project-settings-modal__footer {

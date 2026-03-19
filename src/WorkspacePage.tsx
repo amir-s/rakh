@@ -36,6 +36,7 @@ import CompactToolCall from "@/components/CompactToolCall";
 import GroupedInlineToolCall from "@/components/GroupedInlineToolCall";
 import ReasoningThought from "@/components/ReasoningThought";
 import ProjectCommandBar from "@/components/ProjectCommandBar";
+import GitHubIssuesControl from "@/components/GitHubIssuesControl";
 import {
   MentionTextarea,
   type MentionTextareaHandle,
@@ -89,6 +90,7 @@ import {
   upsertSavedProjectPreservingLearnedFacts,
   type SavedProject,
 } from "@/projects";
+import { probeGitHubRepository } from "@/githubIntegration";
 import {
   writeProjectScriptsConfig,
   type ProjectCommandConfig,
@@ -121,11 +123,23 @@ interface WorktreeHandoffState {
   error: string | null;
 }
 
+interface ProjectGitHubState {
+  enabled: boolean;
+  repoSlug: string | null;
+  eligible: boolean;
+}
+
 const IDLE_WORKTREE_HANDOFF_STATE: WorktreeHandoffState = {
   loading: false,
   branchHeld: false,
   hasChanges: false,
   error: null,
+};
+
+const EMPTY_PROJECT_GITHUB_STATE: ProjectGitHubState = {
+  enabled: false,
+  repoSlug: null,
+  eligible: false,
 };
 
 interface WorktreeHandoffModalProps {
@@ -447,6 +461,8 @@ export default function WorkspacePage() {
   const [projectCommands, setProjectCommands] = useState<
     ProjectCommandConfig[]
   >([]);
+  const [projectGitHubState, setProjectGitHubState] =
+    useState<ProjectGitHubState>(EMPTY_PROJECT_GITHUB_STATE);
   const [commandBarOpen, setCommandBarOpen] = useState(true);
   const [terminalCommandRequest, setTerminalCommandRequest] = useState<{
     id: number;
@@ -627,12 +643,14 @@ export default function WorkspacePage() {
   useEffect(() => {
     if (isNewSession) {
       setProjectCommands([]);
+      setProjectGitHubState(EMPTY_PROJECT_GITHUB_STATE);
       return;
     }
 
     const projectPath = agent.config.projectPath?.trim();
     if (!projectPath) {
       setProjectCommands([]);
+      setProjectGitHubState(EMPTY_PROJECT_GITHUB_STATE);
       return;
     }
 
@@ -643,11 +661,19 @@ export default function WorkspacePage() {
       icon: DEFAULT_PROJECT_ICON,
     };
 
-    void resolveSavedProject(savedProject)
-      .then((resolvedProject) => {
+    void Promise.all([
+      resolveSavedProject(savedProject),
+      probeGitHubRepository(projectPath),
+    ])
+      .then(([resolvedProject, githubProbe]) => {
         if (cancelled) return;
         const nextIcon = resolvedProject.icon || DEFAULT_PROJECT_ICON;
         setProjectCommands(resolvedProject.commands ?? []);
+        setProjectGitHubState({
+          enabled: Boolean(resolvedProject.githubIntegrationEnabled),
+          repoSlug: githubProbe.repoSlug,
+          eligible: githubProbe.eligible,
+        });
         if (activeTab?.mode === "workspace" && activeTab.icon !== nextIcon) {
           void persistActiveTabChanges({ icon: nextIcon });
         }
@@ -655,6 +681,7 @@ export default function WorkspacePage() {
       .catch(() => {
         if (cancelled) return;
         setProjectCommands([]);
+        setProjectGitHubState(EMPTY_PROJECT_GITHUB_STATE);
       });
 
     return () => {
@@ -1006,6 +1033,9 @@ export default function WorkspacePage() {
         icon: project.icon || DEFAULT_PROJECT_ICON,
         ...(project.setupCommand ? { setupCommand: project.setupCommand } : {}),
         ...(project.commands?.length ? { commands: project.commands } : {}),
+        ...(project.githubIntegrationEnabled
+          ? { githubIntegrationEnabled: true }
+          : {}),
       };
 
       if (writeProjectConfig) {
@@ -1014,6 +1044,9 @@ export default function WorkspacePage() {
             ? { setupCommand: project.setupCommand }
             : {}),
           ...(project.commands?.length ? { commands: project.commands } : {}),
+          ...(project.githubIntegrationEnabled
+            ? { githubIntegrationEnabled: true }
+            : {}),
         });
       }
 
@@ -1024,6 +1057,7 @@ export default function WorkspacePage() {
         savedProjects.find((entry) => entry.path === nextProject.path) ??
           nextProject,
       );
+      const githubProbe = await probeGitHubRepository(resolvedProject.path);
       const nextIcon = resolvedProject.icon || DEFAULT_PROJECT_ICON;
       agent.setConfig({
         projectPath: resolvedProject.path,
@@ -1033,6 +1067,11 @@ export default function WorkspacePage() {
       });
       await persistActiveTabChanges({ icon: nextIcon });
       setProjectCommands(resolvedProject.commands ?? []);
+      setProjectGitHubState({
+        enabled: Boolean(resolvedProject.githubIntegrationEnabled),
+        repoSlug: githubProbe.repoSlug,
+        eligible: githubProbe.eligible,
+      });
       setProjectSettingsProject(null);
     },
     [agent, persistActiveTabChanges],
@@ -1046,11 +1085,17 @@ export default function WorkspacePage() {
         icon: project.icon || DEFAULT_PROJECT_ICON,
         ...(project.setupCommand ? { setupCommand: project.setupCommand } : {}),
         ...(project.commands?.length ? { commands: project.commands } : {}),
+        ...(project.githubIntegrationEnabled
+          ? { githubIntegrationEnabled: true }
+          : {}),
       };
 
       await writeProjectScriptsConfig(project.path, {
         ...(project.setupCommand ? { setupCommand: project.setupCommand } : {}),
         ...(project.commands?.length ? { commands: project.commands } : {}),
+        ...(project.githubIntegrationEnabled
+          ? { githubIntegrationEnabled: true }
+          : {}),
       });
 
       const savedProjects = await upsertSavedProjectPreservingLearnedFacts(
@@ -1060,6 +1105,7 @@ export default function WorkspacePage() {
         savedProjects.find((entry) => entry.path === nextProject.path) ??
           nextProject,
       );
+      const githubProbe = await probeGitHubRepository(resolvedProject.path);
       const nextIcon = resolvedProject.icon || DEFAULT_PROJECT_ICON;
       agent.setConfig({
         projectPath: resolvedProject.path,
@@ -1069,6 +1115,11 @@ export default function WorkspacePage() {
       });
       await persistActiveTabChanges({ icon: nextIcon });
       setProjectCommands(resolvedProject.commands ?? []);
+      setProjectGitHubState({
+        enabled: Boolean(resolvedProject.githubIntegrationEnabled),
+        repoSlug: githubProbe.repoSlug,
+        eligible: githubProbe.eligible,
+      });
       setProjectSettingsProject(resolvedProject);
     },
     [agent, persistActiveTabChanges],
@@ -1450,10 +1501,16 @@ export default function WorkspacePage() {
                   <span className="project-command-button__label">Handoff</span>
                 </button>
               ) : null}
+              {projectGitHubState.enabled &&
+              projectGitHubState.eligible &&
+              projectGitHubState.repoSlug ? (
+                <GitHubIssuesControl
+                  key={projectGitHubState.repoSlug}
+                  cwd={cwd}
+                  repoSlug={projectGitHubState.repoSlug}
+                />
+              ) : null}
               <span className="project-command-bar__shortcut-hint">
-                <span className="project-command-bar__shortcut-label">
-                  Toggle
-                </span>
                 <span
                   className="project-command-bar__shortcut-keys"
                   aria-hidden="true"

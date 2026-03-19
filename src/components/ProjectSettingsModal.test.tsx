@@ -1,13 +1,32 @@
 // @vitest-environment jsdom
 
-import {
-  act,
-  cleanup,
-  fireEvent,
-  render,
-  screen,
-} from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+const githubIntegrationMocks = vi.hoisted(() => ({
+  probeGitHubRepositoryMock: vi.fn(),
+}));
+
+vi.mock("@/githubIntegration", () => ({
+  probeGitHubRepository: (...args: unknown[]) =>
+    githubIntegrationMocks.probeGitHubRepositoryMock(...args),
+  getGitHubRepoUnavailableMessage: (probe: { reason?: string } | null) => {
+    if (!probe || probe.reason === "error") {
+      return "GitHub integration is unavailable right now.";
+    }
+    if (probe.reason === "not_git") {
+      return "GitHub integration is unavailable because this project is not a git repository.";
+    }
+    if (probe.reason === "missing_origin") {
+      return "GitHub integration is unavailable because this project has no origin remote.";
+    }
+    if (probe.reason === "not_github") {
+      return "GitHub integration is unavailable because this project is not connected to GitHub.";
+    }
+    return "Show recent GitHub issues from this repository in the command bar.";
+  },
+}));
+
 import ProjectSettingsModal from "./ProjectSettingsModal";
 
 const PROJECT_COMMAND_ICONS = [
@@ -23,6 +42,14 @@ const PROJECT_COMMAND_ICONS = [
 describe("ProjectSettingsModal", () => {
   beforeEach(() => {
     vi.useFakeTimers();
+    githubIntegrationMocks.probeGitHubRepositoryMock.mockReset();
+    githubIntegrationMocks.probeGitHubRepositoryMock.mockResolvedValue({
+      eligible: true,
+      reason: "eligible",
+      repoRoot: "/repo",
+      repoSlug: "owner/repo",
+      remoteUrl: "git@github.com:owner/repo.git",
+    });
   });
 
   afterEach(() => {
@@ -65,6 +92,13 @@ describe("ProjectSettingsModal", () => {
       screen.getByPlaceholderText("npm install && npm run build"),
       { target: { value: "  npm install  " } },
     );
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(
+      screen.getByTitle("Toggle GitHub integration").hasAttribute("disabled"),
+    ).toBe(false);
+    fireEvent.click(screen.getByTitle("Toggle GitHub integration"));
     fireEvent.click(screen.getByRole("button", { name: "ADD" }));
     fireEvent.change(screen.getByPlaceholderText("Label (e.g. Run app)"), {
       target: { value: " Run app " },
@@ -107,6 +141,7 @@ describe("ProjectSettingsModal", () => {
         name: "Repo Tools",
         icon: "terminal",
         setupCommand: "npm install",
+        githubIntegrationEnabled: true,
         commands: [
           {
             id: expect.any(String),
@@ -139,6 +174,7 @@ describe("ProjectSettingsModal", () => {
         name: "Repo Tools",
         icon: "terminal",
         setupCommand: "npm install",
+        githubIntegrationEnabled: true,
         commands: [
           {
             id: expect.any(String),
@@ -220,5 +256,37 @@ describe("ProjectSettingsModal", () => {
       },
       writeProjectConfig: true,
     });
+  });
+
+  it("disables GitHub integration when the project is not connected to GitHub", async () => {
+    githubIntegrationMocks.probeGitHubRepositoryMock.mockResolvedValue({
+      eligible: false,
+      reason: "not_github",
+      repoRoot: "/repo",
+      repoSlug: null,
+      remoteUrl: "git@gitlab.com:owner/repo.git",
+    });
+
+    render(
+      <ProjectSettingsModal
+        project={{ path: "/repo", name: "Repo" }}
+        onClose={() => undefined}
+        onSave={() => undefined}
+        onCreateProjectConfig={() => undefined}
+      />,
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(
+      screen.getByText(
+        "GitHub integration is unavailable because this project is not connected to GitHub.",
+      ),
+    ).not.toBeNull();
+
+    expect(screen.getByTitle("Toggle GitHub integration").hasAttribute("disabled")).toBe(
+      true,
+    );
   });
 });
