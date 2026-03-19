@@ -1,6 +1,7 @@
 import { streamText } from "ai";
 
 import { patchAgentState } from "../atoms";
+import { getModelCatalogEntry } from "../modelCatalog";
 import type {
   ApiMessage,
   ApiToolCall,
@@ -115,7 +116,8 @@ export async function streamTurn(
     }));
   }
 
-  const mappedMessages = mapApiMessagesToModelMessages(messages);
+  const provider = getModelCatalogEntry(modelId)?.owned_by ?? null;
+  const mappedMessages = mapApiMessagesToModelMessages(messages, provider);
   const result = streamText({
     model,
     messages: mappedMessages,
