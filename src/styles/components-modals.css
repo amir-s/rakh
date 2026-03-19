@@ -923,6 +923,7 @@
 }
 
 .session-cost-legend-item {
+  appearance: none;
   display: inline-flex;
   align-items: center;
   gap: 7px;
@@ -932,6 +933,31 @@
   background: color-mix(in srgb, var(--color-surface) 88%, transparent);
   font-size: 10px;
   line-height: 1;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+  transition:
+    opacity 140ms ease,
+    border-color 140ms ease,
+    background-color 140ms ease;
+}
+
+.session-cost-legend-item:hover {
+  border-color: color-mix(in srgb, var(--color-primary) 20%, var(--color-border-subtle));
+}
+
+.session-cost-legend-item:focus-visible {
+  outline: 1px solid color-mix(in srgb, var(--color-primary) 30%, transparent);
+  outline-offset: 2px;
+}
+
+.session-cost-legend-item:disabled {
+  cursor: default;
+}
+
+.session-cost-legend-item--inactive {
+  opacity: 0.54;
 }
 
 .session-cost-legend-swatch {
@@ -1012,9 +1038,19 @@
   stroke-linejoin: round;
 }
 
+.session-cost-chart-guide {
+  stroke: color-mix(in srgb, var(--color-primary) 20%, var(--color-text));
+  stroke-width: 1;
+  stroke-dasharray: 4 6;
+}
+
 .session-cost-chart-dot {
   stroke: color-mix(in srgb, var(--color-surface) 84%, black);
   stroke-width: 1.5;
+}
+
+.session-cost-chart-dot--hovered {
+  stroke-width: 2;
 }
 
 .session-cost-chart-dot--missing {
@@ -1022,11 +1058,20 @@
   stroke: var(--color-warning);
 }
 
+.session-cost-chart-slice {
+  fill: transparent;
+  pointer-events: all;
+}
+
+.session-cost-chart-slice:focus-visible {
+  outline: none;
+}
+
 .session-cost-chart-tooltip {
   position: absolute;
   transform: translate(-50%, calc(-100% - 10px));
-  min-width: 168px;
-  max-width: min(280px, calc(100% - 12px));
+  min-width: 196px;
+  max-width: min(320px, calc(100% - 12px));
   padding: 8px 10px;
   border-radius: 8px;
   border: 1px solid var(--color-border-mid);
@@ -1035,7 +1080,7 @@
   color: var(--color-text);
   font-size: 10px;
   line-height: 1.55;
-  white-space: pre-line;
+  white-space: normal;
   pointer-events: none;
   z-index: 2;
 }
@@ -1048,6 +1093,61 @@
   transform: translateX(-50%);
   border: 6px solid transparent;
   border-top-color: color-mix(in srgb, var(--color-elevated) 96%, black);
+}
+
+.session-cost-tooltip-title {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--color-text);
+}
+
+.session-cost-tooltip-copy {
+  margin-top: 2px;
+  color: var(--color-muted);
+}
+
+.session-cost-tooltip-section {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid color-mix(in srgb, var(--color-border-subtle) 92%, transparent);
+}
+
+.session-cost-tooltip-section-title {
+  margin-bottom: 4px;
+  color: var(--color-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.session-cost-tooltip-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.session-cost-tooltip-row-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--color-text);
+}
+
+.session-cost-tooltip-row-value {
+  color: var(--color-text);
+  white-space: nowrap;
+}
+
+.session-cost-tooltip-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  flex-shrink: 0;
+}
+
+.session-cost-tooltip-note {
+  margin-top: 5px;
+  color: var(--color-warning);
 }
 
 .session-cost-empty {
