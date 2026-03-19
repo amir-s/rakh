@@ -45,11 +45,11 @@ import { buildProviderOptions } from "./runner/providerOptions";
 import { runSubagentLoop } from "./runner/subagentLoop";
 import { RunAbortedError, serializeError } from "./runner/utils";
 import {
-  buildMainSystemPromptForState,
   COMPACT_TRIGGER_SUBAGENT_ID,
   executeMainContextCompaction,
   maybeRunAutomaticMainContextCompaction,
 } from "./runner/mainContextCompaction";
+import { buildMainSystemPromptForState } from "./runner/mainSystemPrompt";
 
 export { buildProviderOptions } from "./runner/providerOptions";
 export { serializeError } from "./runner/utils";
@@ -906,6 +906,7 @@ async function runAgentTurn(
   };
   dequeueQueuedMessage(tabId, options.queuedMessageId);
   const refreshedSystemPrompt = await buildMainSystemPromptForState(
+    tabId,
     stateAfterPreflight,
   );
   const priorApiMessages =

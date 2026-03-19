@@ -8,7 +8,6 @@ import {
   getAgentState,
   jotaiStore,
   patchAgentState,
-  toolContextCompactionEnabledAtom,
 } from "../atoms";
 import { providersAtom } from "../db";
 import { estimateCurrentContextStats } from "../sessionStats";
@@ -26,11 +25,8 @@ import {
 } from "@/projects";
 
 import { appendChatMessage, msgId } from "./chatState";
+import { buildMainSystemPromptForState } from "./mainSystemPrompt";
 import { runSubagentLoop } from "./subagentLoop";
-import {
-  buildSystemPrompt,
-  buildSystemPromptRuntimeContext,
-} from "./systemPrompt";
 
 export const COMPACT_TRIGGER_SUBAGENT_ID = "compact";
 export const COMPACT_SUMMARY_CARD_TITLE = "Compacted Context";
@@ -99,81 +95,6 @@ function projectTodoForCompaction(todo: TodoItem): Record<string, unknown> {
       verified: note.verified,
     })),
   };
-}
-
-async function inspectWorkspaceForSystemPrompt(
-  cwd: string,
-): Promise<{
-  isGitRepo: boolean;
-  hasAgentsFile: boolean;
-  hasSkillsDir: boolean;
-}> {
-  let isGitRepo = false;
-  let hasAgentsFile = false;
-  let hasSkillsDir = false;
-
-  if (!cwd) {
-    return { isGitRepo, hasAgentsFile, hasSkillsDir };
-  }
-
-  try {
-    const { invoke: tauriInvoke } = await import("@tauri-apps/api/core");
-    const gitResult = await tauriInvoke<{ exitCode: number }>("exec_run", {
-      command: "git",
-      args: ["rev-parse", "--show-toplevel"],
-      cwd,
-      env: {},
-      timeoutMs: 5000,
-      maxStdoutBytes: 512,
-      maxStderrBytes: 512,
-      stdin: null,
-    });
-    isGitRepo = gitResult.exitCode === 0;
-
-    const agentsStat = await tauriInvoke<{ exists: boolean; kind?: string }>(
-      "stat_file",
-      {
-        path: `${cwd}/AGENTS.md`,
-      },
-    );
-    hasAgentsFile = agentsStat.exists && agentsStat.kind === "file";
-
-    const skillsStat = await tauriInvoke<{ exists: boolean; kind?: string }>(
-      "stat_file",
-      {
-        path: `${cwd}/.agents/skills`,
-      },
-    );
-    hasSkillsDir = skillsStat.exists && skillsStat.kind === "dir";
-  } catch {
-    // Not in Tauri or git not available.
-  }
-
-  return { isGitRepo, hasAgentsFile, hasSkillsDir };
-}
-
-export async function buildMainSystemPromptForState(
-  state: ReturnType<typeof getAgentState>,
-): Promise<string> {
-  const cwd = state.config.cwd;
-  const workspaceInfo = await inspectWorkspaceForSystemPrompt(cwd);
-  const project = await loadSavedProjectForWorkspace(
-    state.config.projectPath,
-    cwd,
-  );
-  const toolContextCompactionEnabled =
-    jotaiStore.get(toolContextCompactionEnabledAtom) !== false;
-
-  return buildSystemPrompt(
-    cwd,
-    workspaceInfo.isGitRepo,
-    workspaceInfo.hasAgentsFile,
-    workspaceInfo.hasSkillsDir,
-    buildSystemPromptRuntimeContext(),
-    project?.learnedFacts,
-    state.config.communicationProfile,
-    toolContextCompactionEnabled,
-  );
 }
 
 async function restoreProjectMemorySnapshot(
@@ -404,6 +325,7 @@ export async function executeMainContextCompaction(opts: {
     }
 
     const refreshedSystemPrompt = await buildMainSystemPromptForState(
+      opts.tabId,
       getAgentState(opts.tabId),
     );
 
