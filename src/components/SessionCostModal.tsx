@@ -328,6 +328,8 @@ function SessionCostMultiLineChart({
               type="button"
               className="session-cost-legend-item"
               aria-pressed="true"
+              aria-label={`${definition.label}. ${definition.description}`}
+              title={definition.description}
               disabled
             >
               <span
@@ -336,7 +338,7 @@ function SessionCostMultiLineChart({
                 aria-hidden="true"
               />
               <span className="session-cost-legend-label">{definition.label}</span>
-              <span className="session-cost-legend-copy">
+              <span className="session-cost-legend-popover" aria-hidden="true">
                 {definition.description}
               </span>
             </button>
@@ -394,6 +396,8 @@ function SessionCostMultiLineChart({
               type="button"
               className={`session-cost-legend-item${isVisible ? "" : " session-cost-legend-item--inactive"}`}
               aria-pressed={isVisible}
+              aria-label={`${definition.label}. ${definition.description}`}
+              title={definition.description}
               onClick={() => {
                 setVisibleKeys((current) => {
                   if (current.includes(definition.key)) {
@@ -411,7 +415,7 @@ function SessionCostMultiLineChart({
                 aria-hidden="true"
               />
               <span className="session-cost-legend-label">{definition.label}</span>
-              <span className="session-cost-legend-copy">
+              <span className="session-cost-legend-popover" aria-hidden="true">
                 {definition.description}
               </span>
             </button>

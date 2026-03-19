@@ -900,14 +900,15 @@
 
 .session-cost-legend-item {
   appearance: none;
+  position: relative;
   display: inline-flex;
   align-items: center;
-  gap: 7px;
-  padding: 6px 8px;
+  gap: 6px;
+  padding: 4px 7px;
   border-radius: 999px;
   border: 1px solid var(--color-border-subtle);
   background: color-mix(in srgb, var(--color-surface) 88%, transparent);
-  font-size: 10px;
+  font-size: 8px;
   line-height: 1;
   color: inherit;
   cursor: pointer;
@@ -937,8 +938,8 @@
 }
 
 .session-cost-legend-swatch {
-  width: 9px;
-  height: 9px;
+  width: 8px;
+  height: 8px;
   border-radius: 999px;
   flex-shrink: 0;
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-surface) 84%, black);
@@ -949,8 +950,48 @@
   font-weight: 700;
 }
 
-.session-cost-legend-copy {
-  color: var(--color-muted);
+.session-cost-legend-popover {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 8px);
+  transform: translate(-50%, 4px);
+  min-width: 132px;
+  max-width: 180px;
+  padding: 6px 8px;
+  border-radius: 7px;
+  border: 1px solid var(--color-border-mid);
+  background: color-mix(in srgb, var(--color-elevated) 96%, black);
+  box-shadow: 0 10px 22px rgba(0, 0, 0, 0.32);
+  color: var(--color-text);
+  font-size: 10px;
+  line-height: 1.5;
+  text-align: left;
+  white-space: normal;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition:
+    opacity 140ms ease,
+    transform 140ms ease,
+    visibility 140ms ease;
+  z-index: 3;
+}
+
+.session-cost-legend-popover::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 100%;
+  transform: translateX(-50%);
+  border: 5px solid transparent;
+  border-top-color: color-mix(in srgb, var(--color-elevated) 96%, black);
+}
+
+.session-cost-legend-item:hover .session-cost-legend-popover,
+.session-cost-legend-item:focus-visible .session-cost-legend-popover {
+  opacity: 1;
+  visibility: visible;
+  transform: translate(-50%, 0);
 }
 
 .session-cost-chart-shell {
