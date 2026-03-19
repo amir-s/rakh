@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.19.0](https://github.com/amir-s/rakh/compare/rakh-v0.18.0...rakh-v0.19.0) (2026-03-19)
+
+
+### Features
+
+* add /ship pull request workflow ([c1573ef](https://github.com/amir-s/rakh/commit/c1573ef521210f17df94eb4ffe5c3d86d4f23447))
+* **github:** add "Reference in Chat" and "Open in New Session" to issue modal ([#202](https://github.com/amir-s/rakh/issues/202)) ([3d72823](https://github.com/amir-s/rakh/commit/3d7282336bba5ed6d0640acceb771056979d6b2d))
+
+
+### Bug Fixes
+
+* **agent-runtime:** keep the main prompt static per session ([3d948e7](https://github.com/amir-s/rakh/commit/3d948e734844098d8f4d8d86e97dc1f410faca6f))
+* **agent-runtime:** refresh prompt only during compaction ([#208](https://github.com/amir-s/rakh/issues/208)) ([feaba11](https://github.com/amir-s/rakh/commit/feaba11fcec1870eabd521596455f8b91bc589be))
+* **agent-runtime:** stabilize main system prompt cache ([e1eb8a7](https://github.com/amir-s/rakh/commit/e1eb8a7a9d2e62cf192ebe553c9f30bee362f26c))
+* **tauri:** separate dev app identity from prod ([f976cd5](https://github.com/amir-s/rakh/commit/f976cd5b6e659e6f74c015648fcf4740d49c8a26))
+
 ## [0.18.0](https://github.com/amir-s/rakh/compare/rakh-v0.17.1...rakh-v0.18.0) (2026-03-19)
 
 
