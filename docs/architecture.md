@@ -143,6 +143,39 @@ Environment-backed OpenAI and Anthropic keys are also read once from the Rust
 backend with `load_provider_env_api_keys` and surfaced in Settings as quick-add
 provider options.
 
+### Experimental Codex backend
+
+Rakh now also supports an experimental per-session Codex backend. This is
+deliberately modeled as a backend choice, not as another provider row in the AI
+SDK provider registry.
+
+The user flow is:
+
+- Settings exposes `Enable Codex backend (experimental)` and probes local Codex
+  CLI availability/version
+- the new-session landing shows a backend selector when that flag is enabled
+- Codex sessions store `config.backend = "codex"` and keep the sentinel
+  `config.model = "codex/app-server"` only for compatibility with existing
+  state shape
+
+At runtime, the main runner branches before provider/model resolution. Codex
+sessions skip AI SDK provider preflight, subagent trigger routing, and context
+compaction orchestration. Instead they synthesize the same main communication
+profile preamble used by the standard runner and hand that to a dedicated Codex
+adapter in [`src/agent/runner/codexBackend.ts`](../src/agent/runner/codexBackend.ts).
+
+That adapter talks to a long-lived `codex app-server --listen stdio://`
+transport managed in [`src-tauri/src/codex.rs`](../src-tauri/src/codex.rs).
+Each active Codex tab owns one runtime process. The frontend normalizes
+app-server events into the existing chat/tool-call UI so streamed assistant
+text, reasoning deltas, command execution, MCP tool calls, and file changes all
+render through the same surfaces as the standard backend.
+
+Codex session continuity is persisted separately from `apiMessages`.
+`chatMessages` remain the durable visible transcript, while backend-specific
+thread metadata is stored in `backendSessionState` and restored through the
+normal SQLite session pipeline.
+
 ### Turn lifecycle
 
 [`src/agent/runner.ts`](../src/agent/runner.ts) is the public facade. The
