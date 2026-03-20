@@ -281,7 +281,7 @@ export default function App() {
             // Check if provider for this session model still exists
             // If not, maybe we display an error on load? (The prompt requested this)
             let restoreError: string | null = null;
-            if (s.model) {
+            if (s.backend !== "codex" && s.model) {
               // Find provider by prefix since model is "{providerName}/{rawId}"
               const [providerName] = s.model.split("/");
               const provider = providerName

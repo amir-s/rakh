@@ -1374,12 +1374,26 @@ export default function WorkspacePage() {
     }
 
     if (text === "/model") {
+      if (agent.config.backend === "codex") {
+        injectAssistantMessage(
+          "⚠ Model switching is not available for Codex sessions.",
+        );
+        setInput("");
+        return;
+      }
       setModelPickerOpen(true);
       setInput("");
       return;
     }
 
     if (text.startsWith("/model ")) {
+      if (agent.config.backend === "codex") {
+        injectAssistantMessage(
+          "⚠ Model switching is not available for Codex sessions.",
+        );
+        setInput("");
+        return;
+      }
       const modelId = text.slice("/model ".length).trim();
       if (isAgentBusy) {
         injectAssistantMessage(
@@ -1437,6 +1451,12 @@ export default function WorkspacePage() {
     }
 
     if (currentAttachments.length > 0) {
+      if (agent.config.backend === "codex") {
+        injectAssistantMessage(
+          "⚠ Image attachments are not supported in experimental Codex sessions yet.",
+        );
+        return;
+      }
       agent.sendMessage(messageText, currentAttachments);
     } else {
       agent.sendMessage(messageText);
@@ -1457,6 +1477,7 @@ export default function WorkspacePage() {
     injectAssistantMessage,
     queueBusyComposerMessage,
     slashCommands,
+    agent.config.backend,
   ]);
 
   const handleKeyDown = useCallback(
@@ -1491,6 +1512,7 @@ export default function WorkspacePage() {
 
   const executePlanDisabled =
     isAgentBusy || voiceInput.busy || voiceInput.isRecording;
+  const isCodexSession = agent.config.backend === "codex";
   const handleExecutePlan = useCallback(
     (message: string) => {
       if (executePlanDisabled) return;
@@ -1507,6 +1529,7 @@ export default function WorkspacePage() {
         onSubmit={(
           message,
           project,
+          backend,
           model,
           contextLength,
           advancedOptions,
@@ -1519,6 +1542,7 @@ export default function WorkspacePage() {
             project?.icon ?? activeTab?.icon ?? "chat_bubble_outline";
           agent.setConfig({
             cwd,
+            backend,
             model,
             contextLength,
             advancedOptions,
@@ -2027,11 +2051,21 @@ export default function WorkspacePage() {
             <div className="chat-input-meta">
               <button
                 className="chat-input-meta-model-btn"
-                onClick={() => setModelPickerOpen(true)}
-                title="Switch model"
+                onClick={() => {
+                  if (!isCodexSession) setModelPickerOpen(true);
+                }}
+                title={
+                  isCodexSession
+                    ? "Codex sessions use the local Codex runtime configuration"
+                    : "Switch model"
+                }
                 type="button"
+                disabled={isCodexSession}
               >
-                Model: {agent.config.model || "(none)"}
+                Model:{" "}
+                {isCodexSession
+                  ? "Codex (experimental)"
+                  : agent.config.model || "(none)"}
               </button>
               {agent.config.cwd && (
                 <>
@@ -2173,7 +2207,7 @@ export default function WorkspacePage() {
         />
       ) : null}
 
-      {modelPickerOpen && (
+      {modelPickerOpen && !isCodexSession && (
         <ModelPickerModal
           models={models}
           currentModelId={agent.config.model ?? ""}

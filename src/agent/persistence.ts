@@ -44,6 +44,7 @@ export interface PersistedSession {
   cwd: string;
   projectPath: string;
   setupCommand: string;
+  backend?: string;
   model: string;
   turnCount: number;
   planMarkdown: string;
@@ -75,6 +76,8 @@ export interface PersistedSession {
   showDebug: boolean;
   /** JSON string — AdvancedModelOptions (empty string / '{}' = use defaults) */
   advancedOptions: string;
+  /** JSON string — BackendSessionState */
+  backendSessionState?: string;
   communicationProfile: string;
 }
 
@@ -176,6 +179,7 @@ function getPersistedSessionComparableValue(session: PersistedSession) {
     cwd: session.cwd,
     projectPath: session.projectPath,
     setupCommand: session.setupCommand,
+    backend: session.backend ?? "ai-sdk",
     model: session.model,
     turnCount: session.turnCount,
     planMarkdown: session.planMarkdown,
@@ -193,6 +197,7 @@ function getPersistedSessionComparableValue(session: PersistedSession) {
     worktreeDeclined: session.worktreeDeclined,
     showDebug: session.showDebug,
     advancedOptions: session.advancedOptions,
+    backendSessionState: session.backendSessionState ?? "null",
     communicationProfile: session.communicationProfile,
   };
 }
@@ -255,6 +260,7 @@ export function buildPersistedSession(
     cwd: state.config.cwd,
     projectPath: state.config.projectPath ?? "",
     setupCommand: state.config.setupCommand ?? "",
+    backend: state.config.backend ?? "ai-sdk",
     model: state.config.model || DEFAULT_MODEL,
     turnCount: state.turnCount,
     planMarkdown: state.plan.markdown,
@@ -275,6 +281,7 @@ export function buildPersistedSession(
     advancedOptions: state.config.advancedOptions
       ? JSON.stringify(state.config.advancedOptions)
       : "{}",
+    backendSessionState: JSON.stringify(state.backendSessionState ?? null),
     communicationProfile:
       state.config.communicationProfile ||
       jotaiStore.get(defaultCommunicationProfileAtom) ||

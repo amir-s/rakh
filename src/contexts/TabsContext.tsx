@@ -6,6 +6,7 @@ import {
   type ReactNode,
 } from "react";
 import type { PersistedSession } from "@/agent/persistence";
+import { disposeCodexRuntimeForTab } from "@/agent/runner/codexBackend";
 import {
   DEFAULT_SETTINGS_SECTION,
   type SettingsSectionId,
@@ -253,6 +254,7 @@ export function TabsProvider({
 
   const closeTab = useCallback(
     (id: string) => {
+      void disposeCodexRuntimeForTab(id);
       if (state.tabs.length === 1) {
         const tab = state.tabs.find((t) => t.id === id);
         if (!tab || tab.mode === "new") return; // don't close the last new-session tab

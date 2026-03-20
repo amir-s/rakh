@@ -388,9 +388,21 @@ export const DEFAULT_ADVANCED_OPTIONS: AdvancedModelOptions = {
 ─────────────────────────────────────────────────────────────────────────── */
 
 export type CommunicationProfileId = "pragmatic" | "friendly" | "kevin" | string;
+export type AgentBackend = "ai-sdk" | "codex";
+
+export interface CodexBackendSessionState {
+  kind: "codex";
+  sessionId: string | null;
+  sessionDisplayId: string | null;
+}
+
+export type BackendSessionState = CodexBackendSessionState | null;
+
 export interface AgentConfig {
   /** Absolute path to the workspace root */
   cwd: string;
+  /** Which runtime executes turns for this session. */
+  backend?: AgentBackend;
   model: string;
   /** Context window size in tokens, as reported by model catalog for the selected model */
   contextLength?: number;
@@ -426,6 +438,8 @@ export type AgentErrorAction = {
 export interface AgentState {
   status: AgentStatus;
   config: AgentConfig;
+  /** Opaque backend-specific persisted session state. */
+  backendSessionState?: BackendSessionState;
   /** Monotonic top-level user turn counter for this session. */
   turnCount: number;
   /** Messages shown in the chat pane */

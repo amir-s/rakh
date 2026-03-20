@@ -29,6 +29,7 @@ export const jotaiStore = createStore();
 import { atomWithStorage } from "jotai/utils";
 
 const DEBUG_MODE_STORAGE_KEY = "rakh.debug-mode";
+const CODEX_EXPERIMENTAL_STORAGE_KEY = "rakh.experimental.codex-backend";
 
 function readStoredBoolean(key: string, fallback: boolean): boolean {
   if (typeof window === "undefined") return fallback;
@@ -93,6 +94,12 @@ export const notifyOnAttentionAtom = atomWithStorage<boolean>(
 export const debugModeEnabledAtom = atomWithStorage<boolean>(
   DEBUG_MODE_STORAGE_KEY,
   import.meta.env.DEV,
+);
+
+/** Whether the experimental Codex backend is enabled in the UI. */
+export const codexExperimentalBackendEnabledAtom = atomWithStorage<boolean>(
+  CODEX_EXPERIMENTAL_STORAGE_KEY,
+  false,
 );
 
 /** Whether inline tool calls are grouped by default across sessions */
@@ -202,6 +209,7 @@ const defaultPlan: AgentPlan = {
 
 const defaultConfig: AgentConfig = {
   cwd: "",
+  backend: "ai-sdk",
   model: DEFAULT_MODEL,
 };
 
@@ -209,6 +217,7 @@ function makeDefaultAgentState(): AgentState {
   return {
     status: "idle",
     config: { ...defaultConfig },
+    backendSessionState: null,
     turnCount: 0,
     chatMessages: [],
     apiMessages: [],

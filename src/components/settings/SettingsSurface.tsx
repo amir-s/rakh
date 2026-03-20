@@ -3182,26 +3182,75 @@ function DeveloperSection({
   controller: SettingsControllerValue;
 }) {
   return (
-    <SectionCard
-      title="Diagnostics"
-      description="Control debug-only UI and the detached log viewer shortcut."
-    >
-      <div className="settings-row">
-        <div className="settings-row-info">
-          <span className="settings-row-label">Debug mode</span>
-          <span className="settings-row-desc">
-            Enables stream-event logging, extra debug UI, and the log viewer
-            button beside Settings in the title bar.
-          </span>
+    <div className="settings-page__section-stack">
+      <SectionCard
+        title="Diagnostics"
+        description="Control debug-only UI and the detached log viewer shortcut."
+      >
+        <div className="settings-row">
+          <div className="settings-row-info">
+            <span className="settings-row-label">Debug mode</span>
+            <span className="settings-row-desc">
+              Enables stream-event logging, extra debug UI, and the log viewer
+              button beside Settings in the title bar.
+            </span>
+          </div>
+          <ToggleSwitch
+            checked={controller.debugModeEnabled}
+            onChange={controller.setDebugModeEnabled}
+            className="settings-switch"
+            title="Debug mode"
+          />
         </div>
-        <ToggleSwitch
-          checked={controller.debugModeEnabled}
-          onChange={controller.setDebugModeEnabled}
-          className="settings-switch"
-          title="Debug mode"
-        />
-      </div>
-    </SectionCard>
+      </SectionCard>
+
+      <SectionCard
+        title="Experimental"
+        description="Opt into in-progress backends and local runtime integrations."
+      >
+        <div className="settings-row">
+          <div className="settings-row-info">
+            <span className="settings-row-label">
+              Enable Codex backend (experimental)
+            </span>
+            <span className="settings-row-desc">
+              Adds a per-session Codex backend option in New Session and runs
+              Codex locally through its app-server transport.
+            </span>
+          </div>
+          <ToggleSwitch
+            checked={controller.codexExperimentalBackendEnabled}
+            onChange={controller.setCodexExperimentalBackendEnabled}
+            className="settings-switch"
+            title="Enable Codex backend"
+          />
+        </div>
+
+        <div className="settings-row">
+          <div className="settings-row-info">
+            <span className="settings-row-label">Codex availability</span>
+            <span className="settings-row-desc">
+              {controller.codexStatus?.available
+                ? `Detected ${controller.codexStatus.version ?? "Codex"}${controller.codexStatus.commandPath ? ` at ${controller.codexStatus.commandPath}` : ""}.`
+                : controller.codexStatusError ||
+                    controller.codexStatus?.error ||
+                    "Codex CLI was not detected on this machine."}
+            </span>
+          </div>
+          <Button
+            type="button"
+            size="xs"
+            variant="ghost"
+            onClick={() => {
+              void controller.refreshCodexStatus();
+            }}
+            loading={controller.codexStatusLoading}
+          >
+            Refresh
+          </Button>
+        </div>
+      </SectionCard>
+    </div>
   );
 }
 

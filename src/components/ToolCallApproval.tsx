@@ -1012,6 +1012,8 @@ export default function ToolCallApproval({
   const [isAborting, setIsAborting] = useState(false);
   const [isStopping, setIsStopping] = useState(false);
   const isExecRunning = tool === "exec_run" && toolCall.status === "running";
+  const isCodexCommandRunning =
+    tool === "codex_commandExecution" && toolCall.status === "running";
   const showAllowSpinner = isApproving;
   const attentionTargetProps = getChatAttentionTargetProps(
     getToolCallAttentionTargetKind(toolCall),
@@ -1019,10 +1021,10 @@ export default function ToolCallApproval({
 
   const streamingRef = useRef<HTMLPreElement>(null);
   useEffect(() => {
-    if (isExecRunning && streamingRef.current) {
+    if ((isExecRunning || isCodexCommandRunning) && streamingRef.current) {
       streamingRef.current.scrollTop = streamingRef.current.scrollHeight;
     }
-  }, [isExecRunning, toolCall.streamingOutput]);
+  }, [isCodexCommandRunning, isExecRunning, toolCall.streamingOutput]);
 
   if (toolCall.status === "awaiting_branch_release") {
     return <BranchReleaseCard toolCall={toolCall} tabId={tabId} />;
@@ -1076,7 +1078,7 @@ export default function ToolCallApproval({
         <EditFileDiffContent tc={toolCall} cwd={cwd} />
       ) : tool === "workspace_writeFile" ? (
         <WriteFileDiffContent tc={toolCall} cwd={cwd} />
-      ) : tool === "exec_run" ? (
+      ) : tool === "exec_run" || tool === "codex_commandExecution" ? (
         <ExecRunContent args={args} />
       ) : argEntries.length > 0 ? (
         <div className="px-3 py-2.5 border-b border-border-subtle flex flex-col gap-1.25">
@@ -1095,7 +1097,7 @@ export default function ToolCallApproval({
       ) : null}
 
       {/* ── Live streaming output (exec_run while running) ─────────────── */}
-      {isExecRunning && toolCall.streamingOutput && (
+      {(isExecRunning || isCodexCommandRunning) && toolCall.streamingOutput && (
         <pre
           ref={streamingRef}
           className="cmd-output border-b border-border-subtle rounded-none max-h-50"
@@ -1134,6 +1136,23 @@ export default function ToolCallApproval({
                 stopAgent(tabId);
               }}
               disabled={isAborting || isStopping}
+            >
+              ABORT
+            </Button>
+            <Button variant="primary" size="xxs" loading disabled>
+              RUNNING
+            </Button>
+          </>
+        ) : isCodexCommandRunning ? (
+          <>
+            <Button
+              variant="danger"
+              size="xxs"
+              onClick={() => {
+                setIsAborting(true);
+                stopAgent(tabId);
+              }}
+              disabled={isAborting}
             >
               ABORT
             </Button>

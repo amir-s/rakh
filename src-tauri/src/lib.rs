@@ -1,5 +1,6 @@
 pub mod agent_settings;
 pub mod cli;
+pub mod codex;
 pub mod compaction;
 pub mod db;
 pub mod exec;
@@ -55,6 +56,11 @@ pub fn run() {
             cli::cli_install,
             cli::cli_uninstall,
             cli::cli_take_pending_requests,
+            codex::codex_get_status,
+            codex::codex_session_start,
+            codex::codex_session_send_turn,
+            codex::codex_session_interrupt,
+            codex::codex_session_close,
             db::load_provider_env_api_keys,
             git::git_worktree_add,
             fs_ops::list_dir,

@@ -37,6 +37,11 @@ const jotaiMock = vi.hoisted(() => ({
   useAtomMock: vi.fn(() => [[{ name: "OpenAI", type: "openai" }], vi.fn()]),
 }));
 
+const dbAtomsMock = vi.hoisted(() => ({
+  providersAtom: Symbol("providersAtom"),
+  profilesAtom: Symbol("profilesAtom"),
+}));
+
 const sessionRestoreMock = vi.hoisted(() => ({
   focusOrOpenPersistedSession: vi.fn(),
 }));
@@ -63,11 +68,16 @@ vi.mock("jotai", async () => {
   return {
     ...actual,
     useAtom: () => jotaiMock.useAtomMock(),
+    useAtomValue: (atom: unknown) => {
+      if (atom === dbAtomsMock.profilesAtom) return [];
+      return actual.useAtomValue(atom as never);
+    },
   };
 });
 
 vi.mock("@/agent/db", () => ({
-  providersAtom: Symbol("providersAtom"),
+  providersAtom: dbAtomsMock.providersAtom,
+  profilesAtom: dbAtomsMock.profilesAtom,
 }));
 
 vi.mock("@/agent/useModels", async () => {

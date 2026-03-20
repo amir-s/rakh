@@ -32,6 +32,7 @@ type MockAgentState = {
   config: {
     cwd: string;
     model: string;
+    backend?: "ai-sdk" | "codex";
     contextLength?: number;
     advancedOptions?: Record<string, unknown>;
     projectPath?: string;
@@ -39,6 +40,11 @@ type MockAgentState = {
     worktreePath?: string;
     worktreeBranch?: string;
   };
+  backendSessionState?: {
+    kind: "codex";
+    sessionId: string | null;
+    sessionDisplayId: string | null;
+  } | null;
   chatMessages: Array<Record<string, unknown>>;
   apiMessages: Array<Record<string, unknown>>;
   streamingContent: string | null;
@@ -89,6 +95,8 @@ const {
   shutdownMcpRunMock,
   artifactCreateMock,
   artifactGetMock,
+  runCodexTurnMock,
+  interruptCodexRuntimeForTabMock,
   switchToGitBranchMock,
   logFrontendSoonMock,
 } = vi.hoisted(() => ({
@@ -130,6 +138,8 @@ const {
   shutdownMcpRunMock: vi.fn(),
   artifactCreateMock: vi.fn(),
   artifactGetMock: vi.fn(),
+  runCodexTurnMock: vi.fn(),
+  interruptCodexRuntimeForTabMock: vi.fn(),
   logFrontendSoonMock: vi.fn(),
 }));
 
@@ -217,6 +227,12 @@ vi.mock("@ai-sdk/anthropic", () => ({
 vi.mock("./tools/exec", () => ({
   execAbort: (...args: unknown[]) => execAbortMock(...args),
   execStop: (...args: unknown[]) => execStopMock(...args),
+}));
+
+vi.mock("./runner/codexBackend", () => ({
+  runCodexTurn: (...args: unknown[]) => runCodexTurnMock(...args),
+  interruptCodexRuntimeForTab: (...args: unknown[]) =>
+    interruptCodexRuntimeForTabMock(...args),
 }));
 
 vi.mock("./mcp", () => {
@@ -549,6 +565,8 @@ describe("runner", () => {
     shutdownMcpRunMock.mockReset();
     artifactCreateMock.mockReset();
     artifactGetMock.mockReset();
+    runCodexTurnMock.mockReset();
+    interruptCodexRuntimeForTabMock.mockReset();
     switchToGitBranchMock.mockReset();
     logFrontendSoonMock.mockReset();
     jotaiStoreMock.get.mockReset();
@@ -644,6 +662,8 @@ describe("runner", () => {
         }),
       },
     });
+    runCodexTurnMock.mockResolvedValue("codex-thread-1");
+    interruptCodexRuntimeForTabMock.mockResolvedValue(undefined);
 
     streamTextMock.mockImplementation(() => {
       const turn = turns.shift() ?? { deltas: [], toolCalls: [] };
@@ -5816,6 +5836,155 @@ describe("runner", () => {
 
       // apiMessages: system + first user + first assistant + retried user + retried assistant
       expect(state.apiMessages).toHaveLength(apiAfterFirst + 2);
+    });
+  });
+
+  describe("codex backend", () => {
+    it("routes codex sessions through the Codex adapter and skips apiMessages", async () => {
+      const tabId = "tab-codex-run";
+      setState(tabId, {
+        config: {
+          cwd: "/repo",
+          model: "codex/app-server",
+          backend: "codex",
+          communicationProfile: "pragmatic",
+        },
+      });
+
+      runCodexTurnMock.mockImplementation(async ({ tabId: activeTabId }) => {
+        states[activeTabId] = {
+          ...states[activeTabId],
+          chatMessages: [
+            ...states[activeTabId].chatMessages,
+            {
+              id: "assistant-1",
+              role: "assistant",
+              content: "Codex reply",
+              timestamp: Date.now(),
+              streaming: false,
+            },
+          ],
+        };
+        return "codex-thread-42";
+      });
+
+      await runAgent(tabId, "inspect the repo");
+
+      expect(runCodexTurnMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          tabId,
+          cwd: "/repo",
+          prompt: "inspect the repo",
+          sessionId: null,
+        }),
+      );
+      expect(streamTextMock).not.toHaveBeenCalled();
+      expect(states[tabId].apiMessages).toEqual([]);
+      expect(states[tabId].chatMessages[0]).toMatchObject({
+        role: "user",
+        content: "inspect the repo",
+      });
+      expect(states[tabId].chatMessages[1]).toMatchObject({
+        role: "assistant",
+        content: "Codex reply",
+      });
+      expect(states[tabId].backendSessionState).toEqual({
+        kind: "codex",
+        sessionId: "codex-thread-42",
+        sessionDisplayId: "codex-thread-42",
+      });
+    });
+
+    it("interrupts the active Codex turn on stop", async () => {
+      const tabId = "tab-codex-stop";
+      setState(tabId, {
+        config: {
+          cwd: "/repo",
+          model: "codex/app-server",
+          backend: "codex",
+        },
+      });
+
+      runCodexTurnMock.mockImplementation(
+        async ({ signal }: { signal: AbortSignal }) =>
+          new Promise<string | null>((_resolve, reject) => {
+            signal.addEventListener(
+              "abort",
+              () => reject(new DOMException("Aborted", "AbortError")),
+              { once: true },
+            );
+          }),
+      );
+
+      const runPromise = runAgent(tabId, "inspect");
+      await vi.waitFor(() => {
+        expect(runCodexTurnMock).toHaveBeenCalledTimes(1);
+      });
+
+      stopAgent(tabId);
+      await runPromise;
+
+      expect(interruptCodexRuntimeForTabMock).toHaveBeenCalledWith(tabId);
+      expect(states[tabId].status).toBe("idle");
+    });
+
+    it("retries Codex sessions from chat history", async () => {
+      const tabId = "tab-codex-retry";
+      setState(tabId, {
+        status: "error",
+        error: "Codex crashed",
+        config: {
+          cwd: "/repo",
+          model: "codex/app-server",
+          backend: "codex",
+        },
+        backendSessionState: {
+          kind: "codex",
+          sessionId: "codex-thread-existing",
+          sessionDisplayId: "codex-thread-existing",
+        },
+        chatMessages: [
+          { id: "u1", role: "user", content: "fix the bug", timestamp: 1 },
+          { id: "a1", role: "assistant", content: "", timestamp: 2, streaming: false },
+        ],
+      });
+
+      runCodexTurnMock.mockImplementation(async ({ tabId: activeTabId }) => {
+        states[activeTabId] = {
+          ...states[activeTabId],
+          chatMessages: [
+            ...states[activeTabId].chatMessages,
+            {
+              id: "assistant-2",
+              role: "assistant",
+              content: "Fixed via Codex",
+              timestamp: Date.now(),
+              streaming: false,
+            },
+          ],
+        };
+        return "codex-thread-existing";
+      });
+
+      await retryAgent(tabId);
+
+      expect(runCodexTurnMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          tabId,
+          prompt: "fix the bug",
+          sessionId: "codex-thread-existing",
+        }),
+      );
+      expect(states[tabId].apiMessages).toEqual([]);
+      expect(states[tabId].chatMessages).toHaveLength(2);
+      expect(states[tabId].chatMessages[0]).toMatchObject({
+        role: "user",
+        content: "fix the bug",
+      });
+      expect(states[tabId].chatMessages[1]).toMatchObject({
+        role: "assistant",
+        content: "Fixed via Codex",
+      });
     });
   });
 

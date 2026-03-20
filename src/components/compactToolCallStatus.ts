@@ -16,7 +16,9 @@ function getResultRecord(result: unknown): Record<string, unknown> | null {
 export function getExecCommandBadge(
   tc: Pick<ToolCallDisplay, "tool" | "status" | "result">,
 ): CompactToolBadge | null {
-  if (tc.tool !== "exec_run") return null;
+  if (tc.tool !== "exec_run" && tc.tool !== "codex_commandExecution") {
+    return null;
+  }
 
   if (
     tc.status === "pending" ||

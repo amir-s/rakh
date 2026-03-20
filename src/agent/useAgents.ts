@@ -53,6 +53,7 @@ import {
   stopAgent as _stopAgent,
   stopRunningExecToolCall as _stopRunningExecToolCall,
 } from "./runner";
+import { disposeCodexRuntimeForTab } from "./runner/codexBackend";
 import type { AgentConfig, AttachedImage, AutoApproveCommandsMode } from "./types";
 
 export interface ContextWindowKbUsage {
@@ -246,12 +247,14 @@ export function useSetAgentConfig() {
 export function useResetAgent() {
   return useCallback((tabId: string) => {
     _stopAgent(tabId);
+    void disposeCodexRuntimeForTab(tabId);
     patchAgentState(tabId, (prev) => ({
       ...prev,
       status: "idle",
       turnCount: 0,
       chatMessages: [],
       apiMessages: [],
+      backendSessionState: null,
       streamingContent: null,
       error: null,
       errorAction: null,

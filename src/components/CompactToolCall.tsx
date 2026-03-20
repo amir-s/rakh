@@ -26,6 +26,7 @@ const CUSTOM_EXPANDED_TOOLS = new Set([
   "workspace_editFile",
   "workspace_writeFile",
   "exec_run",
+  "codex_commandExecution",
   "workspace_search",
   "user_input",
 ]);
@@ -968,6 +969,14 @@ export default function CompactToolCall({
         <ExpandedWriteFile tc={tc} cwd={cwd} />
       )}
       {tc.tool === "exec_run" && (
+        <ExpandedCommand
+          args={tc.args}
+          result={tc.result}
+          streamingOutput={tc.streamingOutput}
+          isRunning={tc.status === "running"}
+        />
+      )}
+      {tc.tool === "codex_commandExecution" && (
         <ExpandedCommand
           args={tc.args}
           result={tc.result}

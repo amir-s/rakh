@@ -5,6 +5,7 @@ import {
   agentLoopSettingsAtom,
   autoContextCompactionSettingsAtom,
   appUpdaterStateAtom,
+  codexExperimentalBackendEnabledAtom,
   debugModeEnabledAtom,
   notifyOnAttentionAtom,
   themeModeAtom,
@@ -50,6 +51,7 @@ import {
   uninstallCli,
   type CliStatus,
 } from "@/cli";
+import { getCodexStatus, type CodexStatus } from "@/codex";
 import {
   useEnvProviderKeys,
   isTauriRuntime,
@@ -91,6 +93,8 @@ export interface SettingsControllerValue {
   envKeysAvailable: EnvKeyEntry[];
   debugModeEnabled: boolean;
   setDebugModeEnabled: (enabled: boolean) => void;
+  codexExperimentalBackendEnabled: boolean;
+  setCodexExperimentalBackendEnabled: (enabled: boolean) => void;
   themeMode: "dark" | "light";
   toggleThemeMode: () => void;
   themeName: ThemeName;
@@ -133,7 +137,11 @@ export interface SettingsControllerValue {
   cliStatus: CliStatus | null;
   cliStatusLoading: boolean;
   cliStatusError: string | null;
+  codexStatus: CodexStatus | null;
+  codexStatusLoading: boolean;
+  codexStatusError: string | null;
   refreshCliStatus: () => Promise<void>;
+  refreshCodexStatus: () => Promise<void>;
   installCliLauncher: () => Promise<void>;
   uninstallCliLauncher: () => Promise<void>;
 }
@@ -144,6 +152,8 @@ export function useSettingsController(): SettingsControllerValue {
   const [mcpServers, setMcpServers] = useAtom(mcpServersAtom);
   const [mcpSettings, setMcpSettings] = useAtom(mcpSettingsAtom);
   const [debugModeEnabled, setDebugModeEnabled] = useAtom(debugModeEnabledAtom);
+  const [codexExperimentalBackendEnabled, setCodexExperimentalBackendEnabled] =
+    useAtom(codexExperimentalBackendEnabledAtom);
   const [themeMode, setThemeMode] = useAtom(themeModeAtom);
   const [themeName, setThemeName] = useAtom(themeNameAtom);
   const [groupInlineToolCalls, setGroupInlineToolCalls] = useAtom(
@@ -177,6 +187,9 @@ export function useSettingsController(): SettingsControllerValue {
   const [cliStatus, setCliStatus] = useState<CliStatus | null>(null);
   const [cliStatusLoading, setCliStatusLoading] = useState(false);
   const [cliStatusError, setCliStatusError] = useState<string | null>(null);
+  const [codexStatus, setCodexStatus] = useState<CodexStatus | null>(null);
+  const [codexStatusLoading, setCodexStatusLoading] = useState(false);
+  const [codexStatusError, setCodexStatusError] = useState<string | null>(null);
 
   const [isAddingProfile, setIsAddingProfile] = useState(false);
   const [editingProfileId, setEditingProfileId] = useState<string | null>(null);
@@ -426,6 +439,27 @@ export function useSettingsController(): SettingsControllerValue {
     }
   }, []);
 
+  const handleRefreshCodexStatus = useCallback(async () => {
+    if (!isTauriRuntime()) {
+      setCodexStatus(null);
+      setCodexStatusLoading(false);
+      setCodexStatusError(null);
+      return;
+    }
+
+    setCodexStatusLoading(true);
+    setCodexStatusError(null);
+    try {
+      setCodexStatus(await getCodexStatus());
+    } catch (error) {
+      setCodexStatusError(
+        error instanceof Error ? error.message : String(error ?? "Unknown"),
+      );
+    } finally {
+      setCodexStatusLoading(false);
+    }
+  }, []);
+
   const handleInstallCliLauncher = useCallback(async () => {
     if (!isTauriRuntime()) return;
     setCliStatusLoading(true);
@@ -475,6 +509,10 @@ export function useSettingsController(): SettingsControllerValue {
     void handleRefreshCliStatus();
   }, [handleRefreshCliStatus]);
 
+  useEffect(() => {
+    void handleRefreshCodexStatus();
+  }, [handleRefreshCodexStatus]);
+
   return {
     providers,
     setProviders,
@@ -485,6 +523,8 @@ export function useSettingsController(): SettingsControllerValue {
     envKeysAvailable,
     debugModeEnabled,
     setDebugModeEnabled,
+    codexExperimentalBackendEnabled,
+    setCodexExperimentalBackendEnabled,
     themeMode,
     toggleThemeMode,
     themeName,
@@ -525,7 +565,11 @@ export function useSettingsController(): SettingsControllerValue {
     cliStatus,
     cliStatusLoading,
     cliStatusError,
+    codexStatus,
+    codexStatusLoading,
+    codexStatusError,
     refreshCliStatus: handleRefreshCliStatus,
+    refreshCodexStatus: handleRefreshCodexStatus,
     installCliLauncher: handleInstallCliLauncher,
     uninstallCliLauncher: handleUninstallCliLauncher,
   };

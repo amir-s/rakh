@@ -9,8 +9,11 @@ import {
 } from "react";
 import { useModels, useSelectedModel } from "@/agent/useModels";
 import { useAtom, useAtomValue } from "jotai";
-import { defaultCommunicationProfileAtom } from "@/agent/atoms";
-import { providersAtom } from "@/agent/db";
+import {
+  codexExperimentalBackendEnabledAtom,
+  defaultCommunicationProfileAtom,
+} from "@/agent/atoms";
+import { profilesAtom, providersAtom } from "@/agent/db";
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import { cn } from "@/utils/cn";
@@ -40,6 +43,7 @@ import {
 } from "@/projects";
 import { writeProjectScriptsConfig } from "@/projectScripts";
 import { logFrontendSoon } from "@/logging/client";
+import { getCodexStatus, type CodexStatus } from "@/codex";
 import {
   listenForSessionChanges,
   loadRecentSessions,
@@ -53,6 +57,7 @@ import {
   partitionArchivedSessionItems,
   type ArchivedSessionItem,
 } from "@/components/archivedTabsMenuModel";
+import { resolveCommunicationProfileId } from "@/agent/communicationProfiles";
 
 /* ─────────────────────────────────────────────────────────────────────────────
    Advanced options — localStorage helpers
@@ -105,6 +110,7 @@ interface NewSessionProps {
   onSubmit: (
     message: string,
     project: { path: string; icon?: string; setupCommand?: string } | null,
+    backend: "ai-sdk" | "codex",
     model: string,
     contextLength?: number,
     advancedOptions?: AdvancedModelOptions,
@@ -189,8 +195,16 @@ export default function NewSession({ onSubmit }: NewSessionProps) {
   const defaultCommunicationProfile = useAtomValue(
     defaultCommunicationProfileAtom,
   );
+  const codexExperimentalBackendEnabled = useAtomValue(
+    codexExperimentalBackendEnabledAtom,
+  );
+  const customProfiles = useAtomValue(profilesAtom);
   const [communicationProfileOverride, setCommunicationProfileOverride] =
     useState<string | null>(null);
+  const [selectedBackend, setSelectedBackend] = useState<"ai-sdk" | "codex">(
+    "ai-sdk",
+  );
+  const [codexStatus, setCodexStatus] = useState<CodexStatus | null>(null);
 
   const dropdownRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -202,6 +216,14 @@ export default function NewSession({ onSubmit }: NewSessionProps) {
   const { activeTabId, addTabWithId, closeTab, openSettingsTab, setActiveTab, tabs } =
     useTabs();
   const hasAnyProviderKey = providers.length > 0;
+  const resolvedCommunicationProfile = resolveCommunicationProfileId(
+    communicationProfileOverride,
+    customProfiles,
+    defaultCommunicationProfile,
+  );
+  const codexAvailable = codexStatus?.available === true;
+  const codexBackendVisible = codexExperimentalBackendEnabled;
+  const isCodexBackend = codexBackendVisible && selectedBackend === "codex";
 
   const providerModels = models;
   const selectedModelObj = providerModels.find((m) => m.id === selectedModel);
@@ -219,6 +241,38 @@ export default function NewSession({ onSubmit }: NewSessionProps) {
       setSelectedModel(providerModels[0].id);
     }
   }, [providerModels, selectedModel, setSelectedModel]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!codexExperimentalBackendEnabled) {
+      setSelectedBackend("ai-sdk");
+      setCodexStatus(null);
+      return;
+    }
+
+    void getCodexStatus()
+      .then((status) => {
+        if (cancelled) return;
+        setCodexStatus(status);
+        if (!status.available) {
+          setSelectedBackend("ai-sdk");
+        }
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setCodexStatus({
+          available: false,
+          version: null,
+          commandPath: null,
+          error: "Failed to probe Codex CLI.",
+        });
+        setSelectedBackend("ai-sdk");
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [codexExperimentalBackendEnabled]);
 
   useEffect(() => {
     let cancelled = false;
@@ -339,14 +393,19 @@ export default function NewSession({ onSubmit }: NewSessionProps) {
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      if (!selectedModelObj) {
+      if (!isCodexBackend && !selectedModelObj) {
         openSettingsTab("providers");
         return;
       }
       const text = input.trim();
-      const ctxLen = selectedModelObj?.context_length;
       const communicationProfile =
-        communicationProfileOverride || defaultCommunicationProfile || undefined;
+        resolvedCommunicationProfile || undefined;
+      const modelId = isCodexBackend
+        ? "codex/app-server"
+        : (selectedModelObj?.id ?? "");
+      const ctxLen = isCodexBackend
+        ? undefined
+        : selectedModelObj?.context_length;
       if (text) {
         onSubmit(
           text,
@@ -359,9 +418,10 @@ export default function NewSession({ onSubmit }: NewSessionProps) {
                   : {}),
               }
             : null,
-          selectedModelObj.id,
+          isCodexBackend ? "codex" : "ai-sdk",
+          modelId,
           ctxLen,
-          advancedOptions,
+          isCodexBackend ? undefined : advancedOptions,
           communicationProfile,
         );
       } else {
@@ -376,9 +436,10 @@ export default function NewSession({ onSubmit }: NewSessionProps) {
                   : {}),
               }
             : null,
-          selectedModelObj.id,
+          isCodexBackend ? "codex" : "ai-sdk",
+          modelId,
           ctxLen,
-          advancedOptions,
+          isCodexBackend ? undefined : advancedOptions,
           communicationProfile,
         );
       }
@@ -581,7 +642,7 @@ export default function NewSession({ onSubmit }: NewSessionProps) {
       <div className="ns-center">
         <div className="ns-hero">
           {/* ── Selector row: project + model ────────────────────────────── */}
-          <div className="ns-selectors-row">
+            <div className="ns-selectors-row">
             {/* Project selector pill */}
             <div className="ns-project-control">
               <div className="ns-project-wrap" ref={dropdownRef}>
@@ -699,21 +760,99 @@ export default function NewSession({ onSubmit }: NewSessionProps) {
               ) : null}
             </div>
 
-            <NewSessionModelSelector
-              models={providerModels}
-              selectedModel={selectedModel}
-              onSelectModel={setSelectedModel}
-              onModelSelected={() => textareaRef.current?.focus()}
-              loading={modelsLoading}
-              error={modelsError}
-              hasAnyProviderKey={hasAnyProviderKey}
-              advancedOptions={advancedOptions}
-              onAdvancedOptionsChange={updateAdvancedOptions}
-              communicationProfile={
-                communicationProfileOverride ?? defaultCommunicationProfile
-              }
-              onCommunicationProfileChange={handleCommunicationProfileChange}
-            />
+            <div className="flex flex-col gap-3 min-w-0">
+              {codexBackendVisible ? (
+                <div className="flex items-center gap-2 flex-wrap">
+                  <button
+                    type="button"
+                    className={cn(
+                      "inline-flex items-center gap-2 rounded-md border px-3 py-1.5 text-sm transition-colors",
+                      !isCodexBackend
+                        ? "border-primary bg-primary/10 text-text"
+                        : "border-border-subtle text-muted hover:text-text",
+                    )}
+                    onClick={() => setSelectedBackend("ai-sdk")}
+                  >
+                    Standard
+                  </button>
+                  <button
+                    type="button"
+                    className={cn(
+                      "inline-flex items-center gap-2 rounded-md border px-3 py-1.5 text-sm transition-colors",
+                      isCodexBackend
+                        ? "border-primary bg-primary/10 text-text"
+                        : "border-border-subtle text-muted hover:text-text",
+                      !codexAvailable && "opacity-50 cursor-not-allowed",
+                    )}
+                    onClick={() => {
+                      if (!codexAvailable) return;
+                      setSelectedBackend("codex");
+                    }}
+                    disabled={!codexAvailable}
+                    title={
+                      codexAvailable
+                        ? "Use local Codex app-server"
+                        : codexStatus?.error || "Codex CLI is unavailable"
+                    }
+                  >
+                    Codex
+                    <span className="shrink-0 text-xxs font-semibold tracking-[0.04em] uppercase px-1.5 py-0.5 rounded bg-inset text-muted">
+                      Experimental
+                    </span>
+                  </button>
+                </div>
+              ) : null}
+
+              {isCodexBackend ? (
+                <div className="rounded-lg border border-border-subtle bg-inset px-3 py-3 flex flex-col gap-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="text-sm font-medium">Codex backend</div>
+                      <div className="text-xs text-muted break-all">
+                        {codexStatus?.available
+                          ? `Using ${codexStatus.version ?? "Codex"}${codexStatus.commandPath ? ` at ${codexStatus.commandPath}` : ""}.`
+                          : codexStatus?.error ||
+                            "Codex CLI was not detected for this machine."}
+                      </div>
+                    </div>
+                  </div>
+                  {customProfiles.length > 0 ? (
+                    <label className="flex flex-col gap-1">
+                      <span className="text-xs uppercase tracking-[0.08em] text-muted">
+                        Communication Profile
+                      </span>
+                      <select
+                        className="w-full bg-transparent border border-border-subtle rounded px-2 py-1 text-sm focus:outline-none focus:border-border cursor-pointer"
+                        value={resolvedCommunicationProfile ?? ""}
+                        onChange={(e) =>
+                          handleCommunicationProfileChange(e.target.value)
+                        }
+                      >
+                        {customProfiles.map((profile) => (
+                          <option key={profile.id} value={profile.id}>
+                            {profile.name}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  ) : null}
+                </div>
+              ) : (
+                <NewSessionModelSelector
+                  models={providerModels}
+                  selectedModel={selectedModel}
+                  onSelectModel={setSelectedModel}
+                  onModelSelected={() => textareaRef.current?.focus()}
+                  loading={modelsLoading}
+                  error={modelsError}
+                  hasAnyProviderKey={hasAnyProviderKey}
+                  advancedOptions={advancedOptions}
+                  onAdvancedOptionsChange={updateAdvancedOptions}
+                  communicationProfile={resolvedCommunicationProfile}
+                  onCommunicationProfileChange={handleCommunicationProfileChange}
+                />
+              )}
+            </div>
           </div>
           {/* end ns-selectors-row */}
 
@@ -734,7 +873,18 @@ export default function NewSession({ onSubmit }: NewSessionProps) {
             {/* Focus underline */}
             <div className="ns-underline" />
 
-            {!hasAnyProviderKey ? (
+            {isCodexBackend ? (
+              <div className="flex justify-between items-baseline mt-2">
+                <p
+                  className={cn(
+                    "ns-hint pointer-events-none not-italic ns-hint--skip",
+                    focused && !input && "ns-hint--skip-visible",
+                  )}
+                >
+                  Press <kbd className="ns-kbd align-middle">↵</kbd> to skip
+                </p>
+              </div>
+            ) : !hasAnyProviderKey ? (
               <ProviderSetupHint
                 className="mt-2"
                 providers={providers}

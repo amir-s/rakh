@@ -35,7 +35,8 @@ export function getToolCallRenderKind(tc: ToolCallDisplay): ToolCallRenderKind {
     tc.status === "awaiting_branch_release" ||
     tc.status === "awaiting_setup_action" ||
     (tc.tool === "git_worktree_init" && tc.status === "running") ||
-    (tc.tool === "exec_run" && tc.status === "running")
+    ((tc.tool === "exec_run" || tc.tool === "codex_commandExecution") &&
+      tc.status === "running")
   ) {
     return "approval";
   }

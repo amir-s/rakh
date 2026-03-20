@@ -50,6 +50,10 @@ import {
   executeMainContextCompaction,
   maybeRunAutomaticMainContextCompaction,
 } from "./runner/mainContextCompaction";
+import {
+  interruptCodexRuntimeForTab,
+  runCodexTurn,
+} from "./runner/codexBackend";
 
 export { buildProviderOptions } from "./runner/providerOptions";
 export { serializeError } from "./runner/utils";
@@ -261,6 +265,19 @@ function interruptActiveRun(
   const runningExecIds = findRunningExecToolCallIds(tabId);
   for (const toolCallId of runningExecIds) {
     void execAbort(toolCallId);
+  }
+  if (state.config.backend === "codex") {
+    void interruptCodexRuntimeForTab(tabId).catch((error) => {
+      writeRunnerLog({
+        level: "warn",
+        tags: ["frontend", "agent-loop", "system"],
+        event: "runner.codex.interrupt.error",
+        message: "Failed to interrupt the active Codex turn",
+        kind: "error",
+        data: error,
+        context: activeRunLogContext(tabId),
+      });
+    });
   }
   const activeRun = getActiveRun(tabId);
   if (activeRun) {
@@ -489,6 +506,40 @@ export async function stopRunningExecToolCall(
 export async function retryAgent(tabId: string): Promise<void> {
   const state = getAgentState(tabId);
 
+  if (state.config.backend === "codex") {
+    let lastUserMessage: string | null = null;
+    let lastUserChatIndex = -1;
+    for (let i = state.chatMessages.length - 1; i >= 0; i--) {
+      const msg = state.chatMessages[i];
+      if (msg.role === "user" && typeof msg.content === "string") {
+        lastUserMessage = msg.content;
+        lastUserChatIndex = i;
+        break;
+      }
+    }
+
+    if (!lastUserMessage) return;
+
+    const strippedChatMessages =
+      lastUserChatIndex >= 0
+        ? state.chatMessages.slice(0, lastUserChatIndex + 1)
+        : state.chatMessages;
+
+    patchAgentState(tabId, {
+      apiMessages: [],
+      chatMessages: strippedChatMessages,
+      error: null,
+      errorDetails: null,
+      errorAction: null,
+      loopLimitWarning: null,
+    });
+
+    await runAgent(tabId, lastUserMessage, undefined, {
+      skipUserChatAppend: true,
+    });
+    return;
+  }
+
   let lastUserMessage: string | null = null;
   let lastUserIndex = -1;
   for (let i = state.apiMessages.length - 1; i >= 0; i--) {
@@ -626,7 +677,10 @@ async function runAgentTurn(
 
   let completedCleanly = false;
 
-  const triggerMatch = findSubagentByTrigger(userMessage);
+  const initialState = getAgentState(tabId);
+  const isCodexBackend = initialState.config.backend === "codex";
+
+  const triggerMatch = isCodexBackend ? null : findSubagentByTrigger(userMessage);
   if (triggerMatch) {
     const { subagent: triggerSubagent, subMessage } = triggerMatch;
     const isCompactTrigger = triggerSubagent.id === COMPACT_TRIGGER_SUBAGENT_ID;
@@ -779,6 +833,126 @@ async function runAgentTurn(
   const state = getAgentState(tabId);
   const { cwd, model } = state.config;
   const debugEnabled = state.showDebug ?? false;
+
+  if (state.config.backend === "codex") {
+    writeRunnerLog({
+      level: "info",
+      tags: ["frontend", "agent-loop", "system"],
+      event: "runner.backend.codex.prepare",
+      message: "Preparing main run with Codex backend",
+      data: { cwd },
+      context: runLogContext,
+    });
+
+    const userChatMsg: ChatMessage = {
+      id: msgId(),
+      role: "user",
+      content: userMessage,
+      timestamp: Date.now(),
+      ...(attachments && attachments.length > 0 ? { attachments } : {}),
+    };
+    dequeueQueuedMessage(tabId, options.queuedMessageId);
+    const profilePrompt = await buildMainSystemPromptForState(state);
+
+    patchAgentState(tabId, (prev) => ({
+      ...prev,
+      status: "thinking",
+      error: null,
+      errorAction: null,
+      errorDetails: null,
+      loopLimitWarning: null,
+      chatMessages: options?.skipUserChatAppend
+        ? prev.chatMessages
+        : [...prev.chatMessages, userChatMsg],
+      apiMessages: [],
+      streamingContent: null,
+    }));
+
+    try {
+      const priorSessionId =
+        state.backendSessionState?.kind === "codex"
+          ? state.backendSessionState.sessionId
+          : null;
+      const nextSessionId = await runCodexTurn({
+        tabId,
+        cwd,
+        prompt: userMessage,
+        profilePrompt,
+        signal: controller.signal,
+        logContext: runLogContext,
+        sessionId: priorSessionId,
+      });
+
+      if (nextSessionId !== priorSessionId) {
+        patchAgentState(tabId, {
+          backendSessionState: {
+            kind: "codex",
+            sessionId: nextSessionId,
+            sessionDisplayId: nextSessionId,
+          },
+        });
+      }
+
+      completedCleanly = !controller.signal.aborted;
+    } catch (err) {
+      if ((err as Error).name === "AbortError") return;
+      if (err instanceof RunAbortedError) {
+        completedCleanly = true;
+        return;
+      }
+      const msg = err instanceof Error ? err.message : String(err);
+      writeRunnerLog({
+        level: "error",
+        tags: ["frontend", "agent-loop", "messages"],
+        event: "runner.run.error",
+        message: "Codex backend run failed",
+        kind: "error",
+        data: err,
+        context: runLogContext,
+      });
+      setAgentErrorState(tabId, msg, serializeError(err));
+      updateLastChatMessage(tabId, (m) =>
+        m.role === "assistant" ? { ...m, streaming: false } : m,
+      );
+    } finally {
+      clearActiveRun(tabId, activeRun);
+      if (activeRun.abortReason !== null) return;
+      if (!completedCleanly) return;
+      if (getAgentState(tabId).status === "error") return;
+
+      patchAgentState(tabId, (prev) =>
+        prev.status === "error"
+          ? prev
+          : {
+              ...prev,
+              status: "idle",
+              streamingContent: null,
+              queueState: normalizeQueueState(prev.queuedMessages, prev.queueState),
+            },
+      );
+      writeRunnerLog({
+        level: "info",
+        tags: ["frontend", "agent-loop", "messages"],
+        event: "runner.run.end",
+        message: "Main run completed",
+        kind: "end",
+        context: runLogContext,
+      });
+      void maybeStartQueuedRun(tabId).catch((error) => {
+        writeRunnerLog({
+          level: "error",
+          tags: ["frontend", "agent-loop", "system"],
+          event: "runner.queue.drain.error",
+          message: "Queue drain failed",
+          kind: "error",
+          data: error,
+          context: runLogContext,
+        });
+      });
+    }
+    return;
+  }
+
   const loopSettings = normalizeAgentLoopSettings(
     jotaiStore.get(agentLoopSettingsAtom),
   );

@@ -114,6 +114,14 @@ export function buildCollapsedArgPreview(tc: ToolCallDisplay): string | null {
       const full = [command, ...argList].filter(Boolean).join(" ");
       return full ? truncateText(full, 64) : "command";
     }
+    case "codex_commandExecution": {
+      const command = typeof args.command === "string" ? args.command : "";
+      return command ? truncateText(command, 64) : "command";
+    }
+    case "codex_fileChange": {
+      const changes = Array.isArray(args.changes) ? args.changes : [];
+      return `${changes.length} change${changes.length === 1 ? "" : "s"}`;
+    }
     case "git_worktree_init": {
       const branch =
         typeof args.suggestedBranch === "string" ? args.suggestedBranch : "";

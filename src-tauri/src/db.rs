@@ -33,6 +33,7 @@ pub struct PersistedSession {
     pub cwd: String,
     pub project_path: String,
     pub setup_command: String,
+    pub backend: String,
     pub model: String,
     pub turn_count: i64,
     pub plan_markdown: String,
@@ -64,6 +65,8 @@ pub struct PersistedSession {
     pub show_debug: bool,
     /// JSON-serialised AdvancedModelOptions (empty string / '{}' = use defaults)
     pub advanced_options: String,
+    /// JSON-serialised backend-specific session state
+    pub backend_session_state: String,
     pub communication_profile: String,
 }
 
@@ -777,6 +780,7 @@ pub fn init_db() -> Result<Connection, String> {
             cwd              TEXT    NOT NULL DEFAULT '',
             project_path     TEXT    NOT NULL DEFAULT '',
             setup_command    TEXT    NOT NULL DEFAULT '',
+            backend          TEXT    NOT NULL DEFAULT 'ai-sdk',
             model            TEXT    NOT NULL DEFAULT '',
             turn_count       INTEGER NOT NULL DEFAULT 0,
             plan_markdown    TEXT    NOT NULL DEFAULT '',
@@ -793,6 +797,7 @@ pub fn init_db() -> Result<Connection, String> {
             updated_at       INTEGER NOT NULL,
             show_debug          INTEGER NOT NULL DEFAULT 0,
             advanced_options    TEXT    NOT NULL DEFAULT '{}',
+            backend_session_state TEXT  NOT NULL DEFAULT 'null',
             communication_profile TEXT  NOT NULL DEFAULT 'pragmatic'
         );
     ",
@@ -826,6 +831,11 @@ pub fn init_db() -> Result<Connection, String> {
         conn.execute_batch("ALTER TABLE sessions ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0;");
     let _ = conn.execute_batch(
         "ALTER TABLE sessions ADD COLUMN communication_profile TEXT NOT NULL DEFAULT 'pragmatic';",
+    );
+    let _ =
+        conn.execute_batch("ALTER TABLE sessions ADD COLUMN backend TEXT NOT NULL DEFAULT 'ai-sdk';");
+    let _ = conn.execute_batch(
+        "ALTER TABLE sessions ADD COLUMN backend_session_state TEXT NOT NULL DEFAULT 'null';",
     );
     let _ = conn
         .execute_batch("ALTER TABLE sessions ADD COLUMN turn_count INTEGER NOT NULL DEFAULT 0;");
@@ -911,13 +921,13 @@ pub fn db_load_sessions(state: State<'_, AppState>) -> Result<Vec<PersistedSessi
         let db = state.db.lock().unwrap();
         let mut stmt = db
             .prepare(
-                "SELECT id, label, icon, mode, tab_title, cwd, project_path, setup_command, model,
+                "SELECT id, label, icon, mode, tab_title, cwd, project_path, setup_command, backend, model,
                 turn_count, plan_markdown, plan_version, plan_updated_at,
                 chat_messages, api_messages, review_edits,
                 queued_messages, queue_state, llm_usage_ledger,
                 archived, pinned, created_at, updated_at,
                 worktree_path, worktree_branch, worktree_declined, show_debug,
-                advanced_options, communication_profile
+                advanced_options, backend_session_state, communication_profile
          FROM sessions
          WHERE archived = 0
          ORDER BY updated_at DESC",
@@ -935,28 +945,30 @@ pub fn db_load_sessions(state: State<'_, AppState>) -> Result<Vec<PersistedSessi
                     cwd: row.get(5)?,
                     project_path: row.get(6)?,
                     setup_command: row.get(7)?,
-                    model: row.get(8)?,
-                    turn_count: row.get(9)?,
-                    plan_markdown: row.get(10)?,
-                    plan_version: row.get(11)?,
-                    plan_updated_at: row.get(12)?,
-                    chat_messages: row.get(13)?,
-                    api_messages: row.get(14)?,
-                    review_edits: row.get(15)?,
-                    queued_messages: row.get(16)?,
-                    queue_state: row.get(17)?,
-                    llm_usage_ledger: row.get::<_, String>(18).unwrap_or_default(),
-                    archived: row.get::<_, i64>(19)? != 0,
-                    pinned: row.get::<_, i64>(20)? != 0,
-                    created_at: row.get(21)?,
-                    updated_at: row.get(22)?,
-                    worktree_path: row.get(23)?,
-                    worktree_branch: row.get(24)?,
-                    worktree_declined: row.get::<_, i64>(25)? != 0,
-                    show_debug: row.get::<_, i64>(26)? != 0,
-                    advanced_options: row.get::<_, String>(27).unwrap_or_default(),
+                    backend: row.get::<_, String>(8).unwrap_or_else(|_| "ai-sdk".to_string()),
+                    model: row.get(9)?,
+                    turn_count: row.get(10)?,
+                    plan_markdown: row.get(11)?,
+                    plan_version: row.get(12)?,
+                    plan_updated_at: row.get(13)?,
+                    chat_messages: row.get(14)?,
+                    api_messages: row.get(15)?,
+                    review_edits: row.get(16)?,
+                    queued_messages: row.get(17)?,
+                    queue_state: row.get(18)?,
+                    llm_usage_ledger: row.get::<_, String>(19).unwrap_or_default(),
+                    archived: row.get::<_, i64>(20)? != 0,
+                    pinned: row.get::<_, i64>(21)? != 0,
+                    created_at: row.get(22)?,
+                    updated_at: row.get(23)?,
+                    worktree_path: row.get(24)?,
+                    worktree_branch: row.get(25)?,
+                    worktree_declined: row.get::<_, i64>(26)? != 0,
+                    show_debug: row.get::<_, i64>(27)? != 0,
+                    advanced_options: row.get::<_, String>(28).unwrap_or_default(),
+                    backend_session_state: row.get::<_, String>(29).unwrap_or_else(|_| "null".to_string()),
                     communication_profile: row
-                        .get::<_, String>(28)
+                        .get::<_, String>(30)
                         .unwrap_or_else(|_| "pragmatic".to_string()),
                 })
             })
@@ -1015,13 +1027,13 @@ pub fn db_upsert_session(
         let previous_archived = load_session_flags(&db, &session.id)?.map(|(archived, _)| archived);
         db.execute(
             "INSERT INTO sessions (
-            id, label, icon, mode, tab_title, cwd, project_path, setup_command, model,
+            id, label, icon, mode, tab_title, cwd, project_path, setup_command, backend, model,
             turn_count, plan_markdown, plan_version, plan_updated_at,
             chat_messages, api_messages, review_edits,
             queued_messages, queue_state, llm_usage_ledger,
             archived, pinned, created_at, updated_at,
-            worktree_path, worktree_branch, worktree_declined, show_debug, advanced_options, communication_profile
-         ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25,?26,?27,?28,?29)
+            worktree_path, worktree_branch, worktree_declined, show_debug, advanced_options, backend_session_state, communication_profile
+         ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25,?26,?27,?28,?29,?30,?31)
          ON CONFLICT(id) DO UPDATE SET
             label             = excluded.label,
             icon              = excluded.icon,
@@ -1030,6 +1042,7 @@ pub fn db_upsert_session(
             cwd               = excluded.cwd,
             project_path      = excluded.project_path,
             setup_command     = excluded.setup_command,
+            backend           = excluded.backend,
             model             = excluded.model,
             turn_count        = excluded.turn_count,
             plan_markdown     = excluded.plan_markdown,
@@ -1048,8 +1061,9 @@ pub fn db_upsert_session(
             worktree_declined = excluded.worktree_declined,
             show_debug        = excluded.show_debug,
             advanced_options  = excluded.advanced_options,
+            backend_session_state = excluded.backend_session_state,
             communication_profile = excluded.communication_profile,
-            updated_at        = ?23",
+            updated_at        = ?24",
             rusqlite::params![
                 session.id,
                 session.label,
@@ -1059,6 +1073,7 @@ pub fn db_upsert_session(
                 session.cwd,
                 session.project_path,
                 session.setup_command,
+                session.backend,
                 session.model,
                 session.turn_count,
                 session.plan_markdown,
@@ -1079,6 +1094,7 @@ pub fn db_upsert_session(
                 session.worktree_declined as i64,
                 session.show_debug as i64,
                 session.advanced_options,
+                session.backend_session_state,
                 session.communication_profile,
             ],
         )
@@ -1248,13 +1264,13 @@ pub fn db_load_archived_sessions(
         let db = state.db.lock().unwrap();
         let mut stmt = db
             .prepare(
-                "SELECT id, label, icon, mode, tab_title, cwd, project_path, setup_command, model,
-                turn_count, plan_markdown, plan_version, plan_updated_at,
-                chat_messages, api_messages, review_edits,
-                queued_messages, queue_state, llm_usage_ledger,
-                archived, pinned, created_at, updated_at,
-                worktree_path, worktree_branch, worktree_declined, show_debug,
-                advanced_options, communication_profile
+            "SELECT id, label, icon, mode, tab_title, cwd, project_path, setup_command, backend, model,
+            turn_count, plan_markdown, plan_version, plan_updated_at,
+            chat_messages, api_messages, review_edits,
+            queued_messages, queue_state, llm_usage_ledger,
+            archived, pinned, created_at, updated_at,
+            worktree_path, worktree_branch, worktree_declined, show_debug,
+            advanced_options, backend_session_state, communication_profile
          FROM sessions
          WHERE archived = 1
          ORDER BY updated_at DESC",
@@ -1272,28 +1288,30 @@ pub fn db_load_archived_sessions(
                     cwd: row.get(5)?,
                     project_path: row.get(6)?,
                     setup_command: row.get(7)?,
-                    model: row.get(8)?,
-                    turn_count: row.get(9)?,
-                    plan_markdown: row.get(10)?,
-                    plan_version: row.get(11)?,
-                    plan_updated_at: row.get(12)?,
-                    chat_messages: row.get(13)?,
-                    api_messages: row.get(14)?,
-                    review_edits: row.get(15)?,
-                    queued_messages: row.get(16)?,
-                    queue_state: row.get(17)?,
-                    llm_usage_ledger: row.get::<_, String>(18).unwrap_or_default(),
-                    archived: row.get::<_, i64>(19)? != 0,
-                    pinned: row.get::<_, i64>(20)? != 0,
-                    created_at: row.get(21)?,
-                    updated_at: row.get(22)?,
-                    worktree_path: row.get(23)?,
-                    worktree_branch: row.get(24)?,
-                    worktree_declined: row.get::<_, i64>(25)? != 0,
-                    show_debug: row.get::<_, i64>(26)? != 0,
-                    advanced_options: row.get::<_, String>(27).unwrap_or_default(),
+                    backend: row.get::<_, String>(8).unwrap_or_else(|_| "ai-sdk".to_string()),
+                    model: row.get(9)?,
+                    turn_count: row.get(10)?,
+                    plan_markdown: row.get(11)?,
+                    plan_version: row.get(12)?,
+                    plan_updated_at: row.get(13)?,
+                    chat_messages: row.get(14)?,
+                    api_messages: row.get(15)?,
+                    review_edits: row.get(16)?,
+                    queued_messages: row.get(17)?,
+                    queue_state: row.get(18)?,
+                    llm_usage_ledger: row.get::<_, String>(19).unwrap_or_default(),
+                    archived: row.get::<_, i64>(20)? != 0,
+                    pinned: row.get::<_, i64>(21)? != 0,
+                    created_at: row.get(22)?,
+                    updated_at: row.get(23)?,
+                    worktree_path: row.get(24)?,
+                    worktree_branch: row.get(25)?,
+                    worktree_declined: row.get::<_, i64>(26)? != 0,
+                    show_debug: row.get::<_, i64>(27)? != 0,
+                    advanced_options: row.get::<_, String>(28).unwrap_or_default(),
+                    backend_session_state: row.get::<_, String>(29).unwrap_or_else(|_| "null".to_string()),
                     communication_profile: row
-                        .get::<_, String>(28)
+                        .get::<_, String>(30)
                         .unwrap_or_else(|_| "pragmatic".to_string()),
                 })
             })
@@ -2860,6 +2878,7 @@ mod tests {
             cwd: "/tmp".to_string(),
             project_path: "/tmp".to_string(),
             setup_command: "npm install".to_string(),
+            backend: "ai-sdk".to_string(),
             model: "test-model".to_string(),
             turn_count: 0,
             plan_markdown: "".to_string(),
@@ -2880,6 +2899,7 @@ mod tests {
             worktree_declined: false,
             show_debug: false,
             advanced_options: "{}".to_string(),
+            backend_session_state: "null".to_string(),
             communication_profile: "pragmatic".to_string(),
         };
 

@@ -16,6 +16,7 @@ import { buildGatewayModels } from "./useModels";
 import { loadSessionTodos } from "./tools/todos";
 import type {
   AdvancedModelOptions,
+  BackendSessionState,
   AgentQueueState,
   LlmUsageRecord,
   QueuedUserMessage,
@@ -50,6 +51,29 @@ function parseAdvancedOptions(
   }
 
   return undefined;
+}
+
+function parseBackendSessionState(
+  backendSessionState?: string,
+): BackendSessionState {
+  try {
+    const parsed = backendSessionState
+      ? (JSON.parse(backendSessionState) as BackendSessionState)
+      : null;
+    if (
+      parsed &&
+      parsed.kind === "codex" &&
+      (typeof parsed.sessionId === "string" || parsed.sessionId === null) &&
+      (typeof parsed.sessionDisplayId === "string" ||
+        parsed.sessionDisplayId === null)
+    ) {
+      return parsed;
+    }
+  } catch {
+    // Ignore malformed JSON and fall back to null.
+  }
+
+  return null;
 }
 
 function buildTabFromSession(session: PersistedSession): Tab {
@@ -141,7 +165,9 @@ export function hydratePersistedSession(
   const queuedMessages = parseQueuedMessages(session.queuedMessages);
   const queueState = parseQueueState(session.queueState, queuedMessages);
   const llmUsageLedger = parseLlmUsageLedger(session.llmUsageLedger);
-  const freshModelMetadata = getFreshSessionModelMetadata(session.model);
+  const backend = session.backend === "codex" ? "codex" : "ai-sdk";
+  const freshModelMetadata =
+    backend === "ai-sdk" ? getFreshSessionModelMetadata(session.model) : null;
   const communicationProfile = resolveCommunicationProfileId(
     session.communicationProfile,
     jotaiStore.get(profilesAtom),
@@ -150,10 +176,12 @@ export function hydratePersistedSession(
 
   patchAgentState(session.id, {
     status: restoreError ? "error" : "idle",
+    backendSessionState: parseBackendSessionState(session.backendSessionState),
     turnCount: session.turnCount ?? 0,
     tabTitle: session.tabTitle,
     config: {
       cwd: session.cwd,
+      backend,
       projectPath: session.projectPath || undefined,
       setupCommand: session.setupCommand || undefined,
       model: session.model,
