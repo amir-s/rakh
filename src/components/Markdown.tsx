@@ -6,6 +6,8 @@ import type {
 } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import remarkMath from "remark-math";
+import rehypeKatex from "rehype-katex";
 import type { Components, ExtraProps } from "react-markdown";
 import type { Content, Link, Parent, Root, Text } from "mdast";
 
@@ -623,6 +625,7 @@ export default function Markdown({
   return (
     <ReactMarkdown
       remarkPlugins={[
+        remarkMath,
         remarkGfm,
         () => (tree: Root) => {
           visit(tree, "code", (node) => {
@@ -636,6 +639,7 @@ export default function Markdown({
           });
         },
       ]}
+      rehypePlugins={[rehypeKatex]}
       components={components}
     >
       {children}
