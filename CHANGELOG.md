@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.20.0](https://github.com/amir-s/rakh/compare/rakh-v0.19.0...rakh-v0.20.0) (2026-03-21)
+
+
+### Features
+
+* add LaTeX rendering to chat messages via KaTeX ([c4d09d9](https://github.com/amir-s/rakh/commit/c4d09d9b5fa79cc37c0a6ea1be97c541548c536c))
+* **models:** add gpt-5.4 and gpt-5.4-mini to catalog ([fa02104](https://github.com/amir-s/rakh/commit/fa0210412655d1e26c6346996acfd238ccfc7f8d))
+
 ## [0.19.0](https://github.com/amir-s/rakh/compare/rakh-v0.18.0...rakh-v0.19.0) (2026-03-19)
 
 
