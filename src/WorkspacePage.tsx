@@ -10,7 +10,12 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import type { AttachedImage, AttachedIssue } from "@/agent/types";
-import { useAtomValue } from "jotai";
+import { useAtom, useAtomValue } from "jotai";
+import {
+  draftInputByTabAtom,
+  draftImagesByTabAtom,
+  draftIssuesByTabAtom,
+} from "@/workspaceDraftState";
 import ArtifactPane, { useArtifactUpdates } from "@/components/ArtifactPane";
 import ConversationCards from "@/components/ConversationCards";
 import Terminal from "@/components/Terminal";
@@ -345,7 +350,7 @@ export default function WorkspacePage() {
   const isAgentBusy = agent.status === "thinking" || agent.status === "working";
   const { models } = useModels();
 
-  const [inputByTab, setInputByTab] = useState<Record<string, string>>({});
+  const [inputByTab, setInputByTab] = useAtom(draftInputByTabAtom);
   const input = inputByTab[activeTabId] ?? "";
   const setInput = useCallback(
     (next: SetStateAction<string>) => {
@@ -359,19 +364,15 @@ export default function WorkspacePage() {
         return { ...prev, [activeTabId]: resolved };
       });
     },
-    [activeTabId],
+    [activeTabId, setInputByTab],
   );
-  const [attachedImagesByTab, setAttachedImagesByTab] = useState<
-    Record<string, AttachedImage[]>
-  >({});
+  const [attachedImagesByTab, setAttachedImagesByTab] = useAtom(draftImagesByTabAtom);
   const attachedImages = useMemo(
     () => attachedImagesByTab[activeTabId] ?? [],
     [attachedImagesByTab, activeTabId],
   );
 
-  const [attachedIssuesByTab, setAttachedIssuesByTab] = useState<
-    Record<string, AttachedIssue[]>
-  >({});
+  const [attachedIssuesByTab, setAttachedIssuesByTab] = useAtom(draftIssuesByTabAtom);
   const attachedIssues = useMemo(
     () => attachedIssuesByTab[activeTabId] ?? [],
     [attachedIssuesByTab, activeTabId],

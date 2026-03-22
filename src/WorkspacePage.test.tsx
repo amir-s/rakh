@@ -172,9 +172,15 @@ const workspaceMocks = vi.hoisted(() => ({
 
 vi.mock("jotai", async () => {
   const actual = await vi.importActual<typeof import("jotai")>("jotai");
+  const react = await vi.importActual<typeof import("react")>("react");
   return {
     ...actual,
     useAtomValue: () => false,
+    // In tests, make useAtom behave like useState so draft state is
+    // scoped to each render and doesn't leak between tests.
+    useAtom: <T,>(initialValue: T): [T, (v: T | ((prev: T) => T)) => void] => {
+      return react.useState(initialValue);
+    },
   };
 });
 
