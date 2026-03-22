@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.20.1](https://github.com/amir-s/rakh/compare/rakh-v0.20.0...rakh-v0.20.1) (2026-03-22)
+
+
+### Bug Fixes
+
+* localStorage.clear is not a function in tests ([4a429ab](https://github.com/amir-s/rakh/commit/4a429abe9bb2ea8f082dbf1c29e62f51a9cb353d))
+* persistent prompt across tab switches ([c15cb8f](https://github.com/amir-s/rakh/commit/c15cb8ff88dfec5507842c1875ba4a0c47ba7ae7)), closes [#219](https://github.com/amir-s/rakh/issues/219)
+
 ## [0.20.0](https://github.com/amir-s/rakh/compare/rakh-v0.19.0...rakh-v0.20.0) (2026-03-21)
 
 
