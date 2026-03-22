@@ -205,52 +205,10 @@ function renderSettingsPage(
   );
 }
 
-function ensureLocalStorage(): Storage {
-  const storage = window.localStorage as Partial<Storage> | undefined;
-  if (
-    storage &&
-    typeof storage.getItem === "function" &&
-    typeof storage.setItem === "function" &&
-    typeof storage.removeItem === "function" &&
-    typeof storage.clear === "function"
-  ) {
-    return storage as Storage;
-  }
-
-  const entries = new Map<string, string>();
-  const nextStorage: Storage = {
-    get length() {
-      return entries.size;
-    },
-    clear() {
-      entries.clear();
-    },
-    getItem(key: string) {
-      return entries.has(key) ? entries.get(key) ?? null : null;
-    },
-    key(index: number) {
-      return Array.from(entries.keys())[index] ?? null;
-    },
-    removeItem(key: string) {
-      entries.delete(key);
-    },
-    setItem(key: string, value: string) {
-      entries.set(key, String(value));
-    },
-  };
-
-  Object.defineProperty(window, "localStorage", {
-    configurable: true,
-    value: nextStorage,
-  });
-
-  return nextStorage;
-}
-
 describe("SettingsPage", () => {
   beforeEach(() => {
     cleanup();
-    ensureLocalStorage().clear();
+    localStorage.clear();
     jotaiStore.set(providersAtom, []);
     jotaiStore.set(mcpServersAtom, []);
     jotaiStore.set(mcpSettingsAtom, { artifactizeReturnedFiles: false });
