@@ -14,17 +14,6 @@ We use [Release Please](https://github.com/googleapis/release-please) to automat
 4. **Publishing:** We merge the Release PR when we are ready to publish a new version.
 5. **Build & Release:** Merging the Release PR triggers the creation of a GitHub tag. This triggers the `Build and Publish Release` workflow, which compiles the Mac, Windows, and Linux binaries and attaches them to the new GitHub Release.
 
-### Shipping a pull request with `/ship`
-
-Maintainers can comment `/ship` on an open pull request to arm it for merge. The `PR Ship Command` workflow will merge the PR itself after all required checks and reviews pass, so this does not depend on GitHub's **Allow auto-merge** repository setting.
-
-- Only collaborators with `write`, `maintain`, or `admin` access can use `/ship`.
-- Comment `/unship` to cancel a pending `/ship`.
-- The workflow uses a non-squash strategy (`rebase` if available, otherwise a regular merge commit) so the branch's individual Conventional Commit messages still land on `main` for Release Please.
-- Repository admins must allow either **Rebase merging** or **Merge commits** in GitHub repository settings.
-- Branch protection for `main` must require the CI checks from `.github/workflows/ci.yml`, currently `Frontend (typecheck, lint, test)` and `Rust (cargo test)`.
-- The workflow uses an internal `ship` label to remember which pull requests should merge on the next successful CI, review, or scheduled retry.
-
 ### Commit Message Format
 
 Your commit messages should be structured as follows:
