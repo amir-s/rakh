@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.21.0](https://github.com/amir-s/rakh/compare/rakh-v0.20.0...rakh-v0.21.0) (2026-03-23)
+
+
+### Features
+
+* compact tool io replacement payloads ([88c0e4a](https://github.com/amir-s/rakh/commit/88c0e4a973dd60d97fc82a9a2519abaf0beed88c))
+* delay tool IO replacement compaction ([ca064f6](https://github.com/amir-s/rakh/commit/ca064f69c11c8c8c021879fb77f5d6172b63207d))
+* simplify compacted tool io markers ([534d7c3](https://github.com/amir-s/rakh/commit/534d7c325ecf2de7ae95c3ba27af385768060056))
+
+
+### Bug Fixes
+
+* improve tool io replacement recovery ([9c79646](https://github.com/amir-s/rakh/commit/9c796467be08d00b990f01c17880a5a0f7c83f78))
+* localStorage.clear is not a function in tests ([4a429ab](https://github.com/amir-s/rakh/commit/4a429abe9bb2ea8f082dbf1c29e62f51a9cb353d))
+* mark context compaction calls in cost charts ([0f0f7d4](https://github.com/amir-s/rakh/commit/0f0f7d412eb19f96f79ba1352a2608f7df23525a))
+* persistent prompt across tab switches ([c15cb8f](https://github.com/amir-s/rakh/commit/c15cb8ff88dfec5507842c1875ba4a0c47ba7ae7)), closes [#219](https://github.com/amir-s/rakh/issues/219)
+* report invalid tool IO replacement notes ([185c0b2](https://github.com/amir-s/rakh/commit/185c0b2fe709159a65e71163ce3ac321af9485ab))
+* retry failed tool IO replacement turns ([c0b94db](https://github.com/amir-s/rakh/commit/c0b94db9791f63c7ba6b3bd26439af9d800c22ba))
+* shorten tool io recovery action label ([62118c5](https://github.com/amir-s/rakh/commit/62118c5105892b79fa23d34fa59aed6e62a934b9))
+* strip legacy tool compaction metadata ([3f2343c](https://github.com/amir-s/rakh/commit/3f2343cd8277cdd7a7af2766f595d553c4b2a61b))
+
 ## [0.20.0](https://github.com/amir-s/rakh/compare/rakh-v0.19.0...rakh-v0.20.0) (2026-03-21)
 
 
