@@ -49,6 +49,7 @@ import {
   resumeQueue as _resumeQueue,
   removeQueuedMessage as _removeQueuedMessage,
   clearQueuedMessages as _clearQueuedMessages,
+  continueToolIoReplacementFailure as _continueToolIoReplacementFailure,
   retryAgent as _retryAgent,
   stopAgent as _stopAgent,
   stopRunningExecToolCall as _stopRunningExecToolCall,
@@ -180,6 +181,27 @@ export function useRetryAgent() {
         event: "agent.retry.error",
         message: "Failed to retry the agent run.",
         data: { error, tabId },
+        context: { tabId },
+      });
+    });
+  }, []);
+}
+
+export function useContinueToolIoReplacementFailure() {
+  return useCallback((tabId: string) => {
+    _continueToolIoReplacementFailure(tabId).catch((error) => {
+      logFrontendSoon({
+        level: "error",
+        tags: ["frontend", "agent-loop"],
+        event: "agent.continueToolIoReplacementFailure.error",
+        message: "Failed to continue the agent run without tool IO replacement.",
+        data: {
+          error:
+            error instanceof Error
+              ? { name: error.name, message: error.message, stack: error.stack }
+              : String(error),
+          tabId,
+        },
         context: { tabId },
       });
     });
@@ -345,6 +367,8 @@ export function useAgent(tabId: string) {
   const setConfig = useSetAgentConfig();
   const resetAgent = useResetAgent();
   const retryAgent = useRetryAgent();
+  const continueToolIoReplacementFailure =
+    useContinueToolIoReplacementFailure();
   const currentContextStats = useCurrentContextStats(tabId);
   const contextWindowPct = useContextWindowPct(tabId);
   const contextWindowKb = useContextWindowKb(tabId);
@@ -414,6 +438,10 @@ export function useAgent(tabId: string) {
     ),
     reset: useCallback(() => resetAgent(tabId), [tabId, resetAgent]),
     retry: useCallback(() => retryAgent(tabId), [tabId, retryAgent]),
+    continueWithoutReplacement: useCallback(
+      () => continueToolIoReplacementFailure(tabId),
+      [tabId, continueToolIoReplacementFailure],
+    ),
     dismissLoopLimitWarning: useCallback(
       () =>
         patchAgentState(tabId, (prev) =>

@@ -148,6 +148,7 @@ const workspaceMocks = vi.hoisted(() => ({
     stop: null as null | (() => void),
     tabTitle: "",
     todos: [] as Array<Record<string, unknown>>,
+    continueWithoutReplacement: vi.fn(),
     retry: vi.fn(),
   },
   transcriptCallback: null as null | ((transcript: string) => void),
@@ -917,6 +918,7 @@ describe("WorkspacePage chat input", () => {
       stop: workspaceMocks.stopMock,
       tabTitle: "",
       todos: [],
+      continueWithoutReplacement: vi.fn(),
       retry: vi.fn(),
     };
   });
@@ -2676,6 +2678,36 @@ describe("WorkspacePage chat input", () => {
     fireEvent.click(screen.getByRole("button", { name: "Open AI Providers" }));
 
     expect(workspaceMocks.openSettingsTabMock).toHaveBeenCalledWith("providers");
+  });
+
+  it("shows continue-with-raw-tool-io action for tool IO replacement failures", async () => {
+    const continueWithoutReplacement = vi.fn();
+    const retry = vi.fn();
+    workspaceMocks.agentState = {
+      ...workspaceMocks.agentState,
+      error:
+        'Tool IO replacement failed: Replacement "call_123" outputNote must be at most 350 characters (got 351). Retry to ask for a replacement again, or continue with raw tool IO.',
+      errorDetails: {
+        kind: "tool-io-replacement-retry",
+        pendingToolCallIds: ["call_123"],
+        failure: "invalid-payload",
+      },
+      status: "error",
+      continueWithoutReplacement,
+      retry,
+    };
+
+    await act(async () => {
+      render(<WorkspacePage />);
+    });
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "CONTINUE WITH RAW TOOL IO" }),
+    );
+    expect(continueWithoutReplacement).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByRole("button", { name: "RETRY" }));
+    expect(retry).toHaveBeenCalledTimes(1);
   });
 
   it("opens AI Providers from the composer stats control", async () => {

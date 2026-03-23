@@ -148,6 +148,17 @@ const EMPTY_PROJECT_GITHUB_STATE: ProjectGitHubState = {
   eligible: false,
 };
 
+function hasToolIoReplacementRecovery(
+  value: unknown,
+): value is { kind: "tool-io-replacement-retry" } {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    !Array.isArray(value) &&
+    (value as { kind?: unknown }).kind === "tool-io-replacement-retry"
+  );
+}
+
 interface WorktreeHandoffModalProps {
   branch: string;
   commitMessage: string;
@@ -1825,6 +1836,16 @@ export default function WorkspacePage() {
                 >
                   RETRY
                 </Button>
+                {hasToolIoReplacementRecovery(agent.errorDetails) ? (
+                  <Button
+                    className="workspace-continue-with-raw-tool-io-btn"
+                    variant="ghost"
+                    size="xxs"
+                    onClick={() => agent.continueWithoutReplacement()}
+                  >
+                    CONTINUE WITH RAW TOOL IO
+                  </Button>
+                ) : null}
                 {agent.errorAction?.type === "open-settings-section" ? (
                   <Button
                     className="workspace-error-action-btn"

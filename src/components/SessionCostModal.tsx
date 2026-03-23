@@ -185,6 +185,10 @@ function buildTooltipLabel(mode: ChartMode, point: SessionCostSeriesPoint): stri
   return parts.join(" ");
 }
 
+function isToolIoReplacementPoint(point: SessionCostSeriesPoint): boolean {
+  return point.operation.trim().toLowerCase() === "tool io replacement";
+}
+
 function renderTooltipContent({
   point,
   hoveredSeries,
@@ -301,6 +305,8 @@ function SessionCostMultiLineChart({
   const [visibleKeys, setVisibleKeys] = useState<CostSeriesKey[]>(
     COST_SERIES_DEFINITIONS.map((definition) => definition.key),
   );
+  const safeHoveredIndex =
+    hoveredIndex != null && hoveredIndex < points.length ? hoveredIndex : null;
 
   const visibleSeries = COST_SERIES_DEFINITIONS.filter((definition) =>
     visibleKeys.includes(definition.key),
@@ -352,7 +358,10 @@ function SessionCostMultiLineChart({
   const maxValue = Math.max(...plottedValues, 0.0001);
   const chartBottom = CHART_HEIGHT - CHART_PADDING_BOTTOM;
   const sliceBounds = buildSliceBounds(points.length);
-  const hoveredPoint = hoveredIndex == null ? null : points[hoveredIndex] ?? null;
+  const hoveredSlice =
+    safeHoveredIndex == null ? null : sliceBounds[safeHoveredIndex] ?? null;
+  const hoveredPoint =
+    safeHoveredIndex == null ? null : points[safeHoveredIndex] ?? null;
   const hoveredSeries = hoveredPoint
     ? visibleSeries.map((definition) => {
         const value = definition.valueFor(hoveredPoint, mode);
@@ -369,11 +378,11 @@ function SessionCostMultiLineChart({
     .filter((value): value is number => value !== null)
     .reduce((min, value) => Math.min(min, value), chartBottom);
   const tooltipLeftPct =
-    hoveredIndex == null
+    hoveredSlice == null
       ? null
-      : clampTooltipPct((sliceBounds[hoveredIndex].center / CHART_WIDTH) * 100);
+      : clampTooltipPct((hoveredSlice.center / CHART_WIDTH) * 100);
   const tooltipTopPct =
-    hoveredIndex == null
+    hoveredPoint == null
       ? null
       : clampTooltipPct((tooltipY / CHART_HEIGHT) * 100);
 
@@ -453,11 +462,25 @@ function SessionCostMultiLineChart({
                 );
               })}
 
-              {hoveredIndex != null ? (
+              {points.map((point) =>
+                isToolIoReplacementPoint(point) ? (
+                  <line
+                    key={`tool-io-marker-${point.id}`}
+                    className="session-cost-chart-marker session-cost-chart-marker--tool-io"
+                    data-call-index={point.index + 1}
+                    x1={getXPositionByIndex(point.index, points.length)}
+                    x2={getXPositionByIndex(point.index, points.length)}
+                    y1={CHART_PADDING_TOP}
+                    y2={chartBottom}
+                  />
+                ) : null,
+              )}
+
+              {hoveredSlice != null ? (
                 <line
                   className="session-cost-chart-guide"
-                  x1={sliceBounds[hoveredIndex].center}
-                  x2={sliceBounds[hoveredIndex].center}
+                  x1={hoveredSlice.center}
+                  x2={hoveredSlice.center}
                   y1={CHART_PADDING_TOP}
                   y2={chartBottom}
                 />

@@ -164,6 +164,27 @@ function isToolIoReplacementRetryDetails(
   );
 }
 
+function buildToolIoReplacementRecoveryMessage(
+  details:
+    | ToolIoReplacementRetryDetails
+    | RetryableToolIoReplacementError,
+): string {
+  const failureMessage =
+    details instanceof RetryableToolIoReplacementError
+      ? details.message
+      : details.validationError ??
+        (typeof details.error === "object" &&
+        details.error !== null &&
+        "message" in details.error &&
+        typeof (details.error as { message?: unknown }).message === "string"
+          ? (details.error as { message: string }).message
+          : null);
+
+  return failureMessage
+    ? `Tool IO replacement failed: ${failureMessage} Retry to ask for a replacement again, or continue with raw tool IO.`
+    : "Tool IO replacement failed. Retry to ask for a replacement again, or continue with raw tool IO.";
+}
+
 function abortReasonMessage(reason: AgentAbortReason): string {
   switch (reason) {
     case "user_stop":
@@ -626,6 +647,189 @@ export async function retryAgent(tabId: string): Promise<void> {
   await runAgent(tabId, lastUserMessage, undefined, { skipUserChatAppend: true });
 }
 
+export async function continueToolIoReplacementFailure(
+  tabId: string,
+): Promise<void> {
+  const state = getAgentState(tabId);
+  if (!isToolIoReplacementRetryDetails(state.errorDetails)) {
+    return;
+  }
+
+  const details = state.errorDetails;
+  const providers = jotaiStore.get(providersAtom);
+  const debugEnabled = state.showDebug ?? false;
+  const model = state.config.model;
+  const modelEntry = getModelCatalogEntry(model);
+  const provider = modelEntry?.owned_by ?? null;
+
+  const setContinueError = (
+    message: string,
+    errorDetails: unknown = details,
+  ): void => {
+    setAgentErrorState(tabId, message, errorDetails);
+  };
+
+  if (!modelEntry || !provider) {
+    setContinueError(
+      "Unknown model. Please choose a model from the New Session list.",
+    );
+    return;
+  }
+
+  const providerInstance = providers.find((entry) => entry.id === modelEntry.providerId);
+  if (!providerInstance) {
+    setContinueError(
+      `Model "${modelEntry.id}" references an unknown provider.`,
+    );
+    return;
+  }
+
+  if (provider === "openai" && !providerInstance.apiKey) {
+    setAgentErrorState(
+      tabId,
+      "No OpenAI API key. Please open the settings to enter your OpenAI API key.",
+      details,
+      {
+        type: "open-settings-section",
+        section: "providers",
+        label: "Open AI Providers",
+      },
+    );
+    return;
+  }
+
+  if (provider === "anthropic" && !providerInstance.apiKey) {
+    setAgentErrorState(
+      tabId,
+      "No Claude API key. Please open the settings to enter your Claude (Anthropic) API key.",
+      details,
+      {
+        type: "open-settings-section",
+        section: "providers",
+        label: "Open AI Providers",
+      },
+    );
+    return;
+  }
+
+  const controller = new AbortController();
+  const runId = nextRunId(tabId);
+  const { runStartId, rootContext: runRootLogContext, childContext: runLogContext } =
+    createMainRunLogContext(tabId, runId);
+
+  patchAgentState(tabId, (prev) => ({
+    ...prev,
+    status: "thinking",
+    error: null,
+    errorAction: null,
+    errorDetails: null,
+    loopLimitWarning: null,
+    streamingContent: null,
+    lastRunTraceId: runRootLogContext.traceId,
+  }));
+
+  const activeRun: ActiveRun = {
+    runId,
+    controller,
+    abortReason: null,
+  };
+  setActiveRun(tabId, activeRun);
+
+  writeRunnerLog({
+    id: runStartId,
+    level: "info",
+    tags: ["frontend", "agent-loop", "messages"],
+    event: "runner.retry.tool-io.continue.start",
+    message: "Main run resumed without tool IO replacement",
+    kind: "start",
+    data: {
+      pendingToolCallIds: details.pendingToolCallIds,
+      failure: details.failure,
+    },
+    context: runRootLogContext,
+  });
+
+  let completedCleanly = false;
+
+  try {
+    const loopSettings = normalizeAgentLoopSettings(
+      jotaiStore.get(agentLoopSettingsAtom),
+    );
+
+    await agentLoop(
+      tabId,
+      controller.signal,
+      model,
+      providers,
+      debugEnabled,
+      runId,
+      state.turnCount,
+      runLogContext,
+      loopSettings,
+    );
+    completedCleanly = !controller.signal.aborted;
+  } catch (err) {
+    if ((err as Error).name === "AbortError") return;
+    if (err instanceof RunAbortedError) {
+      completedCleanly = true;
+      return;
+    }
+
+    const message = err instanceof Error ? err.message : String(err);
+    writeRunnerLog({
+      level: "error",
+      tags: ["frontend", "agent-loop", "messages"],
+      event: "runner.retry.tool-io.continue.error",
+      message: "Main run resume without tool IO replacement failed",
+      kind: "error",
+      data: err,
+      context: runLogContext,
+    });
+
+    if (err instanceof RetryableToolIoReplacementError) {
+      setAgentErrorState(
+        tabId,
+        buildToolIoReplacementRecoveryMessage(err),
+        buildToolIoReplacementRetryDetails(err),
+      );
+    } else {
+      setAgentErrorState(tabId, message, serializeError(err));
+    }
+    return;
+  } finally {
+    clearActiveRun(tabId, activeRun);
+    if (activeRun.abortReason !== null) return;
+    if (!completedCleanly) return;
+    if (getAgentState(tabId).status === "error") return;
+
+    patchAgentState(tabId, (prev) => ({
+      ...prev,
+      status: "idle",
+      streamingContent: null,
+      queueState: normalizeQueueState(prev.queuedMessages, prev.queueState),
+    }));
+    writeRunnerLog({
+      level: "info",
+      tags: ["frontend", "agent-loop", "messages"],
+      event: "runner.retry.tool-io.continue.end",
+      message: "Main run resumed without tool IO replacement completed",
+      kind: "end",
+      context: runLogContext,
+    });
+    void maybeStartQueuedRun(tabId).catch((error) => {
+      writeRunnerLog({
+        level: "error",
+        tags: ["frontend", "agent-loop", "system"],
+        event: "runner.queue.drain.error",
+        message: "Queue drain failed",
+        kind: "error",
+        data: error,
+        context: runLogContext,
+      });
+    });
+  }
+}
+
 async function retryToolIoReplacement(
   tabId: string,
   details: ToolIoReplacementRetryDetails,
@@ -689,6 +893,7 @@ async function retryToolIoReplacement(
 
   const rebuilt = reconstructPendingToolIoReplacements(
     state.apiMessages,
+    state.chatMessages,
     details.pendingToolCallIds,
   );
   if (!rebuilt.ok) {
@@ -778,7 +983,11 @@ async function retryToolIoReplacement(
     });
 
     if (err instanceof RetryableToolIoReplacementError) {
-      setAgentErrorState(tabId, message, buildToolIoReplacementRetryDetails(err));
+      setAgentErrorState(
+        tabId,
+        buildToolIoReplacementRecoveryMessage(err),
+        buildToolIoReplacementRetryDetails(err),
+      );
     } else {
       setAgentErrorState(tabId, message, serializeError(err));
     }
@@ -1261,7 +1470,11 @@ async function runAgentTurn(
       context: runLogContext,
     });
     if (err instanceof RetryableToolIoReplacementError) {
-      setAgentErrorState(tabId, msg, buildToolIoReplacementRetryDetails(err));
+      setAgentErrorState(
+        tabId,
+        buildToolIoReplacementRecoveryMessage(err),
+        buildToolIoReplacementRetryDetails(err),
+      );
     } else {
       setAgentErrorState(tabId, msg, serializeError(err));
     }
