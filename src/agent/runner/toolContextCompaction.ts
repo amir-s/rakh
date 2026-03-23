@@ -94,13 +94,32 @@ function sanitizedMetadataKeys(value: unknown): string[] | undefined {
   return keys.length > 0 ? keys : undefined;
 }
 
-function sanitizeNote(value: unknown): string | undefined {
-  if (typeof value !== "string") return undefined;
-  const trimmed = value.trim();
-  if (!trimmed || trimmed.length > MAX_TOOL_CONTEXT_NOTE_CHARS) {
-    return undefined;
+function validateReplacementNote(
+  label: "inputNote" | "outputNote",
+  value: unknown,
+):
+  | { ok: true; note: string }
+  | { ok: false; reason: string } {
+  if (typeof value !== "string") {
+    return {
+      ok: false,
+      reason: `${label} must be a string.`,
+    };
   }
-  return trimmed;
+  if (value.length > MAX_TOOL_CONTEXT_NOTE_CHARS) {
+    return {
+      ok: false,
+      reason: `${label} must be at most ${MAX_TOOL_CONTEXT_NOTE_CHARS} characters (got ${value.length}).`,
+    };
+  }
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return {
+      ok: false,
+      reason: `${label} must not be empty.`,
+    };
+  }
+  return { ok: true, note: trimmed };
 }
 
 function buildSentinel(
@@ -751,27 +770,30 @@ export function validateToolIoReplacementPayload(
       };
     }
 
-    const inputNote = sanitizeNote(entry.inputNote);
-    if (!inputNote) {
+    const inputNoteResult = validateReplacementNote("inputNote", entry.inputNote);
+    if (!inputNoteResult.ok) {
       return {
         ok: false,
-        message: `Replacement "${toolCallId}" must include a valid inputNote.`,
+        message: `Replacement "${toolCallId}" ${inputNoteResult.reason}`,
       };
     }
 
-    const outputNote = sanitizeNote(entry.outputNote);
-    if (!outputNote) {
+    const outputNoteResult = validateReplacementNote(
+      "outputNote",
+      entry.outputNote,
+    );
+    if (!outputNoteResult.ok) {
       return {
         ok: false,
-        message: `Replacement "${toolCallId}" must include a valid outputNote.`,
+        message: `Replacement "${toolCallId}" ${outputNoteResult.reason}`,
       };
     }
 
     seen.add(toolCallId);
     replacements.push({
       toolCallId,
-      inputNote,
-      outputNote,
+      inputNote: inputNoteResult.note,
+      outputNote: outputNoteResult.note,
     });
   }
 

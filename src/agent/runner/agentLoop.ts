@@ -364,14 +364,40 @@ async function maybeRunForcedToolIoReplacementTurn(input: {
     streamed.parsedToolCalls.length !== 1 ||
     replacementCall?.function.name !== TOOL_IO_REPLACEMENT_TOOL_NAME
   ) {
+    writeRunnerLog({
+      level: "error",
+      tags: ["frontend", "agent-loop", "system"],
+      event: "runner.tool-io-replacement.invalid-call",
+      message: "Forced tool IO replacement turn returned an unexpected tool call payload",
+      kind: "error",
+      data: {
+        parsedToolCallCount: streamed.parsedToolCalls.length,
+        toolNames: streamed.parsedToolCalls.map((call) => call.function.name),
+      },
+      context: internalLogContext,
+    });
     throw new Error("Internal tool IO replacement turn did not return the required tool call.");
   }
 
+  const replacementArgs = parseArgs(replacementCall.function.arguments);
   const validated = validateToolIoReplacementPayload(
-    parseArgs(replacementCall.function.arguments),
+    replacementArgs,
     input.pendingByToolCallId,
   );
   if (!validated.ok) {
+    writeRunnerLog({
+      level: "error",
+      tags: ["frontend", "agent-loop", "system"],
+      event: "runner.tool-io-replacement.invalid-payload",
+      message: "Forced tool IO replacement turn returned invalid replacement notes",
+      kind: "error",
+      data: {
+        validationError: validated.message,
+        replacementCallId: replacementCall.id,
+        replacementArgs,
+      },
+      context: internalLogContext,
+    });
     throw new Error(validated.message);
   }
 
