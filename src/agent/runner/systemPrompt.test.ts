@@ -216,41 +216,6 @@ describe("buildSystemPrompt", () => {
     );
   });
 
-  it("documents hidden tool-context compaction metadata in the main prompt", () => {
-    const systemPrompt = buildSystemPrompt(
-      "/workspace",
-      false,
-      false,
-      false,
-      runtimeContext,
-      undefined,
-      undefined,
-    );
-
-    expect(systemPrompt).toContain("TOOL IO CONTEXT COMPACTION");
-    expect(systemPrompt).toContain("__contextCompaction");
-    expect(systemPrompt).toContain("outputMode?: \"always\" | \"on_success\"");
-    expect(systemPrompt).toContain("Supported local-tool input compaction");
-    expect(systemPrompt).toContain("Supported local-tool output compaction");
-  });
-
-  it("omits tool-context compaction guidance from the main prompt when disabled", () => {
-    const systemPrompt = buildSystemPrompt(
-      "/workspace",
-      false,
-      false,
-      false,
-      runtimeContext,
-      undefined,
-      undefined,
-      false,
-    );
-
-    expect(systemPrompt).not.toContain("TOOL IO CONTEXT COMPACTION");
-    expect(systemPrompt).not.toContain("__contextCompaction");
-    expect(systemPrompt).not.toContain("Supported local-tool input compaction");
-  });
-
   it("uses stable git isolation guidance without volatile clock metadata", () => {
     const systemPrompt = buildSystemPrompt(
       "/workspace",
@@ -275,24 +240,18 @@ describe("buildSystemPrompt", () => {
 });
 
 describe("buildSubagentSystemPrompt", () => {
-  it("documents hidden tool-context compaction metadata for subagents", () => {
+  it("includes artifact contract guidance for planner", () => {
     const systemPrompt = buildSubagentSystemPrompt(plannerSubagent);
 
-    expect(systemPrompt).toContain("TOOL IO CONTEXT COMPACTION");
-    expect(systemPrompt).toContain("__contextCompaction");
-    expect(systemPrompt).toContain("workspace_readFile");
-    expect(systemPrompt).toContain("agent_artifact_get");
+    expect(systemPrompt).toContain("ARTIFACT CONTRACTS");
+    expect(systemPrompt).toContain("artifactType: \"plan\"");
+    expect(systemPrompt).toContain("FINAL MESSAGE");
   });
 
-  it("omits tool-context compaction guidance for subagents when disabled", () => {
-    const systemPrompt = buildSubagentSystemPrompt(
-      plannerSubagent,
-      undefined,
-      false,
-    );
+  it("does not mention legacy tool-context compaction metadata for subagents", () => {
+    const systemPrompt = buildSubagentSystemPrompt(plannerSubagent);
 
     expect(systemPrompt).not.toContain("TOOL IO CONTEXT COMPACTION");
     expect(systemPrompt).not.toContain("__contextCompaction");
-    expect(systemPrompt).not.toContain("workspace_readFile");
   });
 });

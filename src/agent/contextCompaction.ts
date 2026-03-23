@@ -1,6 +1,7 @@
 import type { CurrentContextStats } from "./sessionStats";
 
 export const DEFAULT_TOOL_CONTEXT_COMPACTION_ENABLED = true;
+export const DEFAULT_TOOL_CONTEXT_COMPACTION_THRESHOLD_KB = 16;
 
 export type AutoContextCompactionThresholdMode = "percentage" | "kb";
 
@@ -25,6 +26,20 @@ export const DEFAULT_AUTO_CONTEXT_COMPACTION_SETTINGS: AutoContextCompactionSett
     thresholdPercent: 85,
     thresholdKb: 256,
   };
+
+export function sanitizeToolContextCompactionThresholdKb(
+  value: unknown,
+): number {
+  if (typeof value === "number" && Number.isFinite(value) && Math.round(value) <= 0) {
+    return DEFAULT_TOOL_CONTEXT_COMPACTION_THRESHOLD_KB;
+  }
+  return clampInteger(
+    value,
+    DEFAULT_TOOL_CONTEXT_COMPACTION_THRESHOLD_KB,
+    1,
+    1_048_576,
+  );
+}
 
 function clampInteger(
   value: unknown,

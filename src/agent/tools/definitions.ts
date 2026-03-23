@@ -12,40 +12,8 @@ type ToolSpec = {
   inputSchema: z.ZodTypeAny;
 };
 
-const toolContextCompactionParamSchema = z.object({
-  inputNote: z.string().optional(),
-  outputNote: z.string().optional(),
-  outputMode: z.enum(["always", "on_success"]).optional(),
-});
-
-export function allowHiddenToolContextCompaction(
-  schema: z.ZodTypeAny,
-  enabled = true,
-): z.ZodTypeAny {
-  if (!(schema instanceof z.ZodObject)) return schema;
-  if (!enabled) {
-    return "__contextCompaction" in schema.shape
-      ? schema.omit({ __contextCompaction: true })
-      : schema;
-  }
-
-  return schema.extend({
-    __contextCompaction: toolContextCompactionParamSchema
-      .optional()
-      .describe(
-        "Optional hidden runner metadata for model-facing tool IO compaction.",
-      ),
-  });
-}
-
-function tool(spec: ToolSpec, toolContextCompactionEnabled = true): ToolSpec {
-  return {
-    ...spec,
-    inputSchema: allowHiddenToolContextCompaction(
-      spec.inputSchema,
-      toolContextCompactionEnabled,
-    ),
-  };
+function tool(spec: ToolSpec): ToolSpec {
+  return spec;
 }
 
 const mutationIntentEnum = z.enum([
@@ -643,13 +611,11 @@ path/to/other.ts
   }),
 ] as const;
 
-export function buildToolDefinitions(
-  toolContextCompactionEnabled = true,
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-): Record<string, any> {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function buildToolDefinitions(): Record<string, any> {
   return Object.fromEntries(
     TOOL_SPECS.map((spec) => {
-      const { name, ...definition } = tool(spec, toolContextCompactionEnabled);
+      const { name, ...definition } = spec;
       return [name, aiTool(definition)];
     }),
   );
@@ -661,13 +627,10 @@ export const TOOL_DEFINITIONS = buildToolDefinitions();
  * Return a subset of TOOL_DEFINITIONS containing only the named tools.
  * Used by the runner to give subagents a restricted tool surface.
  */
-export function getToolDefinitionsByNames(
-  names: string[],
-  toolContextCompactionEnabled = true,
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-): Record<string, any> {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function getToolDefinitionsByNames(names: string[]): Record<string, any> {
   const allowed = new Set(names);
-  const toolDefinitions = buildToolDefinitions(toolContextCompactionEnabled);
+  const toolDefinitions = buildToolDefinitions();
   return Object.fromEntries(
     Object.entries(toolDefinitions).filter(([name]) => allowed.has(name)),
   );

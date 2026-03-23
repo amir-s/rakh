@@ -1,8 +1,11 @@
+import { tool as aiTool } from "ai";
+import { z } from "zod";
 import {
   getAgentState,
   jotaiStore,
   patchAgentState,
   toolContextCompactionEnabledAtom,
+  toolContextCompactionThresholdKbAtom,
 } from "../atoms";
 import {
   AGENT_LOOP_LIMIT_TOOL_NAME,
@@ -58,29 +61,19 @@ import {
   serializeToolResultForModel,
 } from "./utils";
 import {
-  buildToolContextCompactedInput,
-  buildToolContextCompactedOutput,
+  applyToolIoReplacements,
+  buildToolIoReplacementDisplay,
+  buildToolIoReplacementPrompt,
+  createPendingToolIoReplacement,
+  DELAYED_TOOL_IO_REPLACEMENT_ENABLED,
+  MAX_TOOL_CONTEXT_NOTE_CHARS,
   mergeToolContextCompactionDisplay,
-  prepareToolContextCompaction,
-  type ToolContextCompactionSourceKind,
+  TOOL_IO_REPLACEMENT_TOOL_NAME,
+  type PendingToolIoReplacement,
+  toolContextCompactionThresholdKbToBytes,
+  validateToolIoReplacementPayload,
 } from "./toolContextCompaction";
 import { maybeRunAutomaticMainContextCompaction } from "./mainContextCompaction";
-
-const SYNTHETIC_TOOL_NAMES = new Set([
-  "agent_subagent_call",
-  "user_input",
-  "agent_card_add",
-  AGENT_LOOP_LIMIT_TOOL_NAME,
-]);
-
-function resolveToolContextCompactionSourceKind(
-  toolName: string,
-  mcpToolsByName: MainAgentMcpRuntime["toolsByName"],
-): ToolContextCompactionSourceKind {
-  if (mcpToolsByName[toolName]) return "mcp";
-  if (SYNTHETIC_TOOL_NAMES.has(toolName)) return "synthetic";
-  return "local";
-}
 
 function buildToolCallDisplay(
   toolCallId: string,
@@ -214,6 +207,24 @@ interface PreparedConversationCardToolCall {
   };
 }
 
+const TOOL_IO_REPLACEMENT_TOOL_DEFINITION = aiTool({
+  description:
+    "Internal runner maintenance tool. Replace oversized raw tool IO from the previous turn with concise notes for future context.",
+  inputSchema: z.object({
+    replacements: z.array(z.object({
+      toolCallId: z.string().describe("Pending tool call ID to replace"),
+      inputNote: z
+        .string()
+        .max(MAX_TOOL_CONTEXT_NOTE_CHARS)
+        .describe("Concise factual replacement for the tool input"),
+      outputNote: z
+        .string()
+        .max(MAX_TOOL_CONTEXT_NOTE_CHARS)
+        .describe("Concise factual replacement for the tool output"),
+    })).min(1),
+  }),
+});
+
 function prepareConversationCardToolCall(
   rawArgs: Record<string, unknown>,
 ): { ok: true; data: PreparedConversationCardToolCall } | {
@@ -237,6 +248,168 @@ function prepareConversationCardToolCall(
       },
     },
   };
+}
+
+function applyToolIoReplacementDisplays(
+  prev: ReturnType<typeof getAgentState>,
+  pendingByToolCallId: ReadonlyMap<string, PendingToolIoReplacement>,
+  replacements: readonly {
+    toolCallId: string;
+    inputNote: string;
+    outputNote: string;
+  }[],
+): ReturnType<typeof getAgentState> {
+  const replacementById = new Map(
+    replacements.map((replacement) => [replacement.toolCallId, replacement] as const),
+  );
+
+  return {
+    ...prev,
+    chatMessages: prev.chatMessages.map((message) =>
+      message.toolCalls
+        ? {
+            ...message,
+            toolCalls: message.toolCalls.map((toolCall) => {
+              const replacement = replacementById.get(toolCall.id);
+              const pending = replacement
+                ? pendingByToolCallId.get(toolCall.id)
+                : undefined;
+              if (!replacement || !pending) return toolCall;
+              return {
+                ...toolCall,
+                contextCompaction: mergeToolContextCompactionDisplay(
+                  toolCall.contextCompaction,
+                  buildToolIoReplacementDisplay(pending, replacement),
+                ),
+              };
+            }),
+          }
+        : message,
+    ),
+  };
+}
+
+async function maybeRunForcedToolIoReplacementTurn(input: {
+  tabId: string;
+  signal: AbortSignal;
+  runId: string;
+  iteration: number;
+  modelId: string;
+  languageModel: Awaited<ReturnType<typeof resolveLanguageModel>>;
+  providerOptions?: ReturnType<typeof buildProviderOptions>;
+  debugEnabled: boolean;
+  logContext: LogContext;
+  pendingByToolCallId: Map<string, PendingToolIoReplacement>;
+}): Promise<"skipped" | "compacted"> {
+  const pending = [...input.pendingByToolCallId.values()];
+  if (!DELAYED_TOOL_IO_REPLACEMENT_ENABLED || pending.length === 0) {
+    return "skipped";
+  }
+
+  const internalLogContext: LogContext = {
+    ...input.logContext,
+    parentId: nextLogId(`tool-io-replacement:${input.runId}:${input.iteration}`),
+    depth: (input.logContext.depth ?? 1) + 1,
+  };
+  writeRunnerLog({
+    id: internalLogContext.parentId,
+    level: "info",
+    tags: ["frontend", "agent-loop", "system"],
+    event: "runner.tool-io-replacement.start",
+    message: "Forced tool IO replacement turn started",
+    kind: "start",
+    data: {
+      iteration: input.iteration,
+      pendingCount: pending.length,
+      toolCallIds: pending.map((entry) => entry.toolCallId),
+    },
+    context: input.logContext,
+  });
+
+  const streamed = await streamTurn({
+    tabId: input.tabId,
+    signal: input.signal,
+    modelId: input.modelId,
+    model: input.languageModel,
+    messages: [
+      ...getAgentState(input.tabId).apiMessages,
+      {
+        role: "user" as const,
+        content: buildToolIoReplacementPrompt(pending),
+      },
+    ],
+    tools: {
+      [TOOL_IO_REPLACEMENT_TOOL_NAME]: TOOL_IO_REPLACEMENT_TOOL_DEFINITION,
+    },
+    toolChoice: {
+      type: "tool",
+      toolName: TOOL_IO_REPLACEMENT_TOOL_NAME,
+    },
+    debugEnabled: input.debugEnabled,
+    logContext: internalLogContext,
+    providerOptions: input.providerOptions,
+    appendToChat: false,
+    toPendingToolCalls: () => undefined,
+    usageMetadata: {
+      actorKind: "internal",
+      actorId: "main",
+      actorLabel: "Rakh",
+      operation: "tool io replacement",
+    },
+    onRecordUsage: (usage) => recordLlmUsage(input.tabId, usage),
+  });
+
+  const replacementCall = streamed.parsedToolCalls[0];
+  if (
+    streamed.parsedToolCalls.length !== 1 ||
+    replacementCall?.function.name !== TOOL_IO_REPLACEMENT_TOOL_NAME
+  ) {
+    throw new Error("Internal tool IO replacement turn did not return the required tool call.");
+  }
+
+  const validated = validateToolIoReplacementPayload(
+    parseArgs(replacementCall.function.arguments),
+    input.pendingByToolCallId,
+  );
+  if (!validated.ok) {
+    throw new Error(validated.message);
+  }
+
+  patchAgentState(input.tabId, (prev) =>
+    applyToolIoReplacementDisplays(
+      {
+        ...prev,
+        apiMessages: applyToolIoReplacements(
+          prev.apiMessages,
+          validated.replacements,
+          input.pendingByToolCallId,
+        ),
+      },
+      input.pendingByToolCallId,
+      validated.replacements,
+    ),
+  );
+
+  for (const replacement of validated.replacements) {
+    input.pendingByToolCallId.delete(replacement.toolCallId);
+  }
+
+  writeRunnerLog({
+    level: "info",
+    tags: ["frontend", "agent-loop", "system"],
+    event: "runner.tool-io-replacement.end",
+    message: "Forced tool IO replacement turn completed",
+    kind: "end",
+    data: {
+      iteration: input.iteration,
+      replacedToolCallIds: validated.replacements.map(
+        (replacement) => replacement.toolCallId,
+      ),
+    },
+    context: internalLogContext,
+  });
+
+  return "compacted";
 }
 
 export async function agentLoop(
@@ -268,6 +441,7 @@ export async function agentLoop(
   const warningThreshold = loopSettings.warningThreshold;
   const hardLimit = loopSettings.hardLimit;
   let nearLimitConfirmed = false;
+  const pendingToolIoReplacements = new Map<string, PendingToolIoReplacement>();
 
   try {
     for (let iteration = 0; iteration < hardLimit; iteration++) {
@@ -388,7 +562,26 @@ export async function agentLoop(
         });
       }
 
+      const toolContextCompactionEnabled =
+        jotaiStore.get(toolContextCompactionEnabledAtom) !== false;
+
       if (iteration > 0) {
+        if (toolContextCompactionEnabled && pendingToolIoReplacements.size > 0) {
+          await maybeRunForcedToolIoReplacementTurn({
+            tabId,
+            signal,
+            runId,
+            iteration,
+            modelId,
+            languageModel,
+            providerOptions,
+            debugEnabled,
+            logContext: runLogContext,
+            pendingByToolCallId: pendingToolIoReplacements,
+          });
+          if (signal.aborted || !isCurrentRunId(tabId, runId)) return;
+        }
+
         const autoCompactionResult =
           await maybeRunAutomaticMainContextCompaction({
             tabId,
@@ -432,10 +625,8 @@ export async function agentLoop(
 
       const turnStartedAtMs = Date.now();
       const currentApiMessages = getAgentState(tabId).apiMessages;
-      const toolContextCompactionEnabled =
-        jotaiStore.get(toolContextCompactionEnabledAtom) !== false;
       const toolDefinitions = {
-        ...buildToolDefinitions(toolContextCompactionEnabled),
+        ...buildToolDefinitions(),
         ...mcpRuntime.toolDefinitions,
       };
       const turnStartId = nextLogId(`turn:${runId}:${iteration}`);
@@ -509,88 +700,9 @@ export async function agentLoop(
         context: turnContext,
       });
 
-      const preparedToolCalls = new Map(
-        streamed.parsedToolCalls.map((tc) => {
-          const prepared = prepareToolContextCompaction(
-            tc.function.name,
-            parseArgs(tc.function.arguments),
-            resolveToolContextCompactionSourceKind(
-              tc.function.name,
-              mcpRuntime.toolsByName,
-            ),
-            { enabled: toolContextCompactionEnabled },
-          );
-          if (prepared.warnings.length > 0) {
-            writeRunnerLog({
-              level: "warn",
-              tags: ["frontend", "agent-loop", "tool-calls"],
-              event: "runner.tool.context-compaction.ignored",
-              message: `Tool ${tc.function.name} ignored context compaction metadata`,
-              data: {
-                toolName: tc.function.name,
-                warnings: prepared.warnings,
-              },
-              context: {
-                ...turnContext,
-                correlationId: tc.id,
-                depth: turnContext.depth ?? 2,
-              },
-            });
-          }
-          return [tc.id, prepared] as const;
-        }),
-      );
-
-      const assistantApiMsg = {
-        ...streamed.assistantApiMsg,
-        ...(streamed.assistantApiMsg.tool_calls
-          ? {
-              tool_calls: streamed.assistantApiMsg.tool_calls.map((toolCall) => {
-                const prepared = preparedToolCalls.get(toolCall.id);
-                if (!prepared) return toolCall;
-                const compacted = buildToolContextCompactedInput(
-                  toolCall.function.name,
-                  prepared,
-                );
-                return {
-                  ...toolCall,
-                  function: {
-                    ...toolCall.function,
-                    arguments: compacted.argumentsJson,
-                  },
-                };
-              }),
-            }
-          : {}),
-      };
-
       patchAgentState(tabId, (prev) => ({
         ...prev,
-        apiMessages: [...prev.apiMessages, assistantApiMsg],
-        chatMessages: prev.chatMessages.map((message) =>
-          message.toolCalls
-            ? {
-                ...message,
-                toolCalls: message.toolCalls.map((toolCall) => {
-                  const prepared = preparedToolCalls.get(toolCall.id);
-                  if (!prepared) return toolCall;
-                  const compacted = buildToolContextCompactedInput(
-                    toolCall.tool,
-                    prepared,
-                  );
-                  return compacted.display
-                    ? {
-                        ...toolCall,
-                        contextCompaction: mergeToolContextCompactionDisplay(
-                          toolCall.contextCompaction,
-                          compacted.display,
-                        ),
-                      }
-                    : toolCall;
-                }),
-              }
-            : message,
-        ),
+        apiMessages: [...prev.apiMessages, streamed.assistantApiMsg],
       }));
 
       if (streamed.parsedToolCalls.length === 0) {
@@ -609,8 +721,7 @@ export async function agentLoop(
       const toolResults = await Promise.all(
         streamed.parsedToolCalls.map(async (tc) => {
           const tcId = tc.id;
-          const preparedCompaction = preparedToolCalls.get(tcId);
-          const rawArgs = preparedCompaction?.strippedArgs ?? parseArgs(tc.function.arguments);
+          const rawArgs = parseArgs(tc.function.arguments);
           const toolLog = createToolLogContext(turnContext, tcId, tc.function.name);
           writeRunnerLog({
             id: toolLog.startId,
@@ -978,28 +1089,11 @@ export async function agentLoop(
             streamed.parsedToolCalls,
             result,
           );
-          const compactedOutput = preparedCompaction
-            ? buildToolContextCompactedOutput(
-                tc.function.name,
-                result,
-                preparedCompaction,
-                fallbackContent,
-              )
-            : { content: fallbackContent };
-
-          if (compactedOutput.display) {
-            updateToolCallById({
-              contextCompaction: mergeToolContextCompactionDisplay(
-                preparedCompaction?.display,
-                compactedOutput.display,
-              ),
-            });
-          }
 
           return {
             tool_call_id: tcId,
             result,
-            content: compactedOutput.content,
+            content: fallbackContent,
           };
         }),
       );
@@ -1020,6 +1114,35 @@ export async function agentLoop(
         ...prev,
         apiMessages: [...prev.apiMessages, ...toolApiMessages],
       }));
+
+      if (toolContextCompactionEnabled && DELAYED_TOOL_IO_REPLACEMENT_ENABLED) {
+        const thresholdBytes = toolContextCompactionThresholdKbToBytes(
+          jotaiStore.get(toolContextCompactionThresholdKbAtom),
+        );
+        const toolCallById = new Map(
+          streamed.parsedToolCalls.map((toolCall) => [toolCall.id, toolCall] as const),
+        );
+
+        for (const { tool_call_id, result } of toolResults) {
+          const toolCall = toolCallById.get(tool_call_id);
+          if (!toolCall) continue;
+
+          const rawArgs = parseArgs(toolCall.function.arguments);
+          const pendingReplacement = createPendingToolIoReplacement(
+            tool_call_id,
+            toolCall.function.name,
+            rawArgs,
+            result,
+            {
+              enabled: true,
+              thresholdBytes,
+            },
+          );
+          if (pendingReplacement) {
+            pendingToolIoReplacements.set(tool_call_id, pendingReplacement);
+          }
+        }
+      }
     }
 
     writeRunnerLog({

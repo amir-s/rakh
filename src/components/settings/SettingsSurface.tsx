@@ -1935,15 +1935,15 @@ function ContextCompactionSection({
     <div className="settings-page__section-stack">
       <SectionCard
         title="Tool Context Compaction"
-        description="Control whether the runner may rewrite model-facing tool IO for allowlisted local tools while keeping raw tool data visible in chat."
+        description="Control whether the runner may replace oversized model-facing tool IO after one raw turn while keeping raw tool data visible in chat."
       >
         <div className="settings-row">
           <div className="settings-row-info">
             <span className="settings-row-label">Enable tool IO compaction</span>
             <span className="settings-row-desc">
-              Lets the model replace large allowlisted tool inputs and outputs
-              with compact sentinels while preserving raw args and results in
-              the UI.
+              Lets the runner feed oversized tool inputs and outputs to the
+              model once, then replace them with concise summaries for future
+              turns while preserving raw args and results in the UI.
             </span>
           </div>
           <ToggleSwitch
@@ -1954,6 +1954,34 @@ function ContextCompactionSection({
             className="settings-switch"
             title="Tool context compaction"
           />
+        </div>
+
+        <div className="settings-row">
+          <div className="settings-row-info">
+            <span className="settings-row-label">Threshold</span>
+            <span className="settings-row-desc">
+              Combined tool input + output size threshold for delayed
+              replacement.
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <TextField
+              type="number"
+              inputMode="numeric"
+              min={1}
+              max={1048576}
+              value={controller.toolContextCompactionThresholdKb}
+              onChange={(event) => {
+                const nextValue = Number.parseInt(event.target.value, 10);
+                if (!Number.isFinite(nextValue)) return;
+                void controller.setToolContextCompactionThresholdKb(nextValue);
+              }}
+              disabled={!controller.toolContextCompactionEnabled}
+              aria-label="Tool IO compaction threshold"
+              wrapClassName="settings-input-wrap w-28"
+            />
+            <span className="settings-row-desc shrink-0">KB</span>
+          </div>
         </div>
       </SectionCard>
 
