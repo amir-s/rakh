@@ -40,20 +40,12 @@ describe("ToolCallDetailsModal", () => {
                 "Read src/agent/runner.ts for planning; exact file contents omitted from model history.",
               mode: "always",
               modelValue: {
-                __rti: {
-                  t: "workspace_readFile",
-                  s: "o",
-                  k: {
-                    p: "src/agent/runner.ts",
-                    fs: 28,
-                    lc: 1,
-                    tr: 0,
-                  },
-                  o: {
-                    f: ["content"],
-                    b: 30,
-                  },
-                  n: "Read src/agent/runner.ts for planning; exact file contents omitted from model history.",
+                __tool_io_compacted: {
+                  tool: "workspace_readFile",
+                  side: "output",
+                  path: "src/agent/runner.ts",
+                  note:
+                    "Read src/agent/runner.ts for planning; exact file contents omitted from model history.",
                 },
               },
             },
@@ -89,7 +81,7 @@ describe("ToolCallDetailsModal", () => {
         '[data-context-compaction-state="compacted"] .tool-call-icon__flare',
       )?.getAttribute("title"),
     ).toBe("Context compaction compacted the model-facing output.");
-    expect(screen.getByText(/__rti/)).not.toBeNull();
+    expect(screen.getByText(/__tool_io_compacted/)).not.toBeNull();
     expect(screen.getByText(/export const runner = true/)).not.toBeNull();
   });
 });

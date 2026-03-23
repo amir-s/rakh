@@ -137,16 +137,18 @@ describe("toolContextCompaction", () => {
         ),
       ),
     ).toMatchObject({
-      __rti: {
-        t: "workspace_readFile",
-        s: "i",
+      __tool_io_compacted: {
+        tool: "workspace_readFile",
+        side: "input",
+        path: "src/runner.ts",
       },
     });
 
     expect(JSON.parse((apiMessages[1] as { content: string }).content)).toMatchObject({
-      __rti: {
-        t: "workspace_readFile",
-        s: "o",
+      __tool_io_compacted: {
+        tool: "workspace_readFile",
+        side: "output",
+        path: "src/runner.ts",
       },
     });
   });

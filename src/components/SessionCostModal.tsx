@@ -189,6 +189,10 @@ function isToolIoReplacementPoint(point: SessionCostSeriesPoint): boolean {
   return point.operation.trim().toLowerCase() === "tool io replacement";
 }
 
+function isContextCompactionPoint(point: SessionCostSeriesPoint): boolean {
+  return point.actorKind === "subagent" && point.actorId === "compact";
+}
+
 function renderTooltipContent({
   point,
   hoveredSeries,
@@ -462,19 +466,26 @@ function SessionCostMultiLineChart({
                 );
               })}
 
-              {points.map((point) =>
-                isToolIoReplacementPoint(point) ? (
+              {points.map((point) => {
+                const markerClassName = isToolIoReplacementPoint(point)
+                  ? "session-cost-chart-marker session-cost-chart-marker--tool-io"
+                  : isContextCompactionPoint(point)
+                    ? "session-cost-chart-marker session-cost-chart-marker--context-compaction"
+                    : null;
+                if (!markerClassName) return null;
+
+                return (
                   <line
-                    key={`tool-io-marker-${point.id}`}
-                    className="session-cost-chart-marker session-cost-chart-marker--tool-io"
+                    key={`special-marker-${point.id}`}
+                    className={markerClassName}
                     data-call-index={point.index + 1}
                     x1={getXPositionByIndex(point.index, points.length)}
                     x2={getXPositionByIndex(point.index, points.length)}
                     y1={CHART_PADDING_TOP}
                     y2={chartBottom}
                   />
-                ) : null,
-              )}
+                );
+              })}
 
               {hoveredSlice != null ? (
                 <line

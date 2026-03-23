@@ -1096,6 +1096,13 @@
   opacity: 0.4;
 }
 
+.session-cost-chart-marker--context-compaction {
+  stroke: color-mix(in srgb, var(--color-info) 70%, var(--color-primary));
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  opacity: 0.4;
+}
+
 .session-cost-chart-dot {
   stroke: color-mix(in srgb, var(--color-surface) 84%, black);
   stroke-width: 1.5;
