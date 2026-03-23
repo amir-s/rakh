@@ -4,6 +4,8 @@ import {
 } from "../contextCompaction";
 import type {
   ApiMessage,
+  ChatMessage,
+  ToolError,
   ToolContextCompactionDisplay,
   ToolResult,
 } from "../types";
@@ -67,7 +69,7 @@ export const DELAYED_TOOL_IO_REPLACEMENT_ENABLED = true;
 export const DELAYED_TOOL_IO_REPLACEMENT_THRESHOLD_BYTES =
   DEFAULT_TOOL_CONTEXT_COMPACTION_THRESHOLD_KB * 1024;
 export const TOOL_IO_REPLACEMENT_TOOL_NAME = "agent_replace_tool_io";
-export const MAX_TOOL_CONTEXT_NOTE_CHARS = 280;
+export const MAX_TOOL_CONTEXT_NOTE_CHARS = 350;
 
 const encoder = new TextEncoder();
 
@@ -117,6 +119,19 @@ function byteSize(value: unknown): number {
 
 function stringOrUndefined(value: unknown): string | undefined {
   return typeof value === "string" ? value : undefined;
+}
+
+function asToolError(value: unknown): ToolError | undefined {
+  if (!isRecord(value)) return undefined;
+  const code = stringOrUndefined(value.code);
+  const message = stringOrUndefined(value.message);
+  if (!code || !message) return undefined;
+
+  return {
+    code: code as ToolError["code"],
+    message,
+    ...(isRecord(value.details) ? { details: value.details } : {}),
+  };
 }
 
 function numberOrUndefined(value: unknown): number | undefined {
@@ -745,6 +760,7 @@ export function createPendingToolIoReplacement(
 
 export function reconstructPendingToolIoReplacements(
   apiMessages: readonly ApiMessage[],
+  chatMessages: readonly ChatMessage[],
   toolCallIds: readonly string[],
 ): { ok: true; pendingByToolCallId: Map<string, PendingToolIoReplacement> } | {
   ok: false;
@@ -766,6 +782,48 @@ export function reconstructPendingToolIoReplacements(
   }
 
   const requestedIdSet = new Set(requestedIds);
+  const chatToolCallsById = new Map<
+    string,
+    {
+      toolName: string;
+      rawArgs: Record<string, unknown>;
+      result: ToolResult<unknown>;
+    }
+  >();
+  for (const message of chatMessages) {
+    for (const toolCall of message.toolCalls ?? []) {
+      if (!requestedIdSet.has(toolCall.id)) continue;
+      const rawArgs = isRecord(toolCall.args) ? toolCall.args : {};
+      if (toolCall.status === "done") {
+        chatToolCallsById.set(toolCall.id, {
+          toolName: toolCall.tool,
+          rawArgs,
+          result: {
+            ok: true,
+            data: toolCall.result,
+          },
+        });
+        continue;
+      }
+
+      if (
+        (toolCall.status === "error" || toolCall.status === "denied") &&
+        isRecord(toolCall.result)
+      ) {
+        const error = asToolError(toolCall.result);
+        if (!error) continue;
+        chatToolCallsById.set(toolCall.id, {
+          toolName: toolCall.tool,
+          rawArgs,
+          result: {
+            ok: false,
+            error,
+          },
+        });
+      }
+    }
+  }
+
   const toolCallsById = new Map<
     string,
     {
@@ -803,10 +861,34 @@ export function reconstructPendingToolIoReplacements(
 
     const parsedResult = parseJsonValue(message.content);
     if (parsedResult === undefined) {
-      return {
-        ok: false,
-        message: `Cannot retry tool IO replacement because tool call "${message.tool_call_id}" no longer has a JSON tool result in history.`,
-      };
+      const chatToolCall = chatToolCallsById.get(message.tool_call_id);
+      if (!chatToolCall) {
+        return {
+          ok: false,
+          message: `Cannot retry tool IO replacement because tool call "${message.tool_call_id}" no longer has a JSON tool result in history.`,
+        };
+      }
+
+      const pending = createPendingToolIoReplacement(
+        message.tool_call_id,
+        chatToolCall.toolName,
+        chatToolCall.rawArgs,
+        chatToolCall.result,
+        {
+          enabled: true,
+          thresholdBytes: 0,
+        },
+      );
+
+      if (!pending) {
+        return {
+          ok: false,
+          message: `Cannot retry tool IO replacement because tool call "${message.tool_call_id}" no longer has oversized tool IO available.`,
+        };
+      }
+
+      pendingByToolCallId.set(message.tool_call_id, pending);
+      continue;
     }
 
     const pending = createPendingToolIoReplacement(

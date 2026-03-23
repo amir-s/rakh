@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   applyToolIoReplacements,
   createPendingToolIoReplacement,
+  reconstructPendingToolIoReplacements,
   toolContextCompactionThresholdKbToBytes,
   validateToolIoReplacementPayload,
 } from "./toolContextCompaction";
@@ -176,7 +177,7 @@ describe("toolContextCompaction", () => {
           {
             toolCallId: "tc-large",
             inputNote: "Read src/runner.ts for context.",
-            outputNote: "x".repeat(281),
+            outputNote: "x".repeat(351),
           },
         ],
       },
@@ -186,7 +187,73 @@ describe("toolContextCompaction", () => {
     expect(validated).toEqual({
       ok: false,
       message:
-        'Replacement "tc-large" outputNote must be at most 280 characters (got 281).',
+        'Replacement "tc-large" outputNote must be at most 350 characters (got 351).',
+    });
+  });
+
+  it("reconstructs pending replacements from chat tool results when api tool content is plain text", () => {
+    const rebuilt = reconstructPendingToolIoReplacements(
+      [
+        {
+          role: "assistant",
+          content: null,
+          tool_calls: [
+            {
+              id: "tc-search",
+              type: "function",
+              function: {
+                name: "workspace_search",
+                arguments: JSON.stringify({ pattern: "updater" }),
+              },
+            },
+          ],
+        },
+        {
+          role: "tool",
+          tool_call_id: "tc-search",
+          content: "Found 1 match(es) in 1 file(s)\n\nsrc/updater.ts\n  1: export function updater() {}",
+        },
+      ],
+      [
+        {
+          id: "m1",
+          role: "assistant",
+          content: "",
+          timestamp: 1,
+          toolCalls: [
+            {
+              id: "tc-search",
+              tool: "workspace_search",
+              args: { pattern: "updater" },
+              result: {
+                matchCount: 1,
+                searchedFiles: 1,
+                truncated: false,
+                matches: [
+                  {
+                    path: "src/updater.ts",
+                    lineNumber: 1,
+                    line: "export function updater() {}",
+                    contextBefore: [],
+                    contextAfter: [],
+                  },
+                ],
+              },
+              status: "done",
+            },
+          ],
+        },
+      ],
+      ["tc-search"],
+    );
+
+    expect(rebuilt.ok).toBe(true);
+    if (!rebuilt.ok) return;
+
+    expect(rebuilt.pendingByToolCallId.get("tc-search")).toMatchObject({
+      toolCallId: "tc-search",
+      toolName: "workspace_search",
+      rawArgs: { pattern: "updater" },
     });
   });
 });

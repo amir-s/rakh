@@ -248,4 +248,77 @@ describe("SessionCostModal", () => {
     expect(tooltip.textContent).toContain("$0.060");
     expect(tooltip.textContent).toContain("$0.011");
   });
+
+  it("renders vertical markers for tool io replacement calls in both charts", () => {
+    const toolIoSeries = makeSeries().map((point, index) =>
+      index === 1
+        ? {
+            ...point,
+            actorKind: "internal" as const,
+            actorId: "main",
+            actorLabel: "Rakh",
+            operation: "tool io replacement",
+          }
+        : point,
+    );
+
+    render(
+      <SessionCostModal
+        summary={makeSummary()}
+        series={toolIoSeries}
+        onClose={vi.fn()}
+      />,
+    );
+
+    const perCallChart = document.body.querySelector(
+      '[data-chart-id="per-call-cost"]',
+    );
+    const cumulativeChart = document.body.querySelector(
+      '[data-chart-id="cumulative-cost"]',
+    );
+
+    expect(
+      perCallChart?.querySelector(
+        '.session-cost-chart-marker--tool-io[data-call-index="2"]',
+      ),
+    ).not.toBeNull();
+    expect(
+      cumulativeChart?.querySelector(
+        '.session-cost-chart-marker--tool-io[data-call-index="2"]',
+      ),
+    ).not.toBeNull();
+  });
+
+  it("does not crash when the hovered call disappears after rerender", () => {
+    const { rerender } = render(
+      <SessionCostModal
+        summary={makeSummary()}
+        series={makeSeries()}
+        onClose={vi.fn()}
+      />,
+    );
+
+    const cumulativeChart = document.body.querySelector(
+      '[data-chart-id="cumulative-cost"]',
+    );
+    const call3 = cumulativeChart?.querySelector(
+      '.session-cost-chart-slice[data-call-index="3"]',
+    );
+    expect(call3).not.toBeNull();
+
+    fireEvent.mouseEnter(call3!);
+    expect(screen.getByRole("tooltip")).not.toBeNull();
+
+    rerender(
+      <SessionCostModal
+        summary={makeSummary()}
+        series={makeSeries().slice(0, 2)}
+        onClose={vi.fn()}
+      />,
+    );
+
+    expect(
+      document.body.querySelector('[data-chart-id="cumulative-cost"]'),
+    ).not.toBeNull();
+  });
 });

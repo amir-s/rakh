@@ -29,6 +29,7 @@ type MockTurn = {
 
 type MockAgentState = {
   status: "idle" | "thinking" | "working" | "done" | "error";
+  turnCount: number;
   config: {
     cwd: string;
     model: string;
@@ -325,6 +326,7 @@ vi.mock("@/logging/client", async () => {
 });
 
 import {
+  continueToolIoReplacementFailure,
   resumeQueue,
   runAgent,
   retryAgent,
@@ -339,6 +341,7 @@ import { registerDynamicModels } from "./modelCatalog";
 function makeState(overrides: Partial<MockAgentState> = {}): MockAgentState {
   return {
     status: "idle",
+    turnCount: 0,
     config: { cwd: "", model: "openai/gpt-5.2" },
     chatMessages: [],
     apiMessages: [],
@@ -2035,7 +2038,7 @@ describe("runner", () => {
                 {
                   toolCallId: "tc-read-large",
                   inputNote: "Read src/runner.ts for context.",
-                  outputNote: "x".repeat(281),
+                  outputNote: "x".repeat(351),
                 },
               ],
             },
@@ -2060,7 +2063,7 @@ describe("runner", () => {
 
     expect(states[tabId].status).toBe("error");
     expect(states[tabId].error).toBe(
-      'Replacement "tc-read-large" outputNote must be at most 280 characters (got 281).',
+      'Tool IO replacement failed: Replacement "tc-read-large" outputNote must be at most 350 characters (got 351). Retry to ask for a replacement again, or continue with raw tool IO.',
     );
     expect(logFrontendSoonMock).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -2070,7 +2073,7 @@ describe("runner", () => {
           "Forced tool IO replacement turn returned invalid replacement notes",
         data: expect.objectContaining({
           validationError:
-            'Replacement "tc-read-large" outputNote must be at most 280 characters (got 281).',
+            'Replacement "tc-read-large" outputNote must be at most 350 characters (got 351).',
           replacementCallId: "tc-replace-large-io",
         }),
       }),
@@ -2106,7 +2109,7 @@ describe("runner", () => {
                 {
                   toolCallId: "tc-read-large",
                   inputNote: "Read src/runner.ts for context.",
-                  outputNote: "x".repeat(281),
+                  outputNote: "x".repeat(351),
                 },
               ],
             },
@@ -2137,7 +2140,7 @@ describe("runner", () => {
       failure: "invalid-payload",
       replacementCallId: "tc-replace-large-io-invalid",
       validationError:
-        'Replacement "tc-read-large" outputNote must be at most 280 characters (got 281).',
+        'Replacement "tc-read-large" outputNote must be at most 350 characters (got 351).',
     });
 
     const apiMessageCountBeforeRetry = erroredState.apiMessages.length;
@@ -2215,6 +2218,100 @@ describe("runner", () => {
         side: "output",
         compacted: true,
       },
+    });
+  });
+
+  it("continues after failed tool IO replacement without replaying the last user message", async () => {
+    const tabId = "tab-context-compaction-continue-invalid-note";
+    setState(tabId);
+    const largeContent = `export const runner = true;\n${"x".repeat(17000)}`;
+
+    turns.push(
+      {
+        deltas: [],
+        toolCalls: [
+          {
+            id: "tc-read-large-continue",
+            name: "workspace_readFile",
+            arguments: {
+              path: "src/runner.ts",
+            },
+          },
+        ],
+      },
+      {
+        deltas: [],
+        toolCalls: [
+          {
+            id: "tc-replace-large-io-invalid-continue",
+            name: "agent_replace_tool_io",
+            arguments: {
+              replacements: [
+                {
+                  toolCallId: "tc-read-large-continue",
+                  inputNote: "Read src/runner.ts for context.",
+                  outputNote: "x".repeat(351),
+                },
+              ],
+            },
+          },
+        ],
+      },
+    );
+
+    dispatchToolMock.mockResolvedValue({
+      ok: true,
+      data: {
+        path: "src/runner.ts",
+        encoding: "utf8",
+        content: largeContent,
+        fileSizeBytes: largeContent.length,
+        lineCount: 2,
+        truncated: false,
+      },
+    });
+
+    await runAgent(tabId, "read the runner");
+
+    const erroredState = states[tabId];
+    expect(erroredState.status).toBe("error");
+    expect(erroredState.error).toContain("continue with raw tool IO");
+
+    const apiMessageCountBeforeContinue = erroredState.apiMessages.length;
+    const chatMessageCountBeforeContinue = erroredState.chatMessages.length;
+    const userMessageCountBeforeContinue = erroredState.chatMessages.filter(
+      (message) => message.role === "user",
+    ).length;
+    const turnCountBeforeContinue = erroredState.turnCount;
+
+    turns.push({
+      deltas: ["Finished without replacement."],
+      toolCalls: [],
+    });
+
+    await continueToolIoReplacementFailure(tabId);
+
+    const state = states[tabId];
+    expect(state.status).toBe("idle");
+    expect(state.error).toBeNull();
+    expect(state.errorDetails).toBeNull();
+    expect(state.apiMessages).toHaveLength(apiMessageCountBeforeContinue + 1);
+    expect(state.chatMessages).toHaveLength(chatMessageCountBeforeContinue + 1);
+    expect(
+      state.chatMessages.filter((message) => message.role === "user"),
+    ).toHaveLength(userMessageCountBeforeContinue);
+    expect(state.turnCount).toBe(turnCountBeforeContinue);
+
+    expect(streamTextMock).toHaveBeenCalledTimes(3);
+    const continueTurnCall = streamTextMock.mock.calls[2]?.[0] as
+      | {
+          messages?: Array<Record<string, unknown>>;
+          toolChoice?: Record<string, unknown>;
+        }
+      | undefined;
+    expect(continueTurnCall?.toolChoice).toBeUndefined();
+    expect(continueTurnCall?.messages?.at(-1)).toMatchObject({
+      role: "tool",
     });
   });
 
