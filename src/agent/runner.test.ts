@@ -2077,6 +2077,147 @@ describe("runner", () => {
     );
   });
 
+  it("retries only the failed tool IO replacement turn after invalid replacement notes", async () => {
+    const tabId = "tab-context-compaction-retry-invalid-note";
+    setState(tabId);
+    const largeContent = `export const runner = true;\n${"x".repeat(17000)}`;
+
+    turns.push(
+      {
+        deltas: [],
+        toolCalls: [
+          {
+            id: "tc-read-large",
+            name: "workspace_readFile",
+            arguments: {
+              path: "src/runner.ts",
+            },
+          },
+        ],
+      },
+      {
+        deltas: [],
+        toolCalls: [
+          {
+            id: "tc-replace-large-io-invalid",
+            name: "agent_replace_tool_io",
+            arguments: {
+              replacements: [
+                {
+                  toolCallId: "tc-read-large",
+                  inputNote: "Read src/runner.ts for context.",
+                  outputNote: "x".repeat(281),
+                },
+              ],
+            },
+          },
+        ],
+      },
+    );
+
+    dispatchToolMock.mockResolvedValue({
+      ok: true,
+      data: {
+        path: "src/runner.ts",
+        encoding: "utf8",
+        content: largeContent,
+        fileSizeBytes: largeContent.length,
+        lineCount: 2,
+        truncated: false,
+      },
+    });
+
+    await runAgent(tabId, "read the runner");
+
+    const erroredState = states[tabId];
+    expect(erroredState.status).toBe("error");
+    expect(erroredState.errorDetails).toMatchObject({
+      kind: "tool-io-replacement-retry",
+      pendingToolCallIds: ["tc-read-large"],
+      failure: "invalid-payload",
+      replacementCallId: "tc-replace-large-io-invalid",
+      validationError:
+        'Replacement "tc-read-large" outputNote must be at most 280 characters (got 281).',
+    });
+
+    const apiMessageCountBeforeRetry = erroredState.apiMessages.length;
+    const chatMessageCountBeforeRetry = erroredState.chatMessages.length;
+    const userMessageCountBeforeRetry = erroredState.chatMessages.filter(
+      (message) => message.role === "user",
+    ).length;
+
+    turns.push({
+      deltas: [],
+      toolCalls: [
+        {
+          id: "tc-replace-large-io-retry",
+          name: "agent_replace_tool_io",
+          arguments: {
+            replacements: [
+              {
+                toolCallId: "tc-read-large",
+                inputNote: "Read src/runner.ts for context.",
+                outputNote:
+                  "Loaded a large runner source file; exact contents were omitted after one turn.",
+              },
+            ],
+          },
+        },
+      ],
+    });
+
+    await retryAgent(tabId);
+
+    const state = states[tabId];
+    expect(state.status).toBe("idle");
+    expect(state.error).toBeNull();
+    expect(state.errorDetails).toBeNull();
+    expect(state.apiMessages).toHaveLength(apiMessageCountBeforeRetry);
+    expect(state.chatMessages).toHaveLength(chatMessageCountBeforeRetry);
+    expect(
+      state.chatMessages.filter((message) => message.role === "user"),
+    ).toHaveLength(userMessageCountBeforeRetry);
+
+    expect(streamTextMock).toHaveBeenCalledTimes(3);
+    const retryTurnCall = streamTextMock.mock.calls[2]?.[0] as
+      | {
+          messages?: Array<Record<string, unknown>>;
+          toolChoice?: Record<string, unknown>;
+        }
+      | undefined;
+    expect(retryTurnCall?.toolChoice).toEqual({
+      type: "tool",
+      toolName: "agent_replace_tool_io",
+    });
+
+    const assistantMessage = state.apiMessages.find(
+      (message) =>
+        message.role === "assistant" &&
+        Array.isArray(message.tool_calls) &&
+        message.tool_calls.length > 0,
+    ) as { tool_calls: Array<{ function: { arguments: string } }> } | undefined;
+    expect(
+      JSON.parse(String(assistantMessage?.tool_calls[0]?.function.arguments)),
+    ).toMatchObject({
+      __rakhCompactToolIO: {
+        tool: "workspace_readFile",
+        side: "input",
+        compacted: true,
+      },
+    });
+
+    const toolMessage = state.apiMessages.find(
+      (message) => message.role === "tool" && message.tool_call_id === "tc-read-large",
+    );
+    expect(JSON.parse(String(toolMessage?.content))).toMatchObject({
+      __rakhCompactToolIO: {
+        tool: "workspace_readFile",
+        side: "output",
+        compacted: true,
+      },
+    });
+  });
+
   it("attaches conversation cards to the owning assistant message in tool declaration order", async () => {
     const tabId = "tab-agent-cards";
     setState(tabId);
