@@ -289,6 +289,46 @@ describe("SessionCostModal", () => {
     ).not.toBeNull();
   });
 
+  it("renders vertical markers for context compaction subagent calls in both charts", () => {
+    const contextCompactionSeries = makeSeries().map((point, index) =>
+      index === 2
+        ? {
+            ...point,
+            actorKind: "subagent" as const,
+            actorId: "compact",
+            actorLabel: "Context Compaction",
+            operation: "assistant turn",
+          }
+        : point,
+    );
+
+    render(
+      <SessionCostModal
+        summary={makeSummary()}
+        series={contextCompactionSeries}
+        onClose={vi.fn()}
+      />,
+    );
+
+    const perCallChart = document.body.querySelector(
+      '[data-chart-id="per-call-cost"]',
+    );
+    const cumulativeChart = document.body.querySelector(
+      '[data-chart-id="cumulative-cost"]',
+    );
+
+    expect(
+      perCallChart?.querySelector(
+        '.session-cost-chart-marker--context-compaction[data-call-index="3"]',
+      ),
+    ).not.toBeNull();
+    expect(
+      cumulativeChart?.querySelector(
+        '.session-cost-chart-marker--context-compaction[data-call-index="3"]',
+      ),
+    ).not.toBeNull();
+  });
+
   it("does not crash when the hovered call disappears after rerender", () => {
     const { rerender } = render(
       <SessionCostModal

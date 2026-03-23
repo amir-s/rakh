@@ -1878,9 +1878,10 @@ describe("runner", () => {
     expect(
       JSON.parse(String(assistantMessage?.tool_calls[0]?.function.arguments)),
     ).toMatchObject({
-      __rti: {
-        t: "workspace_readFile",
-        s: "i",
+      __tool_io_compacted: {
+        tool: "workspace_readFile",
+        side: "input",
+        path: "src/runner.ts",
       },
     });
 
@@ -1888,18 +1889,10 @@ describe("runner", () => {
       (message) => message.role === "tool" && message.tool_call_id === "tc-read-large",
     );
     expect(JSON.parse(String(toolMessage?.content))).toMatchObject({
-      __rti: {
-        t: "workspace_readFile",
-        s: "o",
-        k: {
-          p: "src/runner.ts",
-          fs: largeContent.length,
-          lc: 2,
-          tr: 0,
-        },
-        o: {
-          f: ["content"],
-        },
+      __tool_io_compacted: {
+        tool: "workspace_readFile",
+        side: "output",
+        path: "src/runner.ts",
       },
     });
 
@@ -1976,9 +1969,10 @@ describe("runner", () => {
     expect(compactedToolCallPart).toMatchObject({
       toolName: "workspace_readFile",
       input: {
-        __rti: {
-          t: "workspace_readFile",
-          s: "i",
+        __tool_io_compacted: {
+          tool: "workspace_readFile",
+          side: "input",
+          path: "src/runner.ts",
         },
       },
     });
@@ -1998,9 +1992,10 @@ describe("runner", () => {
       output: {
         type: "json",
         value: {
-          __rti: {
-            t: "workspace_readFile",
-            s: "o",
+          __tool_io_compacted: {
+            tool: "workspace_readFile",
+            side: "output",
+            path: "src/runner.ts",
           },
         },
       },
@@ -2200,9 +2195,10 @@ describe("runner", () => {
     expect(
       JSON.parse(String(assistantMessage?.tool_calls[0]?.function.arguments)),
     ).toMatchObject({
-      __rti: {
-        t: "workspace_readFile",
-        s: "i",
+      __tool_io_compacted: {
+        tool: "workspace_readFile",
+        side: "input",
+        path: "src/runner.ts",
       },
     });
 
@@ -2210,9 +2206,10 @@ describe("runner", () => {
       (message) => message.role === "tool" && message.tool_call_id === "tc-read-large",
     );
     expect(JSON.parse(String(toolMessage?.content))).toMatchObject({
-      __rti: {
-        t: "workspace_readFile",
-        s: "o",
+      __tool_io_compacted: {
+        tool: "workspace_readFile",
+        side: "output",
+        path: "src/runner.ts",
       },
     });
   });

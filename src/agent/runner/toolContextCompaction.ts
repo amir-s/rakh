@@ -66,13 +66,11 @@ interface CompactionSentinelPayload {
 }
 
 interface CompactModelSentinelPayload {
-  __rti: {
-    t: string;
-    s: "i" | "o";
-    k?: unknown;
-    o?: unknown;
-    n: string;
-  };
+  __tool_io_compacted: {
+    tool: string;
+    side: ToolContextCompactionSide;
+    note: string;
+  } & Record<string, unknown>;
 }
 
 export const DELAYED_TOOL_IO_REPLACEMENT_ENABLED = true;
@@ -82,69 +80,19 @@ export const TOOL_IO_REPLACEMENT_TOOL_NAME = "agent_replace_tool_io";
 export const MAX_TOOL_CONTEXT_NOTE_CHARS = 350;
 
 const encoder = new TextEncoder();
-const MODEL_SENTINEL_KEY_ALIASES: Record<string, string> = {
-  ok: "ok",
-  error: "er",
-  code: "c",
-  message: "m",
-  details: "dt",
-  path: "p",
-  overwrite: "ow",
-  changeCount: "chg",
-  artifactId: "aid",
-  kind: "kd",
-  summary: "sm",
-  artifactType: "at",
-  contentFormat: "cf",
-  parent: "pr",
-  metadataKeys: "mk",
-  command: "cmd",
-  args: "a",
-  cwd: "w",
-  timeoutMs: "tm",
-  reason: "rs",
-  requireUserApproval: "ua",
-  envKeys: "ek",
-  title: "tl",
-  version: "v",
-  range: "r",
-  startLine: "s",
-  endLine: "e",
-  fileSizeBytes: "fs",
-  lineCount: "lc",
-  truncated: "tr",
-  matchCount: "mc",
-  searchedFiles: "sf",
-  entryCount: "ec",
-  exitCode: "x",
-  durationMs: "d",
-  truncatedStdout: "ts",
-  truncatedStderr: "te",
-  terminatedByUser: "u",
-  fields: "f",
-  bytesOmitted: "b",
-  stdinBytesOmitted: "ib",
-  envBytesOmitted: "eb",
-  stdoutBytesOmitted: "ob",
-  stderrBytesOmitted: "sb",
-  alreadyExists: "ae",
-  declined: "dc",
-  branch: "br",
-  setup: "st",
-  status: "stt",
-  attemptCount: "ac",
-  errorMessage: "em",
-  sizeBytes: "sz",
-  validation: "vl",
-  subagentId: "sg",
-  name: "nm",
-  modelId: "md",
-  turns: "tn",
-  cardCount: "cc",
-  artifactCount: "afc",
-  artifactValidationCount: "avc",
-  answerLength: "al",
-};
+const MODEL_SENTINEL_DROPPED_KEYS = new Set([
+  "compacted",
+  "omitted",
+  "fields",
+  "bytesOmitted",
+  "stdinBytesOmitted",
+  "envBytesOmitted",
+  "stdoutBytesOmitted",
+  "stderrBytesOmitted",
+  "fileSizeBytes",
+  "lineCount",
+]);
+const GENERIC_INPUT_VALUE_MAX_LENGTH = 200;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -268,33 +216,65 @@ function buildSentinel(
   };
 }
 
+function formatPathWithRange(record: Record<string, unknown>): string | undefined {
+  const path = stringOrUndefined(record.path);
+  if (!path) return undefined;
+  const range = isRecord(record.range) ? record.range : undefined;
+  const startLine = range ? numberOrUndefined(range.startLine) : undefined;
+  const endLine = range ? numberOrUndefined(range.endLine) : undefined;
+  if (startLine !== undefined && endLine !== undefined) {
+    return `${path} ${startLine}:${endLine}`;
+  }
+  if (startLine !== undefined) {
+    return `${path} ${startLine}`;
+  }
+  return path;
+}
+
 function compactModelSentinelValue(value: unknown): unknown {
   if (typeof value === "boolean") {
-    return value ? 1 : 0;
+    return value ? true : undefined;
   }
 
   if (Array.isArray(value)) {
-    return value.map((entry) => compactModelSentinelValue(entry));
+    const compacted = value
+      .map((entry) => compactModelSentinelValue(entry))
+      .filter((entry) => entry !== undefined);
+    return compacted.length > 0 ? compacted : undefined;
   }
 
   if (!isRecord(value)) {
     return value;
   }
 
-  if (
-    typeof value.startLine === "number" &&
-    typeof value.endLine === "number" &&
-    Object.keys(value).length === 2
-  ) {
-    return [value.startLine, value.endLine];
+  const pathWithRange = formatPathWithRange(value);
+  const next: Record<string, unknown> = {};
+  if (pathWithRange) {
+    next.path = pathWithRange;
   }
 
-  return Object.fromEntries(
-    Object.entries(value).map(([key, entryValue]) => [
-      MODEL_SENTINEL_KEY_ALIASES[key] ?? key,
-      compactModelSentinelValue(entryValue),
-    ]),
-  );
+  for (const [key, entryValue] of Object.entries(value)) {
+    if (
+      key === "path" ||
+      key === "range" ||
+      MODEL_SENTINEL_DROPPED_KEYS.has(key) ||
+      (key === "ok" && entryValue === true)
+    ) {
+      continue;
+    }
+
+    const compactedEntry = compactModelSentinelValue(entryValue);
+    if (compactedEntry === undefined) continue;
+    if (isRecord(compactedEntry) && Object.keys(compactedEntry).length === 0) {
+      continue;
+    }
+    if (Array.isArray(compactedEntry) && compactedEntry.length === 0) {
+      continue;
+    }
+    next[key] = compactedEntry;
+  }
+
+  return Object.keys(next).length > 0 ? next : undefined;
 }
 
 function buildCompactModelSentinel(
@@ -302,17 +282,38 @@ function buildCompactModelSentinel(
 ): CompactModelSentinelPayload {
   const source = payload.__rakhCompactToolIO;
   const kept = compactModelSentinelValue(source.kept);
-  const omitted = compactModelSentinelValue(source.omitted);
 
   return {
-    __rti: {
-      t: source.tool,
-      s: source.side === "input" ? "i" : "o",
-      ...(isRecord(kept) && Object.keys(kept).length > 0 ? { k: kept } : {}),
-      ...(isRecord(omitted) && Object.keys(omitted).length > 0 ? { o: omitted } : {}),
-      n: source.note,
+    __tool_io_compacted: {
+      tool: source.tool,
+      side: source.side,
+      ...(isRecord(kept) ? kept : {}),
+      note: source.note,
     },
   };
+}
+
+function summarizeGenericInputValue(value: unknown): unknown {
+  if (typeof value === "string") {
+    return value.length <= GENERIC_INPUT_VALUE_MAX_LENGTH ? value : undefined;
+  }
+  if (typeof value === "number") return value;
+  if (typeof value === "boolean") return value ? true : undefined;
+  if (Array.isArray(value)) {
+    if (value.length > 10) return undefined;
+    const summarized = value
+      .map((entry) => summarizeGenericInputValue(entry))
+      .filter((entry) => entry !== undefined);
+    return summarized.length > 0 ? summarized : undefined;
+  }
+  if (!isRecord(value)) return undefined;
+
+  const next = Object.fromEntries(
+    Object.entries(value)
+      .map(([key, entryValue]) => [key, summarizeGenericInputValue(entryValue)] as const)
+      .filter(([, entryValue]) => entryValue !== undefined),
+  );
+  return Object.keys(next).length > 0 ? next : undefined;
 }
 
 function withFields(
@@ -364,10 +365,12 @@ function buildGenericInputSentinel(
   return buildSentinel(
     toolName,
     "input",
+    Object.fromEntries(
+      Object.entries(args)
+        .map(([key, value]) => [key, summarizeGenericInputValue(value)] as const)
+        .filter(([, value]) => value !== undefined),
+    ),
     {},
-    withFields(Object.keys(args), {
-      bytesOmitted: byteSize(args),
-    }),
     note,
   );
 }
