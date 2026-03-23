@@ -190,7 +190,7 @@ function isToolIoReplacementPoint(point: SessionCostSeriesPoint): boolean {
 }
 
 function isContextCompactionPoint(point: SessionCostSeriesPoint): boolean {
-  return point.actorKind === "subagent" && point.actorId === "compact";
+  return point.actorId === "compact";
 }
 
 function renderTooltipContent({
