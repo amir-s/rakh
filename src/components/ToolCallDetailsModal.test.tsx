@@ -40,22 +40,20 @@ describe("ToolCallDetailsModal", () => {
                 "Read src/agent/runner.ts for planning; exact file contents omitted from model history.",
               mode: "always",
               modelValue: {
-                __rakhCompactToolIO: {
-                  tool: "workspace_readFile",
-                  side: "output",
-                  compacted: true,
-                  kept: {
-                    path: "src/agent/runner.ts",
-                    fileSizeBytes: 28,
-                    lineCount: 1,
-                    truncated: false,
+                __rti: {
+                  t: "workspace_readFile",
+                  s: "o",
+                  k: {
+                    p: "src/agent/runner.ts",
+                    fs: 28,
+                    lc: 1,
+                    tr: 0,
                   },
-                  omitted: {
-                    fields: ["content"],
-                    bytesOmitted: 30,
+                  o: {
+                    f: ["content"],
+                    b: 30,
                   },
-                  note:
-                    "Read src/agent/runner.ts for planning; exact file contents omitted from model history.",
+                  n: "Read src/agent/runner.ts for planning; exact file contents omitted from model history.",
                 },
               },
             },
@@ -91,7 +89,7 @@ describe("ToolCallDetailsModal", () => {
         '[data-context-compaction-state="compacted"] .tool-call-icon__flare',
       )?.getAttribute("title"),
     ).toBe("Context compaction compacted the model-facing output.");
-    expect(screen.getByText(/__rakhCompactToolIO/)).not.toBeNull();
+    expect(screen.getByText(/__rti/)).not.toBeNull();
     expect(screen.getByText(/export const runner = true/)).not.toBeNull();
   });
 });

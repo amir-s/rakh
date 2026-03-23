@@ -137,18 +137,16 @@ describe("toolContextCompaction", () => {
         ),
       ),
     ).toMatchObject({
-      __rakhCompactToolIO: {
-        tool: "workspace_readFile",
-        side: "input",
-        compacted: true,
+      __rti: {
+        t: "workspace_readFile",
+        s: "i",
       },
     });
 
     expect(JSON.parse((apiMessages[1] as { content: string }).content)).toMatchObject({
-      __rakhCompactToolIO: {
-        tool: "workspace_readFile",
-        side: "output",
-        compacted: true,
+      __rti: {
+        t: "workspace_readFile",
+        s: "o",
       },
     });
   });

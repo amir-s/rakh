@@ -1878,10 +1878,9 @@ describe("runner", () => {
     expect(
       JSON.parse(String(assistantMessage?.tool_calls[0]?.function.arguments)),
     ).toMatchObject({
-      __rakhCompactToolIO: {
-        tool: "workspace_readFile",
-        side: "input",
-        compacted: true,
+      __rti: {
+        t: "workspace_readFile",
+        s: "i",
       },
     });
 
@@ -1889,18 +1888,17 @@ describe("runner", () => {
       (message) => message.role === "tool" && message.tool_call_id === "tc-read-large",
     );
     expect(JSON.parse(String(toolMessage?.content))).toMatchObject({
-      __rakhCompactToolIO: {
-        tool: "workspace_readFile",
-        side: "output",
-        compacted: true,
-        kept: {
-          path: "src/runner.ts",
-          fileSizeBytes: largeContent.length,
-          lineCount: 2,
-          truncated: false,
+      __rti: {
+        t: "workspace_readFile",
+        s: "o",
+        k: {
+          p: "src/runner.ts",
+          fs: largeContent.length,
+          lc: 2,
+          tr: 0,
         },
-        omitted: {
-          fields: ["content"],
+        o: {
+          f: ["content"],
         },
       },
     });
@@ -1978,9 +1976,9 @@ describe("runner", () => {
     expect(compactedToolCallPart).toMatchObject({
       toolName: "workspace_readFile",
       input: {
-        __rakhCompactToolIO: {
-          tool: "workspace_readFile",
-          side: "input",
+        __rti: {
+          t: "workspace_readFile",
+          s: "i",
         },
       },
     });
@@ -2000,9 +1998,9 @@ describe("runner", () => {
       output: {
         type: "json",
         value: {
-          __rakhCompactToolIO: {
-            tool: "workspace_readFile",
-            side: "output",
+          __rti: {
+            t: "workspace_readFile",
+            s: "o",
           },
         },
       },
@@ -2202,10 +2200,9 @@ describe("runner", () => {
     expect(
       JSON.parse(String(assistantMessage?.tool_calls[0]?.function.arguments)),
     ).toMatchObject({
-      __rakhCompactToolIO: {
-        tool: "workspace_readFile",
-        side: "input",
-        compacted: true,
+      __rti: {
+        t: "workspace_readFile",
+        s: "i",
       },
     });
 
@@ -2213,10 +2210,9 @@ describe("runner", () => {
       (message) => message.role === "tool" && message.tool_call_id === "tc-read-large",
     );
     expect(JSON.parse(String(toolMessage?.content))).toMatchObject({
-      __rakhCompactToolIO: {
-        tool: "workspace_readFile",
-        side: "output",
-        compacted: true,
+      __rti: {
+        t: "workspace_readFile",
+        s: "o",
       },
     });
   });
