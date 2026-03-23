@@ -36,13 +36,19 @@ import {
   nextRunId,
   setActiveRun,
 } from "./runner/abortRegistry";
-import { agentLoop } from "./runner/agentLoop";
+import {
+  agentLoop,
+  maybeRunForcedToolIoReplacementTurn,
+} from "./runner/agentLoop";
 import { msgId, updateLastChatMessage } from "./runner/chatState";
 import {
   createMainRunLogContext,
   writeRunnerLog,
 } from "./runner/logging";
-import { buildProviderOptions } from "./runner/providerOptions";
+import {
+  buildProviderOptions,
+  resolveLanguageModel,
+} from "./runner/providerOptions";
 import { runSubagentLoop } from "./runner/subagentLoop";
 import { RunAbortedError, serializeError } from "./runner/utils";
 import {
@@ -51,6 +57,11 @@ import {
   maybeRunAutomaticMainContextCompaction,
 } from "./runner/mainContextCompaction";
 import { buildMainSystemPromptForState } from "./runner/mainSystemPrompt";
+import {
+  reconstructPendingToolIoReplacements,
+  RetryableToolIoReplacementError,
+  type ToolIoReplacementFailureKind,
+} from "./runner/toolContextCompaction";
 
 export { buildProviderOptions } from "./runner/providerOptions";
 export { serializeError } from "./runner/utils";
@@ -109,6 +120,48 @@ function activeRunLogContext(tabId: string): {
     depth: 0,
     agentId: "agent_main",
   };
+}
+
+interface ToolIoReplacementRetryDetails {
+  kind: "tool-io-replacement-retry";
+  pendingToolCallIds: string[];
+  failure: ToolIoReplacementFailureKind;
+  replacementCallId?: string;
+  validationError?: string;
+  error: unknown;
+}
+
+function buildToolIoReplacementRetryDetails(
+  error: RetryableToolIoReplacementError,
+): ToolIoReplacementRetryDetails {
+  return {
+    kind: "tool-io-replacement-retry",
+    pendingToolCallIds: [...error.pendingToolCallIds],
+    failure: error.failure,
+    ...(error.replacementCallId
+      ? { replacementCallId: error.replacementCallId }
+      : {}),
+    ...(error.validationError
+      ? { validationError: error.validationError }
+      : {}),
+    error: serializeError(error),
+  };
+}
+
+function isToolIoReplacementRetryDetails(
+  value: unknown,
+): value is ToolIoReplacementRetryDetails {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return false;
+  }
+
+  const record = value as Record<string, unknown>;
+  return (
+    record.kind === "tool-io-replacement-retry" &&
+    Array.isArray(record.pendingToolCallIds) &&
+    record.pendingToolCallIds.every((entry) => typeof entry === "string") &&
+    (record.failure === "invalid-call" || record.failure === "invalid-payload")
+  );
 }
 
 function abortReasonMessage(reason: AgentAbortReason): string {
@@ -529,6 +582,11 @@ export async function stopRunningExecToolCall(
 export async function retryAgent(tabId: string): Promise<void> {
   const state = getAgentState(tabId);
 
+  if (isToolIoReplacementRetryDetails(state.errorDetails)) {
+    await retryToolIoReplacement(tabId, state.errorDetails);
+    return;
+  }
+
   let lastUserMessage: string | null = null;
   let lastUserIndex = -1;
   for (let i = state.apiMessages.length - 1; i >= 0; i--) {
@@ -566,6 +624,197 @@ export async function retryAgent(tabId: string): Promise<void> {
   });
 
   await runAgent(tabId, lastUserMessage, undefined, { skipUserChatAppend: true });
+}
+
+async function retryToolIoReplacement(
+  tabId: string,
+  details: ToolIoReplacementRetryDetails,
+): Promise<void> {
+  const state = getAgentState(tabId);
+  const providers = jotaiStore.get(providersAtom);
+  const debugEnabled = state.showDebug ?? false;
+  const model = state.config.model;
+  const modelEntry = getModelCatalogEntry(model);
+  const provider = modelEntry?.owned_by ?? null;
+
+  const setRetryError = (
+    message: string,
+    errorDetails: unknown = details,
+  ): void => {
+    setAgentErrorState(tabId, message, errorDetails);
+  };
+
+  if (!modelEntry || !provider) {
+    setRetryError(
+      "Unknown model. Please choose a model from the New Session list.",
+    );
+    return;
+  }
+
+  const providerInstance = providers.find((entry) => entry.id === modelEntry.providerId);
+  if (!providerInstance) {
+    setRetryError(
+      `Model "${modelEntry.id}" references an unknown provider.`,
+    );
+    return;
+  }
+
+  if (provider === "openai" && !providerInstance.apiKey) {
+    setAgentErrorState(
+      tabId,
+      "No OpenAI API key. Please open the settings to enter your OpenAI API key.",
+      details,
+      {
+        type: "open-settings-section",
+        section: "providers",
+        label: "Open AI Providers",
+      },
+    );
+    return;
+  }
+
+  if (provider === "anthropic" && !providerInstance.apiKey) {
+    setAgentErrorState(
+      tabId,
+      "No Claude API key. Please open the settings to enter your Claude (Anthropic) API key.",
+      details,
+      {
+        type: "open-settings-section",
+        section: "providers",
+        label: "Open AI Providers",
+      },
+    );
+    return;
+  }
+
+  const rebuilt = reconstructPendingToolIoReplacements(
+    state.apiMessages,
+    details.pendingToolCallIds,
+  );
+  if (!rebuilt.ok) {
+    setRetryError(rebuilt.message, {
+      ...details,
+      reconstructionError: rebuilt.message,
+    });
+    return;
+  }
+
+  const controller = new AbortController();
+  const runId = nextRunId(tabId);
+  const { runStartId, rootContext: runRootLogContext, childContext: runLogContext } =
+    createMainRunLogContext(tabId, runId);
+
+  patchAgentState(tabId, (prev) => ({
+    ...prev,
+    status: "thinking",
+    error: null,
+    errorAction: null,
+    errorDetails: null,
+    loopLimitWarning: null,
+    streamingContent: null,
+    lastRunTraceId: runRootLogContext.traceId,
+  }));
+
+  const activeRun: ActiveRun = {
+    runId,
+    controller,
+    abortReason: null,
+  };
+  setActiveRun(tabId, activeRun);
+
+  writeRunnerLog({
+    id: runStartId,
+    level: "info",
+    tags: ["frontend", "agent-loop", "messages"],
+    event: "runner.retry.tool-io.start",
+    message: "Tool IO replacement retry started",
+    kind: "start",
+    data: {
+      pendingToolCallIds: details.pendingToolCallIds,
+      failure: details.failure,
+    },
+    context: runRootLogContext,
+  });
+
+  let completedCleanly = false;
+
+  try {
+    const languageModel = resolveLanguageModel(model, providers);
+    const providerOptions = buildProviderOptions(
+      provider,
+      state.config.advancedOptions,
+      modelEntry.sdk_id.trim(),
+    );
+
+    await maybeRunForcedToolIoReplacementTurn({
+      tabId,
+      signal: controller.signal,
+      runId,
+      iteration: 1,
+      modelId: model,
+      languageModel,
+      providerOptions,
+      debugEnabled,
+      logContext: runLogContext,
+      pendingByToolCallId: rebuilt.pendingByToolCallId,
+    });
+    completedCleanly = !controller.signal.aborted;
+  } catch (err) {
+    if ((err as Error).name === "AbortError") return;
+    if (err instanceof RunAbortedError) {
+      completedCleanly = true;
+      return;
+    }
+
+    const message = err instanceof Error ? err.message : String(err);
+    writeRunnerLog({
+      level: "error",
+      tags: ["frontend", "agent-loop", "messages"],
+      event: "runner.retry.tool-io.error",
+      message: "Tool IO replacement retry failed",
+      kind: "error",
+      data: err,
+      context: runLogContext,
+    });
+
+    if (err instanceof RetryableToolIoReplacementError) {
+      setAgentErrorState(tabId, message, buildToolIoReplacementRetryDetails(err));
+    } else {
+      setAgentErrorState(tabId, message, serializeError(err));
+    }
+    return;
+  } finally {
+    clearActiveRun(tabId, activeRun);
+    if (activeRun.abortReason !== null) return;
+    if (!completedCleanly) return;
+    if (getAgentState(tabId).status === "error") return;
+
+    patchAgentState(tabId, (prev) => ({
+      ...prev,
+      status: "idle",
+      streamingContent: null,
+      queueState: normalizeQueueState(prev.queuedMessages, prev.queueState),
+    }));
+    writeRunnerLog({
+      level: "info",
+      tags: ["frontend", "agent-loop", "messages"],
+      event: "runner.retry.tool-io.end",
+      message: "Tool IO replacement retry completed",
+      kind: "end",
+      context: runLogContext,
+    });
+    void maybeStartQueuedRun(tabId).catch((error) => {
+      writeRunnerLog({
+        level: "error",
+        tags: ["frontend", "agent-loop", "system"],
+        event: "runner.queue.drain.error",
+        message: "Queue drain failed",
+        kind: "error",
+        data: error,
+        context: runLogContext,
+      });
+    });
+  }
 }
 
 interface RunAgentTurnOptions {
@@ -1011,7 +1260,11 @@ async function runAgentTurn(
       data: err,
       context: runLogContext,
     });
-    setAgentErrorState(tabId, msg, serializeError(err));
+    if (err instanceof RetryableToolIoReplacementError) {
+      setAgentErrorState(tabId, msg, buildToolIoReplacementRetryDetails(err));
+    } else {
+      setAgentErrorState(tabId, msg, serializeError(err));
+    }
     updateLastChatMessage(tabId, (m) =>
       m.role === "assistant" ? { ...m, streaming: false } : m,
     );

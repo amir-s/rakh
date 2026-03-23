@@ -68,6 +68,7 @@ import {
   DELAYED_TOOL_IO_REPLACEMENT_ENABLED,
   MAX_TOOL_CONTEXT_NOTE_CHARS,
   mergeToolContextCompactionDisplay,
+  RetryableToolIoReplacementError,
   TOOL_IO_REPLACEMENT_TOOL_NAME,
   type PendingToolIoReplacement,
   toolContextCompactionThresholdKbToBytes,
@@ -289,7 +290,7 @@ function applyToolIoReplacementDisplays(
   };
 }
 
-async function maybeRunForcedToolIoReplacementTurn(input: {
+export async function maybeRunForcedToolIoReplacementTurn(input: {
   tabId: string;
   signal: AbortSignal;
   runId: string;
@@ -376,7 +377,14 @@ async function maybeRunForcedToolIoReplacementTurn(input: {
       },
       context: internalLogContext,
     });
-    throw new Error("Internal tool IO replacement turn did not return the required tool call.");
+    throw new RetryableToolIoReplacementError(
+      "Internal tool IO replacement turn did not return the required tool call.",
+      {
+        failure: "invalid-call",
+        pendingToolCallIds: pending.map((entry) => entry.toolCallId),
+        replacementCallId: replacementCall?.id,
+      },
+    );
   }
 
   const replacementArgs = parseArgs(replacementCall.function.arguments);
@@ -398,7 +406,12 @@ async function maybeRunForcedToolIoReplacementTurn(input: {
       },
       context: internalLogContext,
     });
-    throw new Error(validated.message);
+    throw new RetryableToolIoReplacementError(validated.message, {
+      failure: "invalid-payload",
+      pendingToolCallIds: pending.map((entry) => entry.toolCallId),
+      replacementCallId: replacementCall.id,
+      validationError: validated.message,
+    });
   }
 
   patchAgentState(input.tabId, (prev) =>

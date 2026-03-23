@@ -26,6 +26,32 @@ export interface ToolIoReplacementNotes {
   outputNote: string;
 }
 
+export type ToolIoReplacementFailureKind = "invalid-call" | "invalid-payload";
+
+export class RetryableToolIoReplacementError extends Error {
+  readonly failure: ToolIoReplacementFailureKind;
+  readonly pendingToolCallIds: string[];
+  readonly replacementCallId?: string;
+  readonly validationError?: string;
+
+  constructor(
+    message: string,
+    input: {
+      failure: ToolIoReplacementFailureKind;
+      pendingToolCallIds: string[];
+      replacementCallId?: string;
+      validationError?: string;
+    },
+  ) {
+    super(message);
+    this.name = "RetryableToolIoReplacementError";
+    this.failure = input.failure;
+    this.pendingToolCallIds = input.pendingToolCallIds;
+    this.replacementCallId = input.replacementCallId;
+    this.validationError = input.validationError;
+  }
+}
+
 interface CompactionSentinelPayload {
   __rakhCompactToolIO: {
     tool: string;
@@ -70,6 +96,19 @@ function safeJsonStringify(value: unknown, fallback: string): string {
   } catch {
     return fallback;
   }
+}
+
+function parseJsonValue(raw: string): unknown {
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return undefined;
+  }
+}
+
+function parseJsonRecord(raw: string): Record<string, unknown> | undefined {
+  const parsed = parseJsonValue(raw);
+  return isRecord(parsed) ? parsed : undefined;
 }
 
 function byteSize(value: unknown): number {
@@ -702,6 +741,107 @@ export function createPendingToolIoReplacement(
     outputBytes,
     totalBytes,
   };
+}
+
+export function reconstructPendingToolIoReplacements(
+  apiMessages: readonly ApiMessage[],
+  toolCallIds: readonly string[],
+): { ok: true; pendingByToolCallId: Map<string, PendingToolIoReplacement> } | {
+  ok: false;
+  message: string;
+} {
+  const requestedIds = Array.from(
+    new Set(
+      toolCallIds.filter(
+        (toolCallId): toolCallId is string =>
+          typeof toolCallId === "string" && toolCallId.trim().length > 0,
+      ),
+    ),
+  );
+  if (requestedIds.length === 0) {
+    return {
+      ok: false,
+      message: "No pending tool IO replacement calls were available to retry.",
+    };
+  }
+
+  const requestedIdSet = new Set(requestedIds);
+  const toolCallsById = new Map<
+    string,
+    {
+      toolName: string;
+      rawArgs: Record<string, unknown>;
+    }
+  >();
+
+  for (const message of apiMessages) {
+    if (message.role !== "assistant" || !message.tool_calls) continue;
+    for (const toolCall of message.tool_calls) {
+      if (!requestedIdSet.has(toolCall.id)) continue;
+      const rawArgs = parseJsonRecord(toolCall.function.arguments);
+      if (!rawArgs) {
+        return {
+          ok: false,
+          message: `Cannot retry tool IO replacement because tool call "${toolCall.id}" no longer has raw JSON arguments in history.`,
+        };
+      }
+      toolCallsById.set(toolCall.id, {
+        toolName: toolCall.function.name,
+        rawArgs,
+      });
+    }
+  }
+
+  const pendingByToolCallId = new Map<string, PendingToolIoReplacement>();
+  for (const message of apiMessages) {
+    if (message.role !== "tool" || !requestedIdSet.has(message.tool_call_id)) {
+      continue;
+    }
+
+    const toolCall = toolCallsById.get(message.tool_call_id);
+    if (!toolCall) continue;
+
+    const parsedResult = parseJsonValue(message.content);
+    if (parsedResult === undefined) {
+      return {
+        ok: false,
+        message: `Cannot retry tool IO replacement because tool call "${message.tool_call_id}" no longer has a JSON tool result in history.`,
+      };
+    }
+
+    const pending = createPendingToolIoReplacement(
+      message.tool_call_id,
+      toolCall.toolName,
+      toolCall.rawArgs,
+      parsedResult as ToolResult<unknown>,
+      {
+        enabled: true,
+        thresholdBytes: 0,
+      },
+    );
+
+    if (!pending) {
+      return {
+        ok: false,
+        message: `Cannot retry tool IO replacement because tool call "${message.tool_call_id}" no longer has oversized tool IO available.`,
+      };
+    }
+
+    pendingByToolCallId.set(message.tool_call_id, pending);
+  }
+
+  const missingIds = requestedIds.filter(
+    (toolCallId) =>
+      !toolCallsById.has(toolCallId) || !pendingByToolCallId.has(toolCallId),
+  );
+  if (missingIds.length > 0) {
+    return {
+      ok: false,
+      message: `Cannot retry tool IO replacement because the original tool history is missing for: ${missingIds.join(", ")}.`,
+    };
+  }
+
+  return { ok: true, pendingByToolCallId };
 }
 
 export function buildToolIoReplacementPrompt(
