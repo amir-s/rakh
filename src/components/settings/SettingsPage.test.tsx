@@ -14,6 +14,7 @@ import {
   groupInlineToolCallsAtom,
   jotaiStore,
   toolContextCompactionEnabledAtom,
+  toolContextCompactionThresholdKbAtom,
 } from "@/agent/atoms";
 import { DEFAULT_AUTO_CONTEXT_COMPACTION_SETTINGS } from "@/agent/contextCompaction";
 import { providersAtom } from "@/agent/db";
@@ -215,6 +216,7 @@ describe("SettingsPage", () => {
     jotaiStore.set(debugModeEnabledAtom, false);
     jotaiStore.set(groupInlineToolCallsAtom, true);
     jotaiStore.set(toolContextCompactionEnabledAtom, true);
+    jotaiStore.set(toolContextCompactionThresholdKbAtom, 16);
     jotaiStore.set(agentLoopSettingsAtom, DEFAULT_AGENT_LOOP_SETTINGS);
     jotaiStore.set(
       autoContextCompactionSettingsAtom,
@@ -419,6 +421,11 @@ describe("SettingsPage", () => {
         screen.getByRole("heading", { name: "Context Compaction" }),
       ).not.toBeNull();
     });
+
+    fireEvent.change(screen.getByLabelText("Tool IO compaction threshold"), {
+      target: { value: "24" },
+    });
+    expect(jotaiStore.get(toolContextCompactionThresholdKbAtom)).toBe(24);
 
     fireEvent.click(screen.getByTitle("Tool context compaction"));
     expect(jotaiStore.get(toolContextCompactionEnabledAtom)).toBe(false);

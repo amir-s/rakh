@@ -46,6 +46,7 @@ interface StreamTurnOptions {
   model: StreamTextInput["model"];
   messages: ApiMessage[];
   tools: StreamTextInput["tools"];
+  toolChoice?: StreamTextInput["toolChoice"];
   debugEnabled: boolean;
   logContext: LogContext;
   providerOptions?: Record<string, Record<string, JsonValue>>;
@@ -67,6 +68,7 @@ export async function streamTurn(
     model,
     messages,
     tools,
+    toolChoice,
     debugEnabled,
     logContext,
     providerOptions,
@@ -122,6 +124,7 @@ export async function streamTurn(
     model,
     messages: mappedMessages,
     tools,
+    ...(toolChoice ? { toolChoice } : {}),
     abortSignal: signal,
     ...(providerOptions ? { providerOptions } : {}),
   });

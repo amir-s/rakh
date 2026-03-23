@@ -1,31 +1,29 @@
+import {
+  DEFAULT_TOOL_CONTEXT_COMPACTION_THRESHOLD_KB,
+  sanitizeToolContextCompactionThresholdKb,
+} from "../contextCompaction";
 import type {
+  ApiMessage,
   ToolContextCompactionDisplay,
-  ToolContextCompactionOutputMode,
-  ToolContextCompactionRequest,
   ToolResult,
 } from "../types";
 
-export type ToolContextCompactionSourceKind = "local" | "mcp" | "synthetic";
-
 type ToolContextCompactionSide = "input" | "output";
 
-interface SanitizedToolContextCompactionRequest {
-  inputNote?: string;
-  outputNote?: string;
-  outputMode?: ToolContextCompactionOutputMode;
+export interface PendingToolIoReplacement {
+  toolCallId: string;
+  toolName: string;
+  rawArgs: Record<string, unknown>;
+  result: ToolResult<unknown>;
+  inputBytes: number;
+  outputBytes: number;
+  totalBytes: number;
 }
 
-export interface PreparedToolContextCompaction {
-  strippedArgs: Record<string, unknown>;
-  display?: ToolContextCompactionDisplay;
-  warnings: string[];
-  inputPlan?: { note: string };
-  outputPlan?: {
-    note: string;
-    mode: ToolContextCompactionOutputMode;
-  };
-  inputReason?: string;
-  outputReason?: string;
+export interface ToolIoReplacementNotes {
+  toolCallId: string;
+  inputNote: string;
+  outputNote: string;
 }
 
 interface CompactionSentinelPayload {
@@ -39,26 +37,11 @@ interface CompactionSentinelPayload {
   };
 }
 
-const TOOL_CONTEXT_COMPACTION_FEATURE_AVAILABLE = true;
-const MAX_NOTE_CHARS = 280;
-
-const INPUT_ALLOWLIST = new Set([
-  "workspace_writeFile",
-  "workspace_editFile",
-  "agent_artifact_create",
-  "agent_artifact_version",
-  "exec_run",
-]);
-
-const OUTPUT_ALLOWLIST = new Set([
-  "workspace_readFile",
-  "workspace_search",
-  "workspace_glob",
-  "workspace_listDir",
-  "exec_run",
-  "git_worktree_init",
-  "agent_artifact_get",
-]);
+export const DELAYED_TOOL_IO_REPLACEMENT_ENABLED = true;
+export const DELAYED_TOOL_IO_REPLACEMENT_THRESHOLD_BYTES =
+  DEFAULT_TOOL_CONTEXT_COMPACTION_THRESHOLD_KB * 1024;
+export const TOOL_IO_REPLACEMENT_TOOL_NAME = "agent_replace_tool_io";
+export const MAX_TOOL_CONTEXT_NOTE_CHARS = 280;
 
 const encoder = new TextEncoder();
 
@@ -111,85 +94,32 @@ function sanitizedMetadataKeys(value: unknown): string[] | undefined {
   return keys.length > 0 ? keys : undefined;
 }
 
-function sanitizeNote(
+function validateReplacementNote(
   label: "inputNote" | "outputNote",
   value: unknown,
-  warnings: string[],
-): string | undefined {
-  if (value === undefined) return undefined;
+):
+  | { ok: true; note: string }
+  | { ok: false; reason: string } {
   if (typeof value !== "string") {
-    warnings.push(`Ignored ${label}: expected a string.`);
-    return undefined;
+    return {
+      ok: false,
+      reason: `${label} must be a string.`,
+    };
   }
-
+  if (value.length > MAX_TOOL_CONTEXT_NOTE_CHARS) {
+    return {
+      ok: false,
+      reason: `${label} must be at most ${MAX_TOOL_CONTEXT_NOTE_CHARS} characters (got ${value.length}).`,
+    };
+  }
   const trimmed = value.trim();
-  if (!trimmed) return undefined;
-  if (trimmed.length > MAX_NOTE_CHARS) {
-    warnings.push(
-      `Ignored ${label}: notes longer than ${MAX_NOTE_CHARS} characters are not supported.`,
-    );
-    return undefined;
+  if (!trimmed) {
+    return {
+      ok: false,
+      reason: `${label} must not be empty.`,
+    };
   }
-  return trimmed;
-}
-
-function sanitizeRequest(
-  toolName: string,
-  rawRequest: unknown,
-): {
-  request?: SanitizedToolContextCompactionRequest;
-  warnings: string[];
-} {
-  const warnings: string[] = [];
-  if (rawRequest === undefined) {
-    return { warnings };
-  }
-  if (!isRecord(rawRequest)) {
-    warnings.push(
-      `Ignored __contextCompaction on ${toolName}: expected an object.`,
-    );
-    return { warnings };
-  }
-
-  const inputNote = sanitizeNote("inputNote", rawRequest.inputNote, warnings);
-  const outputNote = sanitizeNote("outputNote", rawRequest.outputNote, warnings);
-
-  let outputMode: ToolContextCompactionOutputMode | undefined;
-  if (outputNote) {
-    if (rawRequest.outputMode === undefined) {
-      outputMode = "always";
-    } else if (
-      rawRequest.outputMode === "always" ||
-      rawRequest.outputMode === "on_success"
-    ) {
-      outputMode = rawRequest.outputMode;
-    } else {
-      warnings.push(
-        "Ignored outputNote: outputMode must be 'always' or 'on_success'.",
-      );
-    }
-  }
-
-  const request: SanitizedToolContextCompactionRequest = {
-    ...(inputNote ? { inputNote } : {}),
-    ...(outputNote && outputMode
-      ? { outputNote, outputMode }
-      : {}),
-  };
-
-  return Object.keys(request).length > 0
-    ? { request, warnings }
-    : { warnings };
-}
-
-function buildBaseDisplay(
-  request: SanitizedToolContextCompactionRequest,
-  warnings: string[],
-): ToolContextCompactionDisplay {
-  return {
-    request,
-    ...(warnings.length > 0 ? { warnings } : {}),
-  };
+  return { ok: true, note: trimmed };
 }
 
 function buildSentinel(
@@ -248,6 +178,22 @@ function buildGenericFailureSentinel(
         ...(detailsBytes > 0 ? { bytesOmitted: detailsBytes } : {}),
       },
     ),
+    note,
+  );
+}
+
+function buildGenericInputSentinel(
+  toolName: string,
+  args: Record<string, unknown>,
+  note: string,
+): CompactionSentinelPayload {
+  return buildSentinel(
+    toolName,
+    "input",
+    {},
+    withFields(Object.keys(args), {
+      bytesOmitted: byteSize(args),
+    }),
     note,
   );
 }
@@ -360,14 +306,45 @@ function buildInputSentinel(
         note,
       );
     }
-    default:
+    case "agent_subagent_call": {
+      const message = stringOrUndefined(args.message) ?? "";
       return buildSentinel(
         toolName,
         "input",
-        {},
-        withFields([], {}),
+        {
+          ...(stringOrUndefined(args.subagentId)
+            ? { subagentId: args.subagentId }
+            : {}),
+        },
+        withFields(message ? ["message"] : [], {
+          ...(message ? { bytesOmitted: byteSize(message) } : {}),
+        }),
         note,
       );
+    }
+    case "agent_card_add": {
+      const markdown = stringOrUndefined(args.markdown);
+      return buildSentinel(
+        toolName,
+        "input",
+        {
+          ...(stringOrUndefined(args.kind) ? { kind: args.kind } : {}),
+          ...(stringOrUndefined(args.title) ? { title: args.title } : {}),
+          ...(stringOrUndefined(args.artifactId)
+            ? { artifactId: args.artifactId }
+            : {}),
+          ...(numberOrUndefined(args.version) !== undefined
+            ? { version: args.version }
+            : {}),
+        },
+        withFields(markdown !== undefined ? ["markdown"] : [], {
+          ...(markdown !== undefined ? { bytesOmitted: byteSize(markdown) } : {}),
+        }),
+        note,
+      );
+    }
+    default:
+      return buildGenericInputSentinel(toolName, args, note);
   }
 }
 
@@ -584,80 +561,77 @@ function buildOutputSentinel(
         note,
       );
     }
+    case "agent_subagent_call": {
+      const cards = Array.isArray(data.cards) ? data.cards : [];
+      const artifacts = Array.isArray(data.artifacts) ? data.artifacts : [];
+      const artifactValidations = Array.isArray(data.artifactValidations)
+        ? data.artifactValidations
+        : [];
+      const rawText = stringOrUndefined(data.rawText);
+      const omittedFields: string[] = [];
+      let bytesOmitted = 0;
+      if (rawText !== undefined) {
+        omittedFields.push("rawText");
+        bytesOmitted += byteSize(rawText);
+      }
+      if (cards.length > 0) {
+        omittedFields.push("cards");
+        bytesOmitted += byteSize(cards);
+      }
+      if (artifacts.length > 0) {
+        omittedFields.push("artifacts");
+        bytesOmitted += byteSize(artifacts);
+      }
+      if (artifactValidations.length > 0) {
+        omittedFields.push("artifactValidations");
+        bytesOmitted += byteSize(artifactValidations);
+      }
+      return buildSentinel(
+        toolName,
+        "output",
+        {
+          ...(stringOrUndefined(data.subagentId)
+            ? { subagentId: data.subagentId }
+            : {}),
+          ...(stringOrUndefined(data.name) ? { name: data.name } : {}),
+          ...(stringOrUndefined(data.modelId) ? { modelId: data.modelId } : {}),
+          ...(numberOrUndefined(data.turns) !== undefined ? { turns: data.turns } : {}),
+          ...(stringOrUndefined(data.note) ? { note: data.note } : {}),
+          cardCount: cards.length,
+          artifactCount: artifacts.length,
+          artifactValidationCount: artifactValidations.length,
+        },
+        withFields(omittedFields, {
+          ...(bytesOmitted > 0 ? { bytesOmitted } : {}),
+        }),
+        note,
+      );
+    }
+    case "user_input": {
+      const answer = stringOrUndefined(data.answer) ?? "";
+      return buildSentinel(
+        toolName,
+        "output",
+        {
+          answerLength: answer.length,
+        },
+        withFields(answer ? ["answer"] : [], {
+          ...(answer ? { bytesOmitted: byteSize(answer) } : {}),
+        }),
+        note,
+      );
+    }
     default:
-      return buildSentinel(toolName, "output", {}, withFields([], {}), note);
+      return buildSentinel(
+        toolName,
+        "output",
+        { ok: true },
+        withFields(["data"], {
+          bytesOmitted: byteSize(result.data),
+        }),
+        note,
+      );
   }
-}
-
-function shouldCompactToolOutputOnSuccess(
-  toolName: string,
-  result: ToolResult<unknown>,
-): boolean {
-  if (!result.ok) return false;
-
-  if (toolName === "exec_run") {
-    const data = toRecord(result.data);
-    return data.exitCode === 0 && data.terminatedByUser !== true;
-  }
-
-  if (toolName === "git_worktree_init") {
-    const data = toRecord(result.data);
-    if (data.declined === true || data.alreadyExists === true) {
-      return true;
-    }
-
-    const setup = toRecord(data.setup);
-    const status = stringOrUndefined(setup.status);
-    if (!status || status === "not_configured") return true;
-    if (status !== "success") return false;
-    const attempts = numberOrUndefined(setup.attemptCount);
-    return attempts === undefined || attempts <= 1;
-  }
-
-  return true;
-}
-
-function getOnSuccessFailureReason(
-  toolName: string,
-  result: ToolResult<unknown>,
-): string {
-  if (!result.ok) {
-    return "Kept full because the tool returned an error.";
-  }
-
-  if (toolName === "exec_run") {
-    const data = toRecord(result.data);
-    if (data.terminatedByUser === true) {
-      return "Kept full because the command was terminated by the user.";
-    }
-    const exitCode = numberOrUndefined(data.exitCode);
-    if (exitCode !== undefined && exitCode !== 0) {
-      return `Kept full because exec_run exited with code ${exitCode}.`;
-    }
-  }
-
-  if (toolName === "git_worktree_init") {
-    const data = toRecord(result.data);
-    const setup = toRecord(data.setup);
-    const status = stringOrUndefined(setup.status);
-    const attemptCount = numberOrUndefined(setup.attemptCount);
-    if (status && status !== "success" && status !== "not_configured") {
-      return `Kept full because git_worktree_init setup status was "${status}".`;
-    }
-    if (status === "success" && attemptCount !== undefined && attemptCount > 1) {
-      return "Kept full because git_worktree_init required multiple setup attempts.";
-    }
-  }
-
-  return "Kept full because the tool result did not meet the output compaction success criteria.";
-}
-
-export function stripToolContextCompactionFields(
-  args: Record<string, unknown>,
-): Record<string, unknown> {
-  const strippedArgs = { ...args };
-  delete strippedArgs.__contextCompaction;
-  return strippedArgs;
 }
 
 export function mergeToolContextCompactionDisplay(
@@ -684,221 +658,247 @@ export function mergeToolContextCompactionDisplay(
   };
 }
 
-export function prepareToolContextCompaction(
+export function isDelayedToolIoReplacementEnabled(
+  options?: { enabled?: boolean },
+): boolean {
+  return DELAYED_TOOL_IO_REPLACEMENT_ENABLED && options?.enabled !== false;
+}
+
+export function toolContextCompactionThresholdKbToBytes(
+  thresholdKb: unknown,
+): number {
+  return sanitizeToolContextCompactionThresholdKb(thresholdKb) * 1024;
+}
+
+export function createPendingToolIoReplacement(
+  toolCallId: string,
   toolName: string,
   rawArgs: Record<string, unknown>,
-  sourceKind: ToolContextCompactionSourceKind,
+  result: ToolResult<unknown>,
   options?: {
     enabled?: boolean;
+    thresholdBytes?: number;
   },
-): PreparedToolContextCompaction {
-  const strippedArgs = stripToolContextCompactionFields(rawArgs);
-  const { request, warnings } = sanitizeRequest(
+): PendingToolIoReplacement | null {
+  if (!isDelayedToolIoReplacementEnabled(options)) {
+    return null;
+  }
+
+  const inputBytes = byteSize(rawArgs);
+  const outputBytes = byteSize(result);
+  const totalBytes = inputBytes + outputBytes;
+  const thresholdBytes =
+    options?.thresholdBytes ?? DELAYED_TOOL_IO_REPLACEMENT_THRESHOLD_BYTES;
+  if (totalBytes <= thresholdBytes) {
+    return null;
+  }
+
+  return {
+    toolCallId,
     toolName,
-    rawArgs.__contextCompaction,
-  );
-  const compactionEnabled =
-    TOOL_CONTEXT_COMPACTION_FEATURE_AVAILABLE && options?.enabled !== false;
-
-  if (!request) {
-    return { strippedArgs, warnings };
-  }
-
-  const display = buildBaseDisplay(request, warnings);
-  const prepared: PreparedToolContextCompaction = {
-    strippedArgs,
-    display,
-    warnings,
+    rawArgs,
+    result,
+    inputBytes,
+    outputBytes,
+    totalBytes,
   };
+}
 
-  const sourceUnsupportedReason =
-    sourceKind === "local"
-      ? undefined
-      : `Ignored because ${sourceKind} tools do not support context compaction.`;
+export function buildToolIoReplacementPrompt(
+  pending: readonly PendingToolIoReplacement[],
+): string {
+  return [
+    "INTERNAL RUNNER MAINTENANCE",
+    "The previous tool turn included oversized raw tool IO.",
+    `Call ${TOOL_IO_REPLACEMENT_TOOL_NAME} exactly once before continuing.`,
+    "Provide one concise factual inputNote and one concise factual outputNote for each pending tool call.",
+    "Do not quote or restate large payloads. Capture only the details future turns need.",
+    `Each note must be at most ${MAX_TOOL_CONTEXT_NOTE_CHARS} characters.`,
+    "",
+    "Pending tool calls:",
+    ...pending.map(
+      (entry) =>
+        `- ${entry.toolCallId}: ${entry.toolName} (inputBytes=${entry.inputBytes}, outputBytes=${entry.outputBytes}, totalBytes=${entry.totalBytes})`,
+    ),
+  ].join("\n");
+}
 
-  if (request.inputNote) {
-    if (!compactionEnabled) {
-      prepared.inputReason =
-        "Input kept full because tool IO context compaction is disabled.";
-    } else if (sourceUnsupportedReason) {
-      prepared.inputReason = sourceUnsupportedReason;
-    } else if (!INPUT_ALLOWLIST.has(toolName)) {
-      prepared.inputReason =
-        "Input kept full because this tool is not allowlisted for input compaction.";
-    } else {
-      prepared.inputPlan = { note: request.inputNote };
-    }
+export function validateToolIoReplacementPayload(
+  rawArgs: Record<string, unknown>,
+  pendingByToolCallId: ReadonlyMap<string, PendingToolIoReplacement>,
+): { ok: true; replacements: ToolIoReplacementNotes[] } | {
+  ok: false;
+  message: string;
+} {
+  const rawReplacements = rawArgs.replacements;
+  if (!Array.isArray(rawReplacements) || rawReplacements.length === 0) {
+    return {
+      ok: false,
+      message: "agent_replace_tool_io requires a non-empty replacements array.",
+    };
   }
 
-  if (request.outputNote) {
-    if (!compactionEnabled) {
-      prepared.outputReason =
-        "Output kept full because tool IO context compaction is disabled.";
-    } else if (sourceUnsupportedReason) {
-      prepared.outputReason = sourceUnsupportedReason;
-    } else if (!OUTPUT_ALLOWLIST.has(toolName)) {
-      prepared.outputReason =
-        "Output kept full because this tool is not allowlisted for output compaction.";
-    } else {
-      prepared.outputPlan = {
-        note: request.outputNote,
-        mode: request.outputMode ?? "always",
+  const seen = new Set<string>();
+  const replacements: ToolIoReplacementNotes[] = [];
+
+  for (const entry of rawReplacements) {
+    if (!isRecord(entry)) {
+      return {
+        ok: false,
+        message: "Each replacement entry must be an object.",
       };
     }
-  }
 
-  if (sourceUnsupportedReason) {
-    prepared.warnings.push(
-      `Ignored __contextCompaction on ${toolName}: only local tools are supported.`,
+    const toolCallId =
+      typeof entry.toolCallId === "string" ? entry.toolCallId : undefined;
+    if (!toolCallId) {
+      return {
+        ok: false,
+        message: "Each replacement entry must include toolCallId.",
+      };
+    }
+    if (seen.has(toolCallId)) {
+      return {
+        ok: false,
+        message: `Duplicate replacement entry for tool call "${toolCallId}".`,
+      };
+    }
+    if (!pendingByToolCallId.has(toolCallId)) {
+      return {
+        ok: false,
+        message: `Tool call "${toolCallId}" is not pending replacement.`,
+      };
+    }
+
+    const inputNoteResult = validateReplacementNote("inputNote", entry.inputNote);
+    if (!inputNoteResult.ok) {
+      return {
+        ok: false,
+        message: `Replacement "${toolCallId}" ${inputNoteResult.reason}`,
+      };
+    }
+
+    const outputNoteResult = validateReplacementNote(
+      "outputNote",
+      entry.outputNote,
     );
-    if (prepared.display) {
-      prepared.display.warnings = mergeWarnings(prepared.display.warnings, [
-        `Only local tools support context compaction.`,
-      ]);
+    if (!outputNoteResult.ok) {
+      return {
+        ok: false,
+        message: `Replacement "${toolCallId}" ${outputNoteResult.reason}`,
+      };
     }
-  } else {
-    const ignoredSideWarnings: string[] = [];
-    if (request.inputNote && !prepared.inputPlan && prepared.inputReason) {
-      ignoredSideWarnings.push(prepared.inputReason);
-    }
-    if (request.outputNote && !prepared.outputPlan && prepared.outputReason) {
-      ignoredSideWarnings.push(prepared.outputReason);
-    }
-    if (ignoredSideWarnings.length > 0 && prepared.display) {
-      prepared.warnings.push(...ignoredSideWarnings);
-      prepared.display.warnings = mergeWarnings(
-        prepared.display.warnings,
-        ignoredSideWarnings,
-      );
-    }
+
+    seen.add(toolCallId);
+    replacements.push({
+      toolCallId,
+      inputNote: inputNoteResult.note,
+      outputNote: outputNoteResult.note,
+    });
   }
 
-  return prepared;
-}
-
-export function buildToolContextCompactedInput(
-  toolName: string,
-  prepared: PreparedToolContextCompaction,
-): {
-  argumentsJson: string;
-  display?: ToolContextCompactionDisplay;
-} {
-  const fullJson = safeJsonStringify(prepared.strippedArgs, "{}");
-  if (!prepared.display || !prepared.display.request.inputNote) {
-    return { argumentsJson: fullJson };
-  }
-
-  if (!prepared.inputPlan) {
+  const missing = [...pendingByToolCallId.keys()].filter((id) => !seen.has(id));
+  if (missing.length > 0) {
     return {
-      argumentsJson: fullJson,
-      display: {
-        request: prepared.display.request,
-        input: {
-          status: "full",
-          note: prepared.display.request.inputNote,
-          reason: prepared.inputReason ?? "Input kept full.",
-        },
-        ...(prepared.display.warnings
-          ? { warnings: prepared.display.warnings }
-          : {}),
-      },
+      ok: false,
+      message: `Missing replacements for: ${missing.join(", ")}.`,
     };
   }
 
-  const modelValue = buildInputSentinel(
-    toolName,
-    prepared.strippedArgs,
-    prepared.inputPlan.note,
+  return { ok: true, replacements };
+}
+
+export function buildToolIoReplacementDisplay(
+  pending: PendingToolIoReplacement,
+  notes: ToolIoReplacementNotes,
+): ToolContextCompactionDisplay {
+  const inputModelValue = buildInputSentinel(
+    pending.toolName,
+    pending.rawArgs,
+    notes.inputNote,
   );
+  const outputModelValue = buildOutputSentinel(
+    pending.toolName,
+    notes.outputNote,
+    pending.result,
+  );
+
   return {
-    argumentsJson: safeJsonStringify(modelValue, fullJson),
-    display: {
-      request: prepared.display.request,
-      input: {
-        status: "compacted",
-        note: prepared.inputPlan.note,
-        modelValue,
-      },
-      ...(prepared.display.warnings
-        ? { warnings: prepared.display.warnings }
-        : {}),
+    request: {
+      inputNote: notes.inputNote,
+      outputNote: notes.outputNote,
+      outputMode: "always",
+    },
+    input: {
+      status: "compacted",
+      note: notes.inputNote,
+      modelValue: inputModelValue,
+    },
+    output: {
+      status: "compacted",
+      note: notes.outputNote,
+      mode: "always",
+      modelValue: outputModelValue,
     },
   };
 }
 
-export function buildToolContextCompactedOutput(
-  toolName: string,
-  result: ToolResult<unknown>,
-  prepared: PreparedToolContextCompaction,
-  fallbackContent: string,
-): {
-  content: string;
-  display?: ToolContextCompactionDisplay;
-} {
-  if (!prepared.display || !prepared.display.request.outputNote) {
-    return { content: fallbackContent };
-  }
-
-  const note = prepared.display.request.outputNote;
-  const mode = prepared.outputPlan?.mode ?? prepared.display.request.outputMode;
-
-  if (!prepared.outputPlan) {
-    return {
-      content: fallbackContent,
-      display: {
-        request: prepared.display.request,
-        output: {
-          status: "full",
-          note,
-          ...(mode ? { mode } : {}),
-          reason: prepared.outputReason ?? "Output kept full.",
-        },
-        ...(prepared.display.warnings
-          ? { warnings: prepared.display.warnings }
-          : {}),
-      },
-    };
-  }
-
-  if (
-    prepared.outputPlan.mode === "on_success" &&
-    !shouldCompactToolOutputOnSuccess(toolName, result)
-  ) {
-    return {
-      content: fallbackContent,
-      display: {
-        request: prepared.display.request,
-        output: {
-          status: "full",
-          note,
-          mode: prepared.outputPlan.mode,
-          reason: getOnSuccessFailureReason(toolName, result),
-        },
-        ...(prepared.display.warnings
-          ? { warnings: prepared.display.warnings }
-          : {}),
-      },
-    };
-  }
-
-  const modelValue = buildOutputSentinel(
-    toolName,
-    prepared.outputPlan.note,
-    result,
+export function applyToolIoReplacements(
+  apiMessages: ApiMessage[],
+  replacements: readonly ToolIoReplacementNotes[],
+  pendingByToolCallId: ReadonlyMap<string, PendingToolIoReplacement>,
+): ApiMessage[] {
+  const replacementById = new Map(
+    replacements.map((replacement) => [replacement.toolCallId, replacement] as const),
   );
-  return {
-    content: safeJsonStringify(modelValue, fallbackContent),
-    display: {
-      request: prepared.display.request,
-      output: {
-        status: "compacted",
-        note: prepared.outputPlan.note,
-        mode: prepared.outputPlan.mode,
-        modelValue,
-      },
-      ...(prepared.display.warnings
-        ? { warnings: prepared.display.warnings }
-        : {}),
-    },
-  };
+
+  return apiMessages.map((message) => {
+    if (message.role === "assistant" && message.tool_calls) {
+      return {
+        ...message,
+        tool_calls: message.tool_calls.map((toolCall) => {
+          const replacement = replacementById.get(toolCall.id);
+          const pending = replacement
+            ? pendingByToolCallId.get(toolCall.id)
+            : undefined;
+          if (!replacement || !pending) return toolCall;
+          return {
+            ...toolCall,
+            function: {
+              ...toolCall.function,
+              arguments: safeJsonStringify(
+                buildInputSentinel(
+                  pending.toolName,
+                  pending.rawArgs,
+                  replacement.inputNote,
+                ),
+                toolCall.function.arguments,
+              ),
+            },
+          };
+        }),
+      };
+    }
+
+    if (message.role === "tool") {
+      const replacement = replacementById.get(message.tool_call_id);
+      const pending = replacement
+        ? pendingByToolCallId.get(message.tool_call_id)
+        : undefined;
+      if (!replacement || !pending) return message;
+      return {
+        ...message,
+        content: safeJsonStringify(
+          buildOutputSentinel(
+            pending.toolName,
+            replacement.outputNote,
+            pending.result,
+          ),
+          message.content,
+        ),
+      };
+    }
+
+    return message;
+  });
 }

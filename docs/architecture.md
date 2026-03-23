@@ -326,7 +326,8 @@ Rakh persists data in multiple places by design:
   or `~/.rakh-dev/config/mcp_servers.json`
 - global context compaction settings: `~/.rakh/config/compaction.json`
   or `~/.rakh-dev/config/compaction.json`
-  - stores `toolContextCompactionEnabled` and `autoContextCompaction`
+  - stores `toolContextCompactionEnabled`, `toolContextCompactionThresholdKb`,
+    and `autoContextCompaction`
 - release sessions and artifact manifests: `~/.rakh/sessions/sessions.db`
 - debug/dev sessions and artifact manifests: `~/.rakh-dev/sessions/sessions.db`
 - release todo files: `~/.rakh/sessions/todos/<sessionId>.json`

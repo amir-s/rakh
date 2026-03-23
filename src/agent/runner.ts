@@ -19,6 +19,7 @@ import { cancelAllApprovals } from "./approvals";
 import type {
   AttachedImage,
   AgentQueueState,
+  ApiMessage,
   ChatMessage,
   ConversationCard,
   QueuedUserMessage,
@@ -53,6 +54,45 @@ import { buildMainSystemPromptForState } from "./runner/mainSystemPrompt";
 
 export { buildProviderOptions } from "./runner/providerOptions";
 export { serializeError } from "./runner/utils";
+
+function stripLegacyToolContextCompactionApiMessages(
+  apiMessages: ApiMessage[],
+): ApiMessage[] {
+  return apiMessages.map((message) => {
+    if (message.role !== "assistant" || !message.tool_calls) {
+      return message;
+    }
+
+    return {
+      ...message,
+      tool_calls: message.tool_calls.map((toolCall) => {
+        try {
+          const parsed = JSON.parse(toolCall.function.arguments) as unknown;
+          if (
+            typeof parsed !== "object" ||
+            parsed === null ||
+            Array.isArray(parsed) ||
+            !("__contextCompaction" in parsed)
+          ) {
+            return toolCall;
+          }
+
+          const nextArgs = { ...(parsed as Record<string, unknown>) };
+          delete nextArgs.__contextCompaction;
+          return {
+            ...toolCall,
+            function: {
+              ...toolCall.function,
+              arguments: JSON.stringify(nextArgs),
+            },
+          };
+        } catch {
+          return toolCall;
+        }
+      }),
+    };
+  });
+}
 
 function activeRunLogContext(tabId: string): {
   sessionId: string;
@@ -912,13 +952,15 @@ async function runAgentTurn(
     stateAfterPreflight.apiMessages[0]?.role === "system"
       ? stateAfterPreflight.apiMessages.slice(1)
       : stateAfterPreflight.apiMessages;
+  const sanitizedPriorApiMessages =
+    stripLegacyToolContextCompactionApiMessages(priorApiMessages);
 
   const newApiMessages = [
     {
       role: "system" as const,
       content: refreshedSystemPrompt,
     },
-    ...priorApiMessages,
+    ...sanitizedPriorApiMessages,
     {
       role: "user" as const,
       content: userMessage,

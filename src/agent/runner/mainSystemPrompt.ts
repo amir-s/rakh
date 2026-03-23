@@ -1,4 +1,3 @@
-import { jotaiStore, toolContextCompactionEnabledAtom } from "../atoms";
 import type { AgentState } from "../types";
 import { loadSavedProjectForWorkspace } from "@/projects";
 
@@ -12,6 +11,11 @@ interface WorkspacePromptCapabilities {
   hasAgentsFile: boolean;
   hasSkillsDir: boolean;
 }
+
+const LEGACY_TOOL_CONTEXT_COMPACTION_MARKERS = [
+  "__contextCompaction",
+  "TOOL IO CONTEXT COMPACTION",
+];
 
 async function inspectWorkspaceForSystemPrompt(
   cwd: string,
@@ -63,10 +67,20 @@ async function inspectWorkspaceForSystemPrompt(
 function getExistingSystemPrompt(state: AgentState): string | null {
   const systemMessage = state.apiMessages[0];
   if (systemMessage?.role !== "system") return null;
-  return typeof systemMessage.content === "string" &&
-    systemMessage.content.trim().length > 0
-    ? systemMessage.content
-    : null;
+  if (
+    typeof systemMessage.content !== "string" ||
+    systemMessage.content.trim().length === 0
+  ) {
+    return null;
+  }
+  if (
+    LEGACY_TOOL_CONTEXT_COMPACTION_MARKERS.some((marker) =>
+      systemMessage.content.includes(marker),
+    )
+  ) {
+    return null;
+  }
+  return systemMessage.content;
 }
 
 interface BuildMainSystemPromptOptions {
@@ -87,8 +101,6 @@ export async function buildMainSystemPromptForState(
     inspectWorkspaceForSystemPrompt(cwd),
     loadSavedProjectForWorkspace(state.config.projectPath, cwd),
   ]);
-  const toolContextCompactionEnabled =
-    jotaiStore.get(toolContextCompactionEnabledAtom) !== false;
 
   return buildSystemPrompt(
     cwd,
@@ -98,6 +110,5 @@ export async function buildMainSystemPromptForState(
     buildSystemPromptRuntimeContext(),
     project?.learnedFacts,
     state.config.communicationProfile,
-    toolContextCompactionEnabled,
   );
 }

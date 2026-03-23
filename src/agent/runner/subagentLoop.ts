@@ -1,8 +1,6 @@
 import {
   getAgentState,
-  jotaiStore,
   patchAgentState,
-  toolContextCompactionEnabledAtom,
 } from "../atoms";
 import { getToolDefinitionsByNames } from "../tools";
 import {
@@ -71,16 +69,8 @@ import {
   RunAbortedError,
   serializeToolResultForModel,
 } from "./utils";
-import {
-  buildToolContextCompactedInput,
-  buildToolContextCompactedOutput,
-  mergeToolContextCompactionDisplay,
-  prepareToolContextCompaction,
-} from "./toolContextCompaction";
 
 type ToolFailureResult = Extract<ToolResult<unknown>, { ok: false }>;
-
-const SUBAGENT_SYNTHETIC_TOOL_NAMES = new Set(["user_input", "agent_card_add"]);
 
 interface PreparedSubagentArtifactToolCall {
   args: Record<string, unknown>;
@@ -294,16 +284,10 @@ export async function runSubagentLoop(
   }
 
   const communicationProfile = getAgentState(tabId).config.communicationProfile;
-  const toolContextCompactionEnabled =
-    jotaiStore.get(toolContextCompactionEnabledAtom) !== false;
-  const toolDefs = getToolDefinitionsByNames(
-    subagentDef.tools,
-    toolContextCompactionEnabled,
-  );
+  const toolDefs = getToolDefinitionsByNames(subagentDef.tools);
   const systemPromptText = buildSubagentSystemPrompt(
     subagentDef,
     communicationProfile,
-    toolContextCompactionEnabled,
   );
 
   const localApiMessages: ApiMessage[] = [
@@ -656,90 +640,7 @@ export async function runSubagentLoop(
     });
 
     finalText = streamed.text;
-    const preparedToolCalls = new Map(
-      streamed.parsedToolCalls.map((tc) => {
-        const prepared = prepareToolContextCompaction(
-          tc.function.name,
-          parseArgs(tc.function.arguments),
-          SUBAGENT_SYNTHETIC_TOOL_NAMES.has(tc.function.name)
-            ? "synthetic"
-            : "local",
-          { enabled: toolContextCompactionEnabled },
-        );
-        if (prepared.warnings.length > 0) {
-          writeRunnerLog({
-            level: "warn",
-            tags: ["frontend", "agent-loop", "tool-calls"],
-            event: "runner.subagent.tool.context-compaction.ignored",
-            message: `Subagent tool ${tc.function.name} ignored context compaction metadata`,
-            data: {
-              toolName: tc.function.name,
-              warnings: prepared.warnings,
-              subagentId: subagentDef.id,
-            },
-            context: {
-              ...subagentContext,
-              correlationId: tc.id,
-              depth: subagentContext.depth,
-            },
-          });
-        }
-        return [tc.id, prepared] as const;
-      }),
-    );
-
-    const assistantApiMsg = {
-      ...streamed.assistantApiMsg,
-      ...(streamed.assistantApiMsg.tool_calls
-        ? {
-            tool_calls: streamed.assistantApiMsg.tool_calls.map((toolCall) => {
-              const prepared = preparedToolCalls.get(toolCall.id);
-              if (!prepared) return toolCall;
-              const compacted = buildToolContextCompactedInput(
-                toolCall.function.name,
-                prepared,
-              );
-              return {
-                ...toolCall,
-                function: {
-                  ...toolCall.function,
-                  arguments: compacted.argumentsJson,
-                },
-              };
-            }),
-          }
-        : {}),
-    };
-
-    localApiMessages.push(assistantApiMsg);
-
-    patchAgentState(tabId, (prev) => ({
-      ...prev,
-      chatMessages: prev.chatMessages.map((message) =>
-        message.toolCalls
-          ? {
-              ...message,
-              toolCalls: message.toolCalls.map((toolCall) => {
-                const prepared = preparedToolCalls.get(toolCall.id);
-                if (!prepared) return toolCall;
-                const compacted = buildToolContextCompactedInput(
-                  toolCall.tool,
-                  prepared,
-                );
-                return compacted.display
-                  ? {
-                      ...toolCall,
-                      contextCompaction: mergeToolContextCompactionDisplay(
-                        toolCall.contextCompaction,
-                        compacted.display,
-                      ),
-                    }
-                  : toolCall;
-              }),
-            }
-          : message,
-      ),
-    }));
+    localApiMessages.push(streamed.assistantApiMsg);
 
     if (streamed.parsedToolCalls.length === 0) break;
 
@@ -752,8 +653,7 @@ export async function runSubagentLoop(
     const toolResults = await Promise.all(
       streamed.parsedToolCalls.map(async (tc) => {
         const tcId = tc.id;
-        const preparedCompaction = preparedToolCalls.get(tcId);
-        const rawArgs = preparedCompaction?.strippedArgs ?? parseArgs(tc.function.arguments);
+        const rawArgs = parseArgs(tc.function.arguments);
         const toolLog = createToolLogContext(
           subagentContext,
           tcId,
@@ -792,15 +692,6 @@ export async function runSubagentLoop(
                         ? {
                             ...t,
                             ...patch,
-                            ...(patch.contextCompaction
-                              ? {
-                                  contextCompaction:
-                                    mergeToolContextCompactionDisplay(
-                                      t.contextCompaction,
-                                      patch.contextCompaction,
-                                    ),
-                                }
-                              : {}),
                           }
                         : t,
                     ),
@@ -924,28 +815,11 @@ export async function runSubagentLoop(
           streamed.parsedToolCalls,
           toolResult,
         );
-        const compactedOutput = preparedCompaction
-          ? buildToolContextCompactedOutput(
-              tc.function.name,
-              toolResult,
-              preparedCompaction,
-              fallbackContent,
-            )
-          : { content: fallbackContent };
-
-        if (compactedOutput.display) {
-          updateToolCallById({
-            contextCompaction: mergeToolContextCompactionDisplay(
-              preparedCompaction?.display,
-              compactedOutput.display,
-            ),
-          });
-        }
 
         return {
           tool_call_id: tcId,
           result: toolResult,
-          content: compactedOutput.content,
+          content: fallbackContent,
         };
       }),
     );

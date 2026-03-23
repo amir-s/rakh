@@ -78,7 +78,7 @@ describe("ToolCallDetailsModal", () => {
     ).not.toBeNull();
     expect(
       screen.getByText(
-        "Compacted before the tool result was appended to apiMessages.",
+        "Stored in compacted form in apiMessages.",
       ),
     ).not.toBeNull();
     expect(

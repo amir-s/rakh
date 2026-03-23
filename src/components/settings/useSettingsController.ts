@@ -14,6 +14,7 @@ import {
   voiceInputEnabledAtom,
   voiceModelPathAtom,
   toolContextCompactionEnabledAtom,
+  toolContextCompactionThresholdKbAtom,
   jotaiStore,
   type AppUpdaterState,
 } from "@/agent/atoms";
@@ -21,7 +22,10 @@ import {
   saveCompactionSettings,
   type PersistedCompactionSettings,
 } from "@/agent/compaction";
-import type { AutoContextCompactionSettings } from "@/agent/contextCompaction";
+import {
+  sanitizeToolContextCompactionThresholdKb,
+  type AutoContextCompactionSettings,
+} from "@/agent/contextCompaction";
 import {
   saveAgentLoopSettings,
   type AgentLoopSettings,
@@ -98,7 +102,9 @@ export interface SettingsControllerValue {
   groupInlineToolCalls: boolean;
   setGroupInlineToolCalls: (enabled: boolean) => void;
   toolContextCompactionEnabled: boolean;
+  toolContextCompactionThresholdKb: number;
   setToolContextCompactionEnabled: (enabled: boolean) => Promise<void>;
+  setToolContextCompactionThresholdKb: (thresholdKb: number) => Promise<void>;
   autoContextCompactionSettings: AutoContextCompactionSettings;
   setAutoContextCompactionSettings: (
     settings: AutoContextCompactionSettings,
@@ -151,6 +157,8 @@ export function useSettingsController(): SettingsControllerValue {
   );
   const [toolContextCompactionEnabled, setToolContextCompactionEnabled] =
     useAtom(toolContextCompactionEnabledAtom);
+  const [toolContextCompactionThresholdKb, setToolContextCompactionThresholdKb] =
+    useAtom(toolContextCompactionThresholdKbAtom);
   const [autoContextCompactionSettings, setAutoContextCompactionSettings] =
     useAtom(autoContextCompactionSettingsAtom);
   const [agentLoopSettings, setAgentLoopSettings] = useAtom(
@@ -203,11 +211,29 @@ export function useSettingsController(): SettingsControllerValue {
       setToolContextCompactionEnabled(enabled);
       await persistCompactionSettings({
         toolContextCompactionEnabled: enabled,
+        toolContextCompactionThresholdKb:
+          jotaiStore.get(toolContextCompactionThresholdKbAtom),
         autoContextCompaction:
           jotaiStore.get(autoContextCompactionSettingsAtom),
       });
     },
     [persistCompactionSettings, setToolContextCompactionEnabled],
+  );
+
+  const handleSetToolContextCompactionThresholdKb = useCallback(
+    async (thresholdKb: number) => {
+      const nextThresholdKb =
+        sanitizeToolContextCompactionThresholdKb(thresholdKb);
+      setToolContextCompactionThresholdKb(nextThresholdKb);
+      await persistCompactionSettings({
+        toolContextCompactionEnabled:
+          jotaiStore.get(toolContextCompactionEnabledAtom),
+        toolContextCompactionThresholdKb: nextThresholdKb,
+        autoContextCompaction:
+          jotaiStore.get(autoContextCompactionSettingsAtom),
+      });
+    },
+    [persistCompactionSettings, setToolContextCompactionThresholdKb],
   );
 
   const handleSetAutoContextCompactionSettings = useCallback(
@@ -216,6 +242,8 @@ export function useSettingsController(): SettingsControllerValue {
       await persistCompactionSettings({
         toolContextCompactionEnabled:
           jotaiStore.get(toolContextCompactionEnabledAtom),
+        toolContextCompactionThresholdKb:
+          jotaiStore.get(toolContextCompactionThresholdKbAtom),
         autoContextCompaction: settings,
       });
     },
@@ -492,7 +520,10 @@ export function useSettingsController(): SettingsControllerValue {
     groupInlineToolCalls,
     setGroupInlineToolCalls,
     toolContextCompactionEnabled,
+    toolContextCompactionThresholdKb,
     setToolContextCompactionEnabled: handleSetToolContextCompactionEnabled,
+    setToolContextCompactionThresholdKb:
+      handleSetToolContextCompactionThresholdKb,
     autoContextCompactionSettings,
     setAutoContextCompactionSettings: handleSetAutoContextCompactionSettings,
     agentLoopSettings,

@@ -2,16 +2,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentState } from "../types";
 
 const {
-  toolContextCompactionEnabledAtomMock,
   globalCommunicationProfileAtomMock,
   profilesAtomMock,
   jotaiStoreMock,
   tauriInvokeMock,
   loadSavedProjectForWorkspaceMock,
 } = vi.hoisted(() => ({
-  toolContextCompactionEnabledAtomMock: {
-    kind: "tool-context-compaction-enabled-atom",
-  },
   globalCommunicationProfileAtomMock: {
     kind: "global-communication-profile-atom",
   },
@@ -25,7 +21,6 @@ const {
 
 vi.mock("../atoms", () => ({
   jotaiStore: jotaiStoreMock,
-  toolContextCompactionEnabledAtom: toolContextCompactionEnabledAtomMock,
   globalCommunicationProfileAtom: globalCommunicationProfileAtomMock,
 }));
 
@@ -81,7 +76,6 @@ function makeState(overrides: Partial<AgentState> = {}): AgentState {
 }
 
 describe("buildMainSystemPromptForState", () => {
-  let toolContextCompactionEnabled = true;
   let profiles = [
     {
       id: "pragmatic",
@@ -105,7 +99,6 @@ describe("buildMainSystemPromptForState", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-03-19T14:00:00.000Z"));
 
-    toolContextCompactionEnabled = true;
     profiles = [
       {
         id: "pragmatic",
@@ -128,9 +121,6 @@ describe("buildMainSystemPromptForState", () => {
     };
 
     jotaiStoreMock.get.mockImplementation((atom: unknown) => {
-      if (atom === toolContextCompactionEnabledAtomMock) {
-        return toolContextCompactionEnabled;
-      }
       if (atom === globalCommunicationProfileAtomMock) {
         return "pragmatic";
       }
@@ -186,7 +176,7 @@ describe("buildMainSystemPromptForState", () => {
     expect(prompt).toContain("Workspace root: /repo");
     expect(prompt).toContain("Use pnpm in this repo.");
     expect(prompt).toContain("Be pragmatic.");
-    expect(prompt).toContain("TOOL IO CONTEXT COMPACTION");
+    expect(prompt).not.toContain("TOOL IO CONTEXT COMPACTION");
   });
 
   it("reuses the existing system prompt verbatim when forceRefresh is not requested", async () => {
@@ -209,8 +199,6 @@ describe("buildMainSystemPromptForState", () => {
       hasAgentsFile: false,
       hasSkillsDir: false,
     };
-    toolContextCompactionEnabled = false;
-
     const prompt = await buildMainSystemPromptForState(state);
 
     expect(prompt).toBe(initialPrompt);
@@ -218,6 +206,35 @@ describe("buildMainSystemPromptForState", () => {
     expect(prompt).not.toContain("/repo/worktree");
     expect(prompt).not.toContain("The backend uses Tauri.");
     expect(prompt).toContain("Be pragmatic.");
+  });
+
+  it("refreshes stale legacy compaction prompts even without forceRefresh", async () => {
+    const state = makeState({
+      config: {
+        cwd: "/repo/worktree",
+        model: "openai/gpt-5.2",
+        communicationProfile: "friendly",
+      },
+      apiMessages: [
+        {
+          role: "system",
+          content: "TOOL IO CONTEXT COMPACTION\n__contextCompaction",
+        },
+      ],
+    });
+
+    workspaceCapabilities = {
+      isGitRepo: false,
+      hasAgentsFile: false,
+      hasSkillsDir: false,
+    };
+
+    const prompt = await buildMainSystemPromptForState(state);
+
+    expect(prompt).toContain("Workspace root: /repo/worktree");
+    expect(prompt).toContain("Use a warmer tone.");
+    expect(prompt).not.toContain("TOOL IO CONTEXT COMPACTION");
+    expect(prompt).not.toContain("__contextCompaction");
   });
 
   it("rebuilds the existing system prompt when forceRefresh is requested", async () => {
@@ -240,8 +257,6 @@ describe("buildMainSystemPromptForState", () => {
       hasAgentsFile: false,
       hasSkillsDir: false,
     };
-    toolContextCompactionEnabled = false;
-
     const prompt = await buildMainSystemPromptForState(state, {
       forceRefresh: true,
     });
