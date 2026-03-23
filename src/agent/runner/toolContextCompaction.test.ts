@@ -1,118 +1,154 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  buildToolContextCompactedInput,
-  buildToolContextCompactedOutput,
-  prepareToolContextCompaction,
+  applyToolIoReplacements,
+  createPendingToolIoReplacement,
+  toolContextCompactionThresholdKbToBytes,
+  validateToolIoReplacementPayload,
 } from "./toolContextCompaction";
 
 describe("toolContextCompaction", () => {
-  it("strips hidden metadata and leaves unsupported local tools full", () => {
-    const prepared = prepareToolContextCompaction(
-      "workspace_stat",
-      {
-        path: "README.md",
-        __contextCompaction: {
-          inputNote: "Stat params omitted.",
-          outputNote: "Stat output omitted.",
-        },
-      },
-      "local",
-    );
-
-    expect(prepared.strippedArgs).toEqual({ path: "README.md" });
-    expect(prepared.inputPlan).toBeUndefined();
-    expect(prepared.outputPlan).toBeUndefined();
-
-    const input = buildToolContextCompactedInput("workspace_stat", prepared);
-    expect(JSON.parse(input.argumentsJson)).toEqual({ path: "README.md" });
-    expect(input.display?.input).toMatchObject({
-      status: "full",
-    });
-    expect(input.display?.input?.reason).toContain("not allowlisted");
-
-    const output = buildToolContextCompactedOutput(
-      "workspace_stat",
-      {
-        ok: true,
-        data: { exists: true, path: "README.md" },
-      },
-      prepared,
-      JSON.stringify({
-        ok: true,
-        data: { exists: true, path: "README.md" },
-      }),
-    );
-    expect(JSON.parse(output.content)).toEqual({
-      ok: true,
-      data: { exists: true, path: "README.md" },
-    });
-    expect(output.display?.output).toMatchObject({
-      status: "full",
-    });
-    expect(output.display?.output?.reason).toContain("not allowlisted");
+  it("converts invalid threshold values back to the default byte threshold", () => {
+    expect(toolContextCompactionThresholdKbToBytes(undefined)).toBe(16 * 1024);
+    expect(toolContextCompactionThresholdKbToBytes(0)).toBe(16 * 1024);
+    expect(toolContextCompactionThresholdKbToBytes(24)).toBe(24 * 1024);
   });
 
-  it("ignores compaction requests on synthetic tools", () => {
-    const prepared = prepareToolContextCompaction(
-      "agent_card_add",
-      {
-        kind: "summary",
-        markdown: "hello",
-        __contextCompaction: {
-          inputNote: "Card input omitted.",
-        },
-      },
-      "synthetic",
-    );
-
-    expect(prepared.strippedArgs).toEqual({
-      kind: "summary",
-      markdown: "hello",
-    });
-    expect(prepared.inputPlan).toBeUndefined();
-    expect(prepared.warnings).toContain(
-      'Ignored __contextCompaction on agent_card_add: only local tools are supported.',
-    );
-
-    const input = buildToolContextCompactedInput("agent_card_add", prepared);
-    expect(JSON.parse(input.argumentsJson)).toEqual({
-      kind: "summary",
-      markdown: "hello",
-    });
-    expect(input.display?.input?.reason).toContain("synthetic tools");
-  });
-
-  it("ignores compaction requests on MCP tools", () => {
-    const prepared = prepareToolContextCompaction(
-      "mcp_filesystem_read_file",
-      {
-        path: "README.md",
-        __contextCompaction: {
-          outputNote: "File contents omitted.",
-        },
-      },
-      "mcp",
-    );
-
-    expect(prepared.outputPlan).toBeUndefined();
-    expect(prepared.warnings).toContain(
-      "Ignored __contextCompaction on mcp_filesystem_read_file: only local tools are supported.",
-    );
-
-    const output = buildToolContextCompactedOutput(
-      "mcp_filesystem_read_file",
+  it("queues delayed tool IO replacement only when the combined payload is oversized", () => {
+    const small = createPendingToolIoReplacement(
+      "tc-small",
+      "workspace_readFile",
+      { path: "src/runner.ts" },
       {
         ok: true,
-        data: { content: "hello" },
+        data: {
+          path: "src/runner.ts",
+          content: "small",
+          fileSizeBytes: 5,
+          lineCount: 1,
+          truncated: false,
+        },
       },
-      prepared,
-      JSON.stringify({ ok: true, data: { content: "hello" } }),
+      { thresholdBytes: 1024 },
     );
-    expect(JSON.parse(output.content)).toEqual({
-      ok: true,
-      data: { content: "hello" },
+    expect(small).toBeNull();
+
+    const largeContent = "x".repeat(17000);
+    const pending = createPendingToolIoReplacement(
+      "tc-large",
+      "workspace_readFile",
+      { path: "src/runner.ts" },
+      {
+        ok: true,
+        data: {
+          path: "src/runner.ts",
+          content: largeContent,
+          fileSizeBytes: largeContent.length,
+          lineCount: 1,
+          truncated: false,
+        },
+      },
+    );
+
+    expect(pending).toMatchObject({
+      toolCallId: "tc-large",
+      toolName: "workspace_readFile",
     });
-    expect(output.display?.output?.reason).toContain("mcp tools");
+    expect((pending?.totalBytes ?? 0) > 16 * 1024).toBe(true);
+  });
+
+  it("rewrites assistant/tool history from validated delayed replacement notes", () => {
+    const largeContent = "x".repeat(17000);
+    const pending = createPendingToolIoReplacement(
+      "tc-large",
+      "workspace_readFile",
+      { path: "src/runner.ts" },
+      {
+        ok: true,
+        data: {
+          path: "src/runner.ts",
+          content: largeContent,
+          fileSizeBytes: largeContent.length,
+          lineCount: 1,
+          truncated: false,
+        },
+      },
+    );
+    expect(pending).not.toBeNull();
+
+    const pendingById = new Map([[pending!.toolCallId, pending!]]);
+    const validated = validateToolIoReplacementPayload(
+      {
+        replacements: [
+          {
+            toolCallId: "tc-large",
+            inputNote: "Read src/runner.ts for context.",
+            outputNote: "Loaded a large file; exact contents omitted after one turn.",
+          },
+        ],
+      },
+      pendingById,
+    );
+    expect(validated.ok).toBe(true);
+    if (!validated.ok) return;
+
+    const apiMessages = applyToolIoReplacements(
+      [
+        {
+          role: "assistant",
+          content: null,
+          tool_calls: [
+            {
+              id: "tc-large",
+              type: "function",
+              function: {
+                name: "workspace_readFile",
+                arguments: JSON.stringify({ path: "src/runner.ts" }),
+              },
+            },
+          ],
+        },
+        {
+          role: "tool",
+          tool_call_id: "tc-large",
+          content: JSON.stringify({
+            ok: true,
+            data: {
+              path: "src/runner.ts",
+              content: largeContent,
+              fileSizeBytes: largeContent.length,
+              lineCount: 1,
+              truncated: false,
+            },
+          }),
+        },
+      ],
+      validated.replacements,
+      pendingById,
+    );
+
+    expect(
+      JSON.parse(
+        String(
+          (apiMessages[0] as {
+            tool_calls: Array<{ function: { arguments: string } }>;
+          }).tool_calls[0]?.function.arguments,
+        ),
+      ),
+    ).toMatchObject({
+      __rakhCompactToolIO: {
+        tool: "workspace_readFile",
+        side: "input",
+        compacted: true,
+      },
+    });
+
+    expect(JSON.parse((apiMessages[1] as { content: string }).content)).toMatchObject({
+      __rakhCompactToolIO: {
+        tool: "workspace_readFile",
+        side: "output",
+        compacted: true,
+      },
+    });
   });
 });

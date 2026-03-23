@@ -3,18 +3,22 @@ import { invoke } from "@tauri-apps/api/core";
 import {
   DEFAULT_AUTO_CONTEXT_COMPACTION_SETTINGS,
   DEFAULT_TOOL_CONTEXT_COMPACTION_ENABLED,
+  DEFAULT_TOOL_CONTEXT_COMPACTION_THRESHOLD_KB,
   sanitizeAutoContextCompactionSettings,
+  sanitizeToolContextCompactionThresholdKb,
   type AutoContextCompactionSettings,
 } from "./contextCompaction";
 
 export interface PersistedCompactionSettings {
   toolContextCompactionEnabled: boolean;
+  toolContextCompactionThresholdKb: number;
   autoContextCompaction: AutoContextCompactionSettings;
 }
 
 export const DEFAULT_PERSISTED_COMPACTION_SETTINGS: PersistedCompactionSettings =
   {
     toolContextCompactionEnabled: DEFAULT_TOOL_CONTEXT_COMPACTION_ENABLED,
+    toolContextCompactionThresholdKb: DEFAULT_TOOL_CONTEXT_COMPACTION_THRESHOLD_KB,
     autoContextCompaction: DEFAULT_AUTO_CONTEXT_COMPACTION_SETTINGS,
   };
 
@@ -28,6 +32,10 @@ function normalizeCompactionSettings(
   return {
     toolContextCompactionEnabled:
       value?.toolContextCompactionEnabled !== false,
+    toolContextCompactionThresholdKb:
+      sanitizeToolContextCompactionThresholdKb(
+        value?.toolContextCompactionThresholdKb,
+      ),
     autoContextCompaction: sanitizeAutoContextCompactionSettings(
       value?.autoContextCompaction,
     ),

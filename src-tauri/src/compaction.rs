@@ -32,6 +32,8 @@ impl Default for AutoContextCompactionSettingsRecord {
 pub struct CompactionSettingsRecord {
     #[serde(default = "default_tool_context_compaction_enabled")]
     pub tool_context_compaction_enabled: bool,
+    #[serde(default = "default_tool_context_compaction_threshold_kb")]
+    pub tool_context_compaction_threshold_kb: u32,
     #[serde(default)]
     pub auto_context_compaction: AutoContextCompactionSettingsRecord,
 }
@@ -40,6 +42,7 @@ impl Default for CompactionSettingsRecord {
     fn default() -> Self {
         Self {
             tool_context_compaction_enabled: default_tool_context_compaction_enabled(),
+            tool_context_compaction_threshold_kb: default_tool_context_compaction_threshold_kb(),
             auto_context_compaction: AutoContextCompactionSettingsRecord::default(),
         }
     }
@@ -47,6 +50,10 @@ impl Default for CompactionSettingsRecord {
 
 fn default_tool_context_compaction_enabled() -> bool {
     true
+}
+
+fn default_tool_context_compaction_threshold_kb() -> u32 {
+    16
 }
 
 fn default_threshold_mode() -> String {
@@ -77,6 +84,12 @@ fn clamp_threshold(value: u32, minimum: u32, maximum: u32, fallback: u32) -> u32
 fn normalize_compaction_settings(
     mut settings: CompactionSettingsRecord,
 ) -> CompactionSettingsRecord {
+    settings.tool_context_compaction_threshold_kb = clamp_threshold(
+        settings.tool_context_compaction_threshold_kb,
+        1,
+        1_048_576,
+        default_tool_context_compaction_threshold_kb(),
+    );
     settings.auto_context_compaction.threshold_mode =
         normalize_threshold_mode(&settings.auto_context_compaction.threshold_mode);
     settings.auto_context_compaction.threshold_percent = clamp_threshold(
@@ -175,6 +188,7 @@ mod tests {
         let path = temp.path().join("config").join("compaction.json");
         let settings = CompactionSettingsRecord {
             tool_context_compaction_enabled: false,
+            tool_context_compaction_threshold_kb: 32,
             auto_context_compaction: AutoContextCompactionSettingsRecord {
                 enabled: true,
                 threshold_mode: "kb".to_string(),
@@ -195,6 +209,7 @@ mod tests {
         let path = temp.path().join("config").join("compaction.json");
         let settings = CompactionSettingsRecord {
             tool_context_compaction_enabled: true,
+            tool_context_compaction_threshold_kb: 0,
             auto_context_compaction: AutoContextCompactionSettingsRecord {
                 enabled: true,
                 threshold_mode: "invalid".to_string(),
@@ -210,6 +225,8 @@ mod tests {
             loaded,
             CompactionSettingsRecord {
                 tool_context_compaction_enabled: true,
+                tool_context_compaction_threshold_kb:
+                    default_tool_context_compaction_threshold_kb(),
                 auto_context_compaction: AutoContextCompactionSettingsRecord {
                     enabled: true,
                     threshold_mode: "percentage".to_string(),

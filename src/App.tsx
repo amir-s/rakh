@@ -18,6 +18,7 @@ import {
   patchAgentState,
   defaultCommunicationProfileAtom,
   toolContextCompactionEnabledAtom,
+  toolContextCompactionThresholdKbAtom,
 } from "@/agent/atoms";
 import { loadCompactionSettings } from "@/agent/compaction";
 import { loadAgentLoopSettings } from "@/agent/loopLimits";
@@ -267,6 +268,10 @@ export default function App() {
         jotaiStore.set(
           toolContextCompactionEnabledAtom,
           compactionSettings.toolContextCompactionEnabled,
+        );
+        jotaiStore.set(
+          toolContextCompactionThresholdKbAtom,
+          compactionSettings.toolContextCompactionThresholdKb,
         );
         jotaiStore.set(
           autoContextCompactionSettingsAtom,

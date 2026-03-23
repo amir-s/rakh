@@ -4,6 +4,7 @@ import type { AgentState, AgentPlan, AgentConfig } from "./types";
 import {
   DEFAULT_AUTO_CONTEXT_COMPACTION_SETTINGS,
   DEFAULT_TOOL_CONTEXT_COMPACTION_ENABLED,
+  DEFAULT_TOOL_CONTEXT_COMPACTION_THRESHOLD_KB,
   sanitizeAutoContextCompactionSettings,
   type AutoContextCompactionSettings,
 } from "./contextCompaction";
@@ -104,6 +105,11 @@ export const groupInlineToolCallsAtom = atomWithStorage<boolean>(
 /** Whether model-facing tool IO compaction is allowed globally. */
 export const toolContextCompactionEnabledAtom = atom<boolean>(
   DEFAULT_TOOL_CONTEXT_COMPACTION_ENABLED,
+);
+
+/** Threshold in KB for delayed model-facing tool IO replacement. */
+export const toolContextCompactionThresholdKbAtom = atom<number>(
+  DEFAULT_TOOL_CONTEXT_COMPACTION_THRESHOLD_KB,
 );
 
 /** Automatic main-context compaction thresholds for the internal compactor. */

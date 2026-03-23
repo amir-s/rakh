@@ -25,20 +25,22 @@ through `TOOL_DEFINITIONS`.
 
 Tool IO compaction is separate from automatic main-context compaction:
 
-- tool IO compaction rewrites large model-facing tool inputs or outputs into
-  compact sentinels in `apiMessages`
+- tool IO compaction lets the main agent see oversized tool input/output once,
+  then rewrites that prior tool turn in `apiMessages` into compact sentinels
 - automatic main-context compaction runs the internal `compact` subagent when
   the overall conversation history crosses a configured threshold
 
 Tool IO compaction rules:
 
 - requires the global `Enable tool IO compaction` setting
-- uses hidden `__contextCompaction` metadata on tool calls
-- applies only to allowlisted `local` tools
-- is ignored for `synthetic` tools and dynamic `mcp_*` tools
-
-The current allowlists live in
-[`src/agent/runner/toolContextCompaction.ts`](../src/agent/runner/toolContextCompaction.ts).
+- uses the configured KB threshold from Settings
+- only runs through the internal `agent_replace_tool_io` maintenance turn after
+  a large tool call has already been consumed once by the main agent
+- preserves raw args/results in visible chat; only model-facing `apiMessages`
+  are rewritten afterward
+- has tool-specific sentinel shapes for common tools and a generic fallback for
+  everything else, implemented in
+  [`src/agent/runner/toolContextCompaction.ts`](../src/agent/runner/toolContextCompaction.ts)
 
 ## Access matrix
 
@@ -79,40 +81,3 @@ Legend:
 | `agent_title_set` | local | Y | - | - | - | - | - | - |
 | `agent_title_get` | local | Y | - | - | - | - | - | - |
 | `mcp_*` | mcp | Y | - | - | - | - | - | - |
-
-## Tool IO compaction matrix
-
-Legend:
-
-- `Y`: allowlisted for that side when the global tool-IO compaction toggle is enabled
-- `-`: not allowlisted
-
-| Tool | Input compaction | Output compaction | Notes |
-| --- | --- | --- | --- |
-| `workspace_listDir` | - | Y | Local tool |
-| `workspace_stat` | - | - | Local tool |
-| `workspace_readFile` | - | Y | Local tool |
-| `workspace_writeFile` | Y | - | Local tool |
-| `workspace_editFile` | Y | - | Local tool |
-| `workspace_glob` | - | Y | Local tool |
-| `workspace_search` | - | Y | Local tool |
-| `exec_run` | Y | Y | Output compaction should usually prefer `outputMode: "on_success"` |
-| `agent_todo_add` | - | - | Local tool |
-| `agent_todo_update` | - | - | Local tool |
-| `agent_todo_note_add` | - | - | Local tool |
-| `agent_todo_list` | - | - | Local tool |
-| `agent_todo_remove` | - | - | Local tool |
-| `agent_project_memory_add` | - | - | Local tool |
-| `agent_project_memory_remove` | - | - | Local tool |
-| `agent_project_memory_edit` | - | - | Local tool |
-| `agent_card_add` | - | - | Synthetic tools do not support tool IO compaction |
-| `agent_artifact_create` | Y | - | Local tool |
-| `agent_artifact_version` | Y | - | Local tool |
-| `agent_artifact_get` | - | Y | Local tool |
-| `agent_artifact_list` | - | - | Local tool |
-| `git_worktree_init` | - | Y | Local tool |
-| `agent_subagent_call` | - | - | Synthetic tools do not support tool IO compaction |
-| `user_input` | - | - | Synthetic tools do not support tool IO compaction |
-| `agent_title_set` | - | - | Local tool |
-| `agent_title_get` | - | - | Local tool |
-| `mcp_*` | - | - | Dynamic MCP tools do not support tool IO compaction |

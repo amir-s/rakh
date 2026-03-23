@@ -59,21 +59,6 @@ Each entry includes its stable fact ID so you can remove or edit the correct rec
 ${learnedFacts.map((fact) => `- ${fact.id}: ${fact.text}`).join("\n")}`;
 }
 
-function renderToolContextCompactionSection(): string {
-  return `TOOL IO CONTEXT COMPACTION
-- You are highly encouraged to use context compaction for large local-tool payloads.
-- You can annotate tool calls with hidden \`__contextCompaction\` runner metadata to keep a memory of the input or output without storing the full raw payload in the conversation history.
-- This metadata is accepted on local tool-call schemas so providers can emit it, but the runner strips it before local tool validation/execution and ignores it on unsupported tools.
-- Shape:
-  \`__contextCompaction: { inputNote?: string, outputNote?: string, outputMode?: "always" | "on_success" }\`
-- Use it only when the exact raw IO would add a lot of context bloat and a short deterministic note is enough for future continuity.
-- Keep notes short, concrete, and factual. Describe what was omitted and why the exact payload is unnecessary.
-- Prefer \`outputMode: "on_success"\` for commands or other tool outputs where failures may need the full diagnostics.
-- Supported local-tool input compaction: \`workspace_writeFile\`, \`workspace_editFile\`, \`agent_artifact_create\`, \`agent_artifact_version\`, \`exec_run\`.
-- Supported local-tool output compaction: \`workspace_readFile\`, \`workspace_search\`, \`workspace_glob\`, \`workspace_listDir\`, \`exec_run\`, \`git_worktree_init\`, \`agent_artifact_get\`.
-- Do NOT attach \`__contextCompaction\` to MCP tools, \`agent_subagent_call\`, \`user_input\`, todo/title/card tools, or small payloads where keeping the full IO is better.`;
-}
-
 export function buildSystemPrompt(
   cwd: string,
   isGitRepo: boolean,
@@ -82,7 +67,6 @@ export function buildSystemPrompt(
   runtimeContext: SystemPromptRuntimeContext,
   projectLearnedFacts: readonly ProjectLearnedFact[] | undefined,
   communicationProfile: string | undefined,
-  toolContextCompactionEnabled = true,
 ): string {
   const gitSection = isGitRepo
     ? `
@@ -140,9 +124,6 @@ TOOL USAGE
 |- Mutating tools (workspace_writeFile, workspace_editFile, exec_run, git_worktree_init) MUST include mutationIntent and todoHandling.
 |- For tracked mutations, set todoHandling.mode to track_active and ensure exactly one todo is currently in the doing state.
 |- To mutate without a todo, set todoHandling.mode to skip and include a concrete todoHandling.skipReason.
-${toolContextCompactionEnabled
-    ? `\n\n${renderToolContextCompactionSection()}`
-    : ""}
 
 PLANNING
 - For complex, multi-step tasks, call agent_plan_set BEFORE starting work.
@@ -247,7 +228,6 @@ function renderSubagentArtifactSpec(spec: SubagentArtifactSpec): string {
 export function buildSubagentSystemPrompt(
   def: SubagentDefinition,
   communicationProfile?: string,
-  toolContextCompactionEnabled = true,
 ): string {
   const prompt = def.systemPrompt.trim();
   if (!def.output) return prompt;
@@ -280,10 +260,6 @@ export function buildSubagentSystemPrompt(
   outputSections.push(
     ["FINAL MESSAGE", def.output.finalMessageInstructions.trim()].join("\n"),
   );
-
-  if (toolContextCompactionEnabled) {
-    outputSections.push(renderToolContextCompactionSection());
-  }
 
   const commInstruction = getCommunicationInstruction(communicationProfile);
   if (commInstruction) {

@@ -49,6 +49,7 @@ vi.mock("@/agent/atoms", () => ({
   themeNameAtom: atom("default"),
   defaultCommunicationProfileAtom: atom("pragmatic"),
   toolContextCompactionEnabledAtom: atom(true),
+  toolContextCompactionThresholdKbAtom: atom(16),
   autoContextCompactionSettingsAtom: atom({
     enabled: false,
     thresholdMode: "percentage",
@@ -177,6 +178,7 @@ describe("App", () => {
     appMocks.topChromeMock.mockReset();
     appMocks.loadCompactionSettingsMock.mockResolvedValue({
       toolContextCompactionEnabled: true,
+      toolContextCompactionThresholdKb: 16,
       autoContextCompaction: {
         enabled: false,
         thresholdMode: "percentage",

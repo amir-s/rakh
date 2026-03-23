@@ -1,4 +1,3 @@
-import { jotaiStore, toolContextCompactionEnabledAtom } from "../atoms";
 import type { AgentState } from "../types";
 import { loadSavedProjectForWorkspace } from "@/projects";
 
@@ -87,8 +86,6 @@ export async function buildMainSystemPromptForState(
     inspectWorkspaceForSystemPrompt(cwd),
     loadSavedProjectForWorkspace(state.config.projectPath, cwd),
   ]);
-  const toolContextCompactionEnabled =
-    jotaiStore.get(toolContextCompactionEnabledAtom) !== false;
 
   return buildSystemPrompt(
     cwd,
@@ -98,6 +95,5 @@ export async function buildMainSystemPromptForState(
     buildSystemPromptRuntimeContext(),
     project?.learnedFacts,
     state.config.communicationProfile,
-    toolContextCompactionEnabled,
   );
 }

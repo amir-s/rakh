@@ -34,7 +34,6 @@ import {
 } from "./worktreeLease";
 import { writeRunnerLog } from "./logging";
 import { recordTodoMutation, resolveTodoOwner } from "../tools/todos";
-import { stripToolContextCompactionFields } from "./toolContextCompaction";
 
 function shouldStreamToolOutput(toolName: string): boolean {
   return toolName === "exec_run" || toolName === "git_worktree_init";
@@ -277,11 +276,10 @@ export function buildPendingToolDisplay(
   toolName: string,
   rawArgs: unknown,
 ): ToolCallDisplay {
-  const parsedArgs = stripToolContextCompactionFields(parseArgs(rawArgs));
   return {
     id: toolCallId,
     tool: toolName,
-    args: parsedArgs,
+    args: parseArgs(rawArgs),
     status: "pending",
   };
 }
