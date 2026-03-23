@@ -151,4 +151,42 @@ describe("toolContextCompaction", () => {
       },
     });
   });
+
+  it("reports why a replacement note is invalid", () => {
+    const pending = createPendingToolIoReplacement(
+      "tc-large",
+      "workspace_readFile",
+      { path: "src/runner.ts" },
+      {
+        ok: true,
+        data: {
+          path: "src/runner.ts",
+          content: "x".repeat(17000),
+          fileSizeBytes: 17000,
+          lineCount: 1,
+          truncated: false,
+        },
+      },
+    );
+    expect(pending).not.toBeNull();
+
+    const validated = validateToolIoReplacementPayload(
+      {
+        replacements: [
+          {
+            toolCallId: "tc-large",
+            inputNote: "Read src/runner.ts for context.",
+            outputNote: "x".repeat(281),
+          },
+        ],
+      },
+      new Map([[pending!.toolCallId, pending!]]),
+    );
+
+    expect(validated).toEqual({
+      ok: false,
+      message:
+        'Replacement "tc-large" outputNote must be at most 280 characters (got 281).',
+    });
+  });
 });

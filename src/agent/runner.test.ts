@@ -2006,6 +2006,77 @@ describe("runner", () => {
     });
   });
 
+  it("surfaces precise replacement-note validation errors and logs them", async () => {
+    const tabId = "tab-context-compaction-invalid-note";
+    setState(tabId);
+    const largeContent = `export const runner = true;\n${"x".repeat(17000)}`;
+
+    turns.push(
+      {
+        deltas: [],
+        toolCalls: [
+          {
+            id: "tc-read-large",
+            name: "workspace_readFile",
+            arguments: {
+              path: "src/runner.ts",
+            },
+          },
+        ],
+      },
+      {
+        deltas: [],
+        toolCalls: [
+          {
+            id: "tc-replace-large-io",
+            name: "agent_replace_tool_io",
+            arguments: {
+              replacements: [
+                {
+                  toolCallId: "tc-read-large",
+                  inputNote: "Read src/runner.ts for context.",
+                  outputNote: "x".repeat(281),
+                },
+              ],
+            },
+          },
+        ],
+      },
+    );
+
+    dispatchToolMock.mockResolvedValue({
+      ok: true,
+      data: {
+        path: "src/runner.ts",
+        encoding: "utf8",
+        content: largeContent,
+        fileSizeBytes: largeContent.length,
+        lineCount: 2,
+        truncated: false,
+      },
+    });
+
+    await runAgent(tabId, "read the runner");
+
+    expect(states[tabId].status).toBe("error");
+    expect(states[tabId].error).toBe(
+      'Replacement "tc-read-large" outputNote must be at most 280 characters (got 281).',
+    );
+    expect(logFrontendSoonMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        level: "error",
+        event: "runner.tool-io-replacement.invalid-payload",
+        message:
+          "Forced tool IO replacement turn returned invalid replacement notes",
+        data: expect.objectContaining({
+          validationError:
+            'Replacement "tc-read-large" outputNote must be at most 280 characters (got 281).',
+          replacementCallId: "tc-replace-large-io",
+        }),
+      }),
+    );
+  });
+
   it("attaches conversation cards to the owning assistant message in tool declaration order", async () => {
     const tabId = "tab-agent-cards";
     setState(tabId);
