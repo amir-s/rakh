@@ -294,7 +294,7 @@ describe("SessionCostModal", () => {
       index === 2
         ? {
             ...point,
-            actorKind: "subagent" as const,
+            actorKind: "internal" as const,
             actorId: "compact",
             actorLabel: "Context Compaction",
             operation: "assistant turn",
