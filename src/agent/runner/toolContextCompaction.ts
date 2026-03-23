@@ -65,6 +65,16 @@ interface CompactionSentinelPayload {
   };
 }
 
+interface CompactModelSentinelPayload {
+  __rti: {
+    t: string;
+    s: "i" | "o";
+    k?: unknown;
+    o?: unknown;
+    n: string;
+  };
+}
+
 export const DELAYED_TOOL_IO_REPLACEMENT_ENABLED = true;
 export const DELAYED_TOOL_IO_REPLACEMENT_THRESHOLD_BYTES =
   DEFAULT_TOOL_CONTEXT_COMPACTION_THRESHOLD_KB * 1024;
@@ -72,6 +82,69 @@ export const TOOL_IO_REPLACEMENT_TOOL_NAME = "agent_replace_tool_io";
 export const MAX_TOOL_CONTEXT_NOTE_CHARS = 350;
 
 const encoder = new TextEncoder();
+const MODEL_SENTINEL_KEY_ALIASES: Record<string, string> = {
+  ok: "ok",
+  error: "er",
+  code: "c",
+  message: "m",
+  details: "dt",
+  path: "p",
+  overwrite: "ow",
+  changeCount: "chg",
+  artifactId: "aid",
+  kind: "kd",
+  summary: "sm",
+  artifactType: "at",
+  contentFormat: "cf",
+  parent: "pr",
+  metadataKeys: "mk",
+  command: "cmd",
+  args: "a",
+  cwd: "w",
+  timeoutMs: "tm",
+  reason: "rs",
+  requireUserApproval: "ua",
+  envKeys: "ek",
+  title: "tl",
+  version: "v",
+  range: "r",
+  startLine: "s",
+  endLine: "e",
+  fileSizeBytes: "fs",
+  lineCount: "lc",
+  truncated: "tr",
+  matchCount: "mc",
+  searchedFiles: "sf",
+  entryCount: "ec",
+  exitCode: "x",
+  durationMs: "d",
+  truncatedStdout: "ts",
+  truncatedStderr: "te",
+  terminatedByUser: "u",
+  fields: "f",
+  bytesOmitted: "b",
+  stdinBytesOmitted: "ib",
+  envBytesOmitted: "eb",
+  stdoutBytesOmitted: "ob",
+  stderrBytesOmitted: "sb",
+  alreadyExists: "ae",
+  declined: "dc",
+  branch: "br",
+  setup: "st",
+  status: "stt",
+  attemptCount: "ac",
+  errorMessage: "em",
+  sizeBytes: "sz",
+  validation: "vl",
+  subagentId: "sg",
+  name: "nm",
+  modelId: "md",
+  turns: "tn",
+  cardCount: "cc",
+  artifactCount: "afc",
+  artifactValidationCount: "avc",
+  answerLength: "al",
+};
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -191,6 +264,53 @@ function buildSentinel(
       kept,
       omitted,
       note,
+    },
+  };
+}
+
+function compactModelSentinelValue(value: unknown): unknown {
+  if (typeof value === "boolean") {
+    return value ? 1 : 0;
+  }
+
+  if (Array.isArray(value)) {
+    return value.map((entry) => compactModelSentinelValue(entry));
+  }
+
+  if (!isRecord(value)) {
+    return value;
+  }
+
+  if (
+    typeof value.startLine === "number" &&
+    typeof value.endLine === "number" &&
+    Object.keys(value).length === 2
+  ) {
+    return [value.startLine, value.endLine];
+  }
+
+  return Object.fromEntries(
+    Object.entries(value).map(([key, entryValue]) => [
+      MODEL_SENTINEL_KEY_ALIASES[key] ?? key,
+      compactModelSentinelValue(entryValue),
+    ]),
+  );
+}
+
+function buildCompactModelSentinel(
+  payload: CompactionSentinelPayload,
+): CompactModelSentinelPayload {
+  const source = payload.__rakhCompactToolIO;
+  const kept = compactModelSentinelValue(source.kept);
+  const omitted = compactModelSentinelValue(source.omitted);
+
+  return {
+    __rti: {
+      t: source.tool,
+      s: source.side === "input" ? "i" : "o",
+      ...(isRecord(kept) && Object.keys(kept).length > 0 ? { k: kept } : {}),
+      ...(isRecord(omitted) && Object.keys(omitted).length > 0 ? { o: omitted } : {}),
+      n: source.note,
     },
   };
 }
@@ -1054,13 +1174,13 @@ export function buildToolIoReplacementDisplay(
     input: {
       status: "compacted",
       note: notes.inputNote,
-      modelValue: inputModelValue,
+      modelValue: buildCompactModelSentinel(inputModelValue),
     },
     output: {
       status: "compacted",
       note: notes.outputNote,
       mode: "always",
-      modelValue: outputModelValue,
+      modelValue: buildCompactModelSentinel(outputModelValue),
     },
   };
 }
@@ -1089,10 +1209,12 @@ export function applyToolIoReplacements(
             function: {
               ...toolCall.function,
               arguments: safeJsonStringify(
-                buildInputSentinel(
-                  pending.toolName,
-                  pending.rawArgs,
-                  replacement.inputNote,
+                buildCompactModelSentinel(
+                  buildInputSentinel(
+                    pending.toolName,
+                    pending.rawArgs,
+                    replacement.inputNote,
+                  ),
                 ),
                 toolCall.function.arguments,
               ),
@@ -1111,10 +1233,12 @@ export function applyToolIoReplacements(
       return {
         ...message,
         content: safeJsonStringify(
-          buildOutputSentinel(
-            pending.toolName,
-            replacement.outputNote,
-            pending.result,
+          buildCompactModelSentinel(
+            buildOutputSentinel(
+              pending.toolName,
+              replacement.outputNote,
+              pending.result,
+            ),
           ),
           message.content,
         ),
