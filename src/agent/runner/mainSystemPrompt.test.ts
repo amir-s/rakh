@@ -208,6 +208,35 @@ describe("buildMainSystemPromptForState", () => {
     expect(prompt).toContain("Be pragmatic.");
   });
 
+  it("refreshes stale legacy compaction prompts even without forceRefresh", async () => {
+    const state = makeState({
+      config: {
+        cwd: "/repo/worktree",
+        model: "openai/gpt-5.2",
+        communicationProfile: "friendly",
+      },
+      apiMessages: [
+        {
+          role: "system",
+          content: "TOOL IO CONTEXT COMPACTION\n__contextCompaction",
+        },
+      ],
+    });
+
+    workspaceCapabilities = {
+      isGitRepo: false,
+      hasAgentsFile: false,
+      hasSkillsDir: false,
+    };
+
+    const prompt = await buildMainSystemPromptForState(state);
+
+    expect(prompt).toContain("Workspace root: /repo/worktree");
+    expect(prompt).toContain("Use a warmer tone.");
+    expect(prompt).not.toContain("TOOL IO CONTEXT COMPACTION");
+    expect(prompt).not.toContain("__contextCompaction");
+  });
+
   it("rebuilds the existing system prompt when forceRefresh is requested", async () => {
     const initialPrompt = await buildMainSystemPromptForState(makeState());
     const state = makeState({

@@ -191,7 +191,7 @@ export default function ToolCallDetailsModal({
                 <div className="font-semibold">Input</div>
                 <div className="text-muted">
                   {modelInput?.status === "compacted"
-                    ? "Compacted before this tool call was appended to apiMessages."
+                    ? "Stored in compacted form in apiMessages."
                     : "Parameters were kept full in apiMessages."}
                 </div>
                 {modelInput?.note ? (
@@ -215,7 +215,7 @@ export default function ToolCallDetailsModal({
                 <div className="font-semibold">Output</div>
                 <div className="text-muted">
                   {modelOutput?.status === "compacted"
-                    ? "Compacted before the tool result was appended to apiMessages."
+                    ? "Stored in compacted form in apiMessages."
                     : "Tool output was kept full in apiMessages."}
                 </div>
                 {modelOutput?.mode ? (

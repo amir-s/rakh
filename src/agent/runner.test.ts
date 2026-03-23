@@ -830,7 +830,7 @@ describe("runner", () => {
     expect(dispatchToolMock).not.toHaveBeenCalled();
   });
 
-  it("keeps the existing system prompt verbatim even if it contains legacy compaction text", async () => {
+  it("refreshes legacy compaction prompts and strips legacy tool-call metadata from prior api history", async () => {
     const tabId = "tab-compaction-disabled";
     setState(tabId, {
       apiMessages: [
@@ -840,7 +840,22 @@ describe("runner", () => {
         },
         {
           role: "assistant",
-          content: "Prior assistant state.",
+          content: null,
+          tool_calls: [
+            {
+              id: "tc-legacy",
+              type: "function",
+              function: {
+                name: "workspace_stat",
+                arguments: JSON.stringify({
+                  path: "README.md",
+                  __contextCompaction: {
+                    inputNote: "legacy",
+                  },
+                }),
+              },
+            },
+          ],
         },
       ],
     });
@@ -882,15 +897,25 @@ describe("runner", () => {
     await runAgent(tabId, "hi");
 
     expect(buildToolDefinitionsMock).toHaveBeenCalledWith();
-    expect(String(states[tabId].apiMessages[0]?.content)).toContain(
+    expect(String(states[tabId].apiMessages[0]?.content)).toContain("You are Rakh");
+    expect(String(states[tabId].apiMessages[0]?.content)).not.toContain(
       "TOOL IO CONTEXT COMPACTION",
     );
-    expect(String(states[tabId].apiMessages[0]?.content)).toContain(
+    expect(String(states[tabId].apiMessages[0]?.content)).not.toContain(
       "__contextCompaction",
     );
     expect(states[tabId].apiMessages[1]).toMatchObject({
       role: "assistant",
-      content: "Prior assistant state.",
+      content: null,
+    });
+    expect(states[tabId].apiMessages[1]).toMatchObject({
+      tool_calls: [
+        {
+          function: {
+            arguments: JSON.stringify({ path: "README.md" }),
+          },
+        },
+      ],
     });
   });
 
