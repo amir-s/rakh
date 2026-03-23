@@ -1843,7 +1843,7 @@ export default function WorkspacePage() {
                     size="xxs"
                     onClick={() => agent.continueWithoutReplacement()}
                   >
-                    CONTINUE WITH RAW TOOL IO
+                    CONTINUE
                   </Button>
                 ) : null}
                 {agent.errorAction?.type === "open-settings-section" ? (

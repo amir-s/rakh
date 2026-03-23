@@ -2702,7 +2702,7 @@ describe("WorkspacePage chat input", () => {
     });
 
     fireEvent.click(
-      screen.getByRole("button", { name: "CONTINUE WITH RAW TOOL IO" }),
+      screen.getByRole("button", { name: "CONTINUE" }),
     );
     expect(continueWithoutReplacement).toHaveBeenCalledTimes(1);
 
